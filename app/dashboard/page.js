@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import { format, isValid, parse, startOfWeek, getDay, addHours } from "date-fns";
@@ -28,8 +28,12 @@ const workspaceTabs = [
   uiText.tabs.reports
 ];
 
+const defaultClientSubTab = uiText.clients.subTabs.list;
+const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
+
 const initialFormState = {
   clientId: "",
+  branchId: "",
   technicianName: "",
   serviceDate: "",
   serviceTime: "9:00 AM",
@@ -39,11 +43,20 @@ const initialFormState = {
 
 const initialTechnicianFormState = {
   fullName: "",
+  phone: "",
+  address: "",
+  notes: "",
   isActive: true
 };
 
 const initialClientFormState = {
-  name: ""
+  businessName: "",
+  tradeName: "",
+  taxId: "",
+  mainAddress: "",
+  mainPhone: "",
+  mainContact: "",
+  mainEmail: ""
 };
 
 const initialDetailFormState = {
@@ -51,6 +64,14 @@ const initialDetailFormState = {
   serviceDate: "",
   serviceTime: "9:00 AM",
   status: "scheduled"
+};
+
+const initialBranchFormState = {
+  name: "",
+  address: "",
+  phone: "",
+  contact: "",
+  notes: ""
 };
 
 function formatTimeSlot(totalMinutes) {
@@ -110,9 +131,9 @@ function transformServiceOrdersToEvents(serviceOrders) {
 
     return {
       id: serviceOrder.id,
-      title: serviceOrder.clients?.name || uiText.dashboard.detailFields.clientName,
-      clientName:
-        serviceOrder.clients?.name || uiText.dashboard.detailFields.clientName,
+      title: getClientDisplayName(serviceOrder.clients),
+      clientName: getClientDisplayName(serviceOrder.clients),
+      branchName: getBranchDisplayName(serviceOrder.branches),
       technician: serviceOrder.technician_name,
       status: serviceOrder.status,
       serviceDate: serviceOrder.service_date,
@@ -122,6 +143,38 @@ function transformServiceOrdersToEvents(serviceOrders) {
       end: addHours(start, 1)
     };
   });
+}
+
+function getClientDisplayName(client) {
+  if (!client) {
+    return uiText.dashboard.detailFields.clientName;
+  }
+
+  return (
+    client.trade_name ||
+    client.business_name ||
+    client.name ||
+    uiText.dashboard.detailFields.clientName
+  );
+}
+
+function normalizeClientRecord(client) {
+  return {
+    ...client,
+    displayName: getClientDisplayName(client)
+  };
+}
+
+function getBranchDisplayName(branch) {
+  return branch?.name || uiText.dashboard.branchEmpty;
+}
+
+function getBranchSummary(branch) {
+  if (!branch) {
+    return uiText.dashboard.branchEmpty;
+  }
+
+  return [branch.address, branch.contact, branch.phone].filter(Boolean).join(" | ");
 }
 
 function formatCreatedAt(createdAt) {
@@ -141,7 +194,24 @@ function formatCreatedAt(createdAt) {
 function EventCard({ event }) {
   return (
     <div className="calendar-event">
-      <strong>{event.title}</strong>
+      <strong>{event.clientName}</strong>
+      <span>{event.branchName}</span>
+    </div>
+  );
+}
+
+function CalendarEventWrapper({ children, event }) {
+  if (!isValidElement(children)) {
+    return children;
+  }
+
+  // Force every calendar view to use the same visible event body and discard
+  // any built-in time label markup injected by react-big-calendar internals.
+  return cloneElement(
+    children,
+    undefined,
+    <div className="rbc-event-content">
+      <EventCard event={event} />
     </div>
   );
 }
@@ -152,19 +222,35 @@ function WorkspacePanel({
   clientsError,
   isClientsLoading,
   clientForm,
+  selectedClientId,
+  selectedBranchClientId,
+  clientSubTab,
   clientFormError,
   clientFormMessage,
   isSavingClient,
+  branchForm,
+  branches,
+  selectedBranch,
+  selectedBranchId,
+  branchesError,
+  branchFormError,
+  branchFormMessage,
+  isBranchesLoading,
+  isSavingBranch,
   activeTechnicians,
   technicians,
   techniciansError,
   isTechniciansLoading,
+  supportsExtendedTechnicianFields,
+  technicianSubTab,
+  selectedTechnicianId,
   technicianForm,
   technicianFormError,
   technicianFormMessage,
   isSavingTechnician,
   serviceTimeOptions,
   formState,
+  availableBranches,
   formMessage,
   formError,
   isSavingOrder,
@@ -172,6 +258,17 @@ function WorkspacePanel({
   onSubmit,
   onClientFormChange,
   onClientSubmit,
+  onClientEdit,
+  onClientNew,
+  onClientSubTabChange,
+  onSelectClientBranches,
+  onBranchEdit,
+  onBranchNew,
+  onBranchFormChange,
+  onBranchSubmit,
+  onTechnicianEdit,
+  onTechnicianNew,
+  onTechnicianSubTabChange,
   onTechnicianFormChange,
   onTechnicianSubmit
 }) {
@@ -201,7 +298,7 @@ function WorkspacePanel({
                 </option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
-                    {client.name}
+                    {client.displayName}
                   </option>
                 ))}
               </select>
@@ -224,6 +321,30 @@ function WorkspacePanel({
                 {activeTechnicians.map((technician) => (
                   <option key={technician.id} value={technician.full_name}>
                     {technician.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="workspace-input-group">
+              <span>{uiText.serviceOrder.fields.branch}</span>
+              <select
+                name="branchId"
+                value={formState.branchId}
+                onChange={onFormChange}
+                disabled={isSavingOrder || isClientsLoading || !formState.clientId}
+                required
+              >
+                <option value="">
+                  {!formState.clientId
+                    ? uiText.serviceOrder.placeholders.branchDisabled
+                    : isBranchesLoading
+                      ? uiText.serviceOrder.placeholders.branchLoading
+                      : uiText.serviceOrder.placeholders.branch}
+                </option>
+                {availableBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {getBranchDisplayName(branch)}
                   </option>
                 ))}
               </select>
@@ -297,7 +418,11 @@ function WorkspacePanel({
               {!isTechniciansLoading && activeTechnicians.length === 0 ? (
                 <p className="empty-hint">{uiText.serviceOrder.technicianEmpty}</p>
               ) : null}
+              {formState.clientId && !isBranchesLoading && availableBranches.length === 0 ? (
+                <p className="empty-hint">{uiText.serviceOrder.branchEmpty}</p>
+              ) : null}
               {clientsError ? <p className="error">{clientsError}</p> : null}
+              {branchesError ? <p className="error">{branchesError}</p> : null}
               {formError ? <p className="error">{formError}</p> : null}
               {formMessage ? <p className="success-message">{formMessage}</p> : null}
             </div>
@@ -310,6 +435,7 @@ function WorkspacePanel({
                 isClientsLoading ||
                 isTechniciansLoading ||
                 clients.length === 0 ||
+                !formState.branchId ||
                 activeTechnicians.length === 0 ||
                 !formState.technicianName
               }
@@ -323,6 +449,12 @@ function WorkspacePanel({
   }
 
   if (activeTab === uiText.tabs.clients) {
+    const clientSubTabs = [
+      uiText.clients.subTabs.list,
+      uiText.clients.subTabs.form,
+      uiText.clients.subTabs.branches
+    ];
+
     return (
       <div className="workspace-section">
         <div className="workspace-copy">
@@ -330,74 +462,434 @@ function WorkspacePanel({
           <p>{uiText.clients.description}</p>
         </div>
 
-        <form className="workspace-form" onSubmit={onClientSubmit}>
-          <div className="workspace-grid">
-            <label className="workspace-input-group workspace-field-wide">
-              <span>{uiText.clients.fieldLabel}</span>
-              <input
-                name="name"
-                type="text"
-                value={clientForm.name}
-                onChange={onClientFormChange}
-                placeholder={uiText.clients.fieldPlaceholder}
-                disabled={isSavingClient}
-                required
-              />
-            </label>
-          </div>
-
-          <div className="workspace-form-footer">
-            <div className="workspace-form-messages">
-              {clientsError ? <p className="error">{clientsError}</p> : null}
-              {clientFormError ? <p className="error">{clientFormError}</p> : null}
-              {clientFormMessage ? <p className="success-message">{clientFormMessage}</p> : null}
-            </div>
-
-            <button className="button" type="submit" disabled={isSavingClient}>
-              {isSavingClient ? uiText.clients.saving : uiText.clients.save}
+        <div className="workspace-subtabs" role="tablist" aria-label={uiText.clients.title}>
+          {clientSubTabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={clientSubTab === tab}
+              className={
+                clientSubTab === tab
+                  ? "workspace-subtab workspace-subtab-active"
+                  : "workspace-subtab"
+              }
+              onClick={() => onClientSubTabChange(tab)}
+            >
+              {tab}
             </button>
-          </div>
-        </form>
-
-        <div className="workspace-list">
-          <div className="workspace-list-header">
-            <h4>{uiText.clients.listTitle}</h4>
-          </div>
-
-          {isClientsLoading ? (
-            <p className="workspace-list-message">{uiText.clients.loading}</p>
-          ) : null}
-
-          {!isClientsLoading && clients.length === 0 ? (
-            <p className="workspace-list-message">{uiText.clients.empty}</p>
-          ) : null}
-
-          {!isClientsLoading && clients.length > 0 ? (
-            <div className="workspace-table-wrapper">
-              <table className="workspace-table">
-                <thead>
-                  <tr>
-                    <th>{uiText.clients.headers.name}</th>
-                    <th>{uiText.clients.headers.createdAt}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clients.map((client) => (
-                    <tr key={client.id}>
-                      <td>{client.name}</td>
-                      <td>{formatCreatedAt(client.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          ))}
         </div>
+
+        {clientSubTab === uiText.clients.subTabs.list ? (
+          <div className="workspace-list">
+            <div className="workspace-list-header">
+              <h4>{uiText.clients.listTitle}</h4>
+            </div>
+
+            {isClientsLoading ? (
+              <p className="workspace-list-message">{uiText.clients.loading}</p>
+            ) : null}
+
+            {!isClientsLoading && clients.length === 0 ? (
+              <p className="workspace-list-message">{uiText.clients.empty}</p>
+            ) : null}
+
+            {!isClientsLoading && clients.length > 0 ? (
+              <div className="workspace-table-wrapper">
+                <table className="workspace-table">
+                  <thead>
+                    <tr>
+                      <th>{uiText.clients.headers.name}</th>
+                      <th>{uiText.clients.headers.phone}</th>
+                      <th>{uiText.clients.headers.contact}</th>
+                      <th>{uiText.clients.headers.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clients.map((client) => (
+                      <tr key={client.id}>
+                        <td>{client.displayName}</td>
+                        <td>{client.main_phone || "-"}</td>
+                        <td>{client.main_contact || "-"}</td>
+                        <td>
+                          <div className="workspace-inline-actions">
+                            <button
+                              className="button button-secondary workspace-table-button"
+                              type="button"
+                              onClick={() => onClientEdit(client)}
+                            >
+                              {uiText.clients.edit}
+                            </button>
+                            <button
+                              className="button button-secondary workspace-table-button"
+                              type="button"
+                              onClick={() => onSelectClientBranches(client)}
+                            >
+                              {uiText.clients.manageBranches}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {clientSubTab === uiText.clients.subTabs.form ? (
+          <>
+            <div className="workspace-copy">
+              <h3>
+                {selectedClientId ? uiText.clients.formEditTitle : uiText.clients.formCreateTitle}
+              </h3>
+              <p>
+                {selectedClientId ? uiText.clients.formEditBody : uiText.clients.formCreateBody}
+              </p>
+            </div>
+
+            <form className="workspace-form" onSubmit={onClientSubmit}>
+              <div className="workspace-grid">
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.businessName}</span>
+                  <input
+                    name="businessName"
+                    type="text"
+                    value={clientForm.businessName}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.businessName}
+                    disabled={isSavingClient}
+                    required
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.tradeName}</span>
+                  <input
+                    name="tradeName"
+                    type="text"
+                    value={clientForm.tradeName}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.tradeName}
+                    disabled={isSavingClient}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.taxId}</span>
+                  <input
+                    name="taxId"
+                    type="text"
+                    value={clientForm.taxId}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.taxId}
+                    disabled={isSavingClient}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.mainPhone}</span>
+                  <input
+                    name="mainPhone"
+                    type="tel"
+                    value={clientForm.mainPhone}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.mainPhone}
+                    disabled={isSavingClient}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.mainContact}</span>
+                  <input
+                    name="mainContact"
+                    type="text"
+                    value={clientForm.mainContact}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.mainContact}
+                    disabled={isSavingClient}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.mainEmail}</span>
+                  <input
+                    name="mainEmail"
+                    type="email"
+                    value={clientForm.mainEmail}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.mainEmail}
+                    disabled={isSavingClient}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.clients.fields.mainAddress}</span>
+                  <textarea
+                    name="mainAddress"
+                    value={clientForm.mainAddress}
+                    onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.mainAddress}
+                    disabled={isSavingClient}
+                    rows={4}
+                  />
+                </label>
+              </div>
+
+              <div className="workspace-form-footer">
+                <div className="workspace-form-messages">
+                  {clientsError ? <p className="error">{clientsError}</p> : null}
+                  {clientFormError ? <p className="error">{clientFormError}</p> : null}
+                  {clientFormMessage ? (
+                    <p className="success-message">{clientFormMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={onClientNew}
+                    disabled={isSavingClient}
+                  >
+                    {uiText.clients.newClient}
+                  </button>
+
+                  <button className="button" type="submit" disabled={isSavingClient}>
+                    {isSavingClient
+                      ? uiText.clients.saving
+                      : selectedClientId
+                        ? uiText.clients.update
+                        : uiText.clients.save}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>
+        ) : null}
+
+        {clientSubTab === uiText.clients.subTabs.branches ? (
+          <div className="workspace-list">
+            <div className="workspace-list-header">
+              <h4>{uiText.clients.branchesPanelTitle}</h4>
+            </div>
+
+            {!selectedBranchClientId ? (
+              <p className="workspace-list-message">{uiText.clients.branchesSelectClient}</p>
+            ) : (
+              <div className="branch-panel">
+                <p className="branch-panel-description">
+                  {uiText.clients.branchesPanelBody}
+                </p>
+                <div className="branch-client-context">
+                  <span>{uiText.clients.branchesSelectedClientLabel}</span>
+                  <strong>
+                    {
+                      clients.find((client) => client.id === selectedBranchClientId)
+                        ?.displayName
+                    }
+                  </strong>
+                </div>
+
+                {selectedBranch ? (
+                  <div className="branch-summary-card">
+                    <span>{uiText.clients.branchSelectedSummary}</span>
+                    <strong>{getBranchDisplayName(selectedBranch)}</strong>
+                    <p>
+                      {selectedBranch.address || uiText.clients.branchSummaryFallback}
+                    </p>
+                    <p>
+                      {[selectedBranch.contact, selectedBranch.phone]
+                        .filter(Boolean)
+                        .join(" | ") || uiText.clients.branchSummaryFallback}
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="workspace-copy">
+                  <h3>
+                    {selectedBranchId
+                      ? uiText.clients.branchesFormEditTitle
+                      : uiText.clients.branchesFormCreateTitle}
+                  </h3>
+                  <p>
+                    {selectedBranchId
+                      ? uiText.clients.branchesFormEditBody
+                      : uiText.clients.branchesFormCreateBody}
+                  </p>
+                </div>
+
+                <form className="workspace-form" onSubmit={onBranchSubmit}>
+                  <div className="workspace-grid">
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.name}</span>
+                      <input
+                        name="name"
+                        type="text"
+                        value={branchForm.name}
+                        onChange={onBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.name}
+                        disabled={isSavingBranch}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.phone}</span>
+                      <input
+                        name="phone"
+                        type="text"
+                        value={branchForm.phone}
+                        onChange={onBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.phone}
+                        disabled={isSavingBranch}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.contact}</span>
+                      <input
+                        name="contact"
+                        type="text"
+                        value={branchForm.contact}
+                        onChange={onBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.contact}
+                        disabled={isSavingBranch}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.clients.branchFields.address}</span>
+                      <textarea
+                        name="address"
+                        value={branchForm.address}
+                        onChange={onBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.address}
+                        disabled={isSavingBranch}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.clients.branchFields.notes}</span>
+                      <textarea
+                        name="notes"
+                        value={branchForm.notes}
+                        onChange={onBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.notes}
+                        disabled={isSavingBranch}
+                        rows={4}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="workspace-form-footer">
+                    <div className="workspace-form-messages">
+                      {branchesError ? <p className="error">{branchesError}</p> : null}
+                      {branchFormError ? <p className="error">{branchFormError}</p> : null}
+                      {branchFormMessage ? (
+                        <p className="success-message">{branchFormMessage}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="workspace-actions">
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={onBranchNew}
+                        disabled={isSavingBranch}
+                      >
+                        {uiText.clients.branchNew}
+                      </button>
+
+                      <button className="button" type="submit" disabled={isSavingBranch}>
+                        {isSavingBranch
+                          ? uiText.clients.branchSaving
+                          : selectedBranchId
+                            ? uiText.clients.branchUpdate
+                            : uiText.clients.branchSave}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                <div className="workspace-list branch-list">
+                  <div className="workspace-list-header">
+                    <h4>{uiText.clients.branchListTitle}</h4>
+                  </div>
+
+                  {isBranchesLoading ? (
+                    <p className="workspace-list-message">{uiText.clients.branchesLoading}</p>
+                  ) : null}
+
+                  {!isBranchesLoading && branches.length === 0 ? (
+                    <p className="workspace-list-message">{uiText.clients.branchesEmptyState}</p>
+                  ) : null}
+
+                  {!isBranchesLoading && branches.length > 0 ? (
+                    <div className="workspace-table-wrapper">
+                      <table className="workspace-table">
+                        <thead>
+                          <tr>
+                            <th>{uiText.clients.branchHeaders.name}</th>
+                            <th>{uiText.clients.branchHeaders.address}</th>
+                            <th>{uiText.clients.branchHeaders.phone}</th>
+                            <th>{uiText.clients.branchHeaders.contact}</th>
+                            <th>{uiText.clients.branchHeaders.actions}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {branches.map((branch) => (
+                            <tr
+                              key={branch.id}
+                              className={
+                                branch.id === selectedBranchId
+                                  ? "workspace-table-row-action workspace-table-row-selected"
+                                  : "workspace-table-row-action"
+                              }
+                              onClick={() => onBranchEdit(branch)}
+                            >
+                              <td>{getBranchDisplayName(branch)}</td>
+                              <td>{branch.address || "-"}</td>
+                              <td>{branch.phone || "-"}</td>
+                              <td>
+                                {branch.contact || "-"}
+                              </td>
+                              <td>
+                                <button
+                                  className="button button-secondary workspace-table-button"
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onBranchEdit(branch);
+                                  }}
+                                >
+                                  {uiText.clients.branchEdit}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     );
   }
 
   if (activeTab === uiText.tabs.technicians) {
+    const technicianSubTabs = [
+      uiText.technicians.subTabs.list,
+      uiText.technicians.subTabs.form
+    ];
+
     return (
       <div className="workspace-section">
         <div className="workspace-copy">
@@ -405,88 +897,195 @@ function WorkspacePanel({
           <p>{uiText.technicians.description}</p>
         </div>
 
-        <form className="workspace-form" onSubmit={onTechnicianSubmit}>
-          <div className="workspace-grid">
-            <label className="workspace-input-group">
-              <span>{uiText.technicians.fields.fullName}</span>
-              <input
-                name="fullName"
-                type="text"
-                value={technicianForm.fullName}
-                onChange={onTechnicianFormChange}
-                placeholder={uiText.technicians.placeholders.fullName}
-                disabled={isSavingTechnician}
-                required
-              />
-            </label>
-
-            <label className="workspace-checkbox">
-              <input
-                name="isActive"
-                type="checkbox"
-                checked={technicianForm.isActive}
-                onChange={onTechnicianFormChange}
-                disabled={isSavingTechnician}
-              />
-              <span>{uiText.technicians.fields.isActive}</span>
-            </label>
-          </div>
-
-          <div className="workspace-form-footer">
-            <div className="workspace-form-messages">
-              {techniciansError ? <p className="error">{techniciansError}</p> : null}
-              {technicianFormError ? <p className="error">{technicianFormError}</p> : null}
-              {technicianFormMessage ? (
-                <p className="success-message">{technicianFormMessage}</p>
-              ) : null}
-            </div>
-
-            <button className="button" type="submit" disabled={isSavingTechnician}>
-              {isSavingTechnician ? uiText.technicians.saving : uiText.technicians.save}
+        <div className="workspace-subtabs" role="tablist" aria-label={uiText.technicians.title}>
+          {technicianSubTabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={technicianSubTab === tab}
+              className={
+                technicianSubTab === tab
+                  ? "workspace-subtab workspace-subtab-active"
+                  : "workspace-subtab"
+              }
+              onClick={() => onTechnicianSubTabChange(tab)}
+            >
+              {tab}
             </button>
-          </div>
-        </form>
-
-        <div className="workspace-list">
-          <div className="workspace-list-header">
-            <h4>{uiText.technicians.listTitle}</h4>
-          </div>
-
-          {isTechniciansLoading ? (
-            <p className="workspace-list-message">{uiText.technicians.loading}</p>
-          ) : null}
-
-          {!isTechniciansLoading && technicians.length === 0 ? (
-            <p className="workspace-list-message">{uiText.technicians.empty}</p>
-          ) : null}
-
-          {!isTechniciansLoading && technicians.length > 0 ? (
-            <div className="workspace-table-wrapper">
-              <table className="workspace-table">
-                <thead>
-                  <tr>
-                    <th>{uiText.technicians.headers.fullName}</th>
-                    <th>{uiText.technicians.headers.status}</th>
-                    <th>{uiText.technicians.headers.createdAt}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {technicians.map((technician) => (
-                    <tr key={technician.id}>
-                      <td>{technician.full_name}</td>
-                      <td>
-                        {technician.is_active
-                          ? uiText.technicians.active
-                          : uiText.technicians.inactive}
-                      </td>
-                      <td>{formatCreatedAt(technician.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          ))}
         </div>
+
+        {technicianSubTab === uiText.technicians.subTabs.list ? (
+          <div className="workspace-list">
+            <div className="workspace-list-header">
+              <h4>{uiText.technicians.listTitle}</h4>
+            </div>
+
+            {isTechniciansLoading ? (
+              <p className="workspace-list-message">{uiText.technicians.loading}</p>
+            ) : null}
+
+            {!isTechniciansLoading && technicians.length === 0 ? (
+              <p className="workspace-list-message">{uiText.technicians.empty}</p>
+            ) : null}
+
+            {!isTechniciansLoading && technicians.length > 0 ? (
+              <div className="workspace-table-wrapper">
+                <table className="workspace-table">
+                  <thead>
+                    <tr>
+                      <th>{uiText.technicians.headers.fullName}</th>
+                      <th>{uiText.technicians.headers.phone}</th>
+                      <th>{uiText.technicians.headers.status}</th>
+                      <th>{uiText.clients.headers.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {technicians.map((technician) => (
+                      <tr
+                        key={technician.id}
+                        className="workspace-table-row-action"
+                        onClick={() => onTechnicianEdit(technician)}
+                      >
+                        <td>{technician.full_name}</td>
+                        <td>{technician.phone || "-"}</td>
+                        <td>
+                          {technician.is_active
+                            ? uiText.technicians.active
+                            : uiText.technicians.inactive}
+                        </td>
+                        <td>
+                          <button
+                            className="button button-secondary workspace-table-button"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onTechnicianEdit(technician);
+                            }}
+                          >
+                            {uiText.technicians.edit}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div className="workspace-copy">
+              <h3>
+                {selectedTechnicianId
+                  ? uiText.technicians.formEditTitle
+                  : uiText.technicians.formCreateTitle}
+              </h3>
+              <p>
+                {selectedTechnicianId
+                  ? uiText.technicians.formEditBody
+                  : uiText.technicians.formCreateBody}
+              </p>
+            </div>
+
+            <form className="workspace-form" onSubmit={onTechnicianSubmit}>
+              <div className="workspace-grid">
+                <label className="workspace-input-group">
+                  <span>{uiText.technicians.fields.fullName}</span>
+                  <input
+                    name="fullName"
+                    type="text"
+                    value={technicianForm.fullName}
+                    onChange={onTechnicianFormChange}
+                    placeholder={uiText.technicians.placeholders.fullName}
+                    disabled={isSavingTechnician}
+                    required
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.technicians.fields.phone}</span>
+                  <input
+                    name="phone"
+                    type="text"
+                    value={technicianForm.phone}
+                    onChange={onTechnicianFormChange}
+                    placeholder={uiText.technicians.placeholders.phone}
+                    disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.technicians.fields.address}</span>
+                  <textarea
+                    name="address"
+                    value={technicianForm.address}
+                    onChange={onTechnicianFormChange}
+                    placeholder={uiText.technicians.placeholders.address}
+                    disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                    rows={3}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.technicians.fields.notes}</span>
+                  <textarea
+                    name="notes"
+                    value={technicianForm.notes}
+                    onChange={onTechnicianFormChange}
+                    placeholder={uiText.technicians.placeholders.notes}
+                    disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                    rows={4}
+                  />
+                </label>
+
+                <label className="workspace-checkbox">
+                  <input
+                    name="isActive"
+                    type="checkbox"
+                    checked={technicianForm.isActive}
+                    onChange={onTechnicianFormChange}
+                    disabled={isSavingTechnician}
+                  />
+                  <span>{uiText.technicians.fields.isActive}</span>
+                </label>
+              </div>
+
+              <div className="workspace-form-footer">
+                <div className="workspace-form-messages">
+                  {techniciansError ? <p className="error">{techniciansError}</p> : null}
+                  {!supportsExtendedTechnicianFields ? (
+                    <p className="empty-hint">{uiText.technicians.schemaWarning}</p>
+                  ) : null}
+                  {technicianFormError ? <p className="error">{technicianFormError}</p> : null}
+                  {technicianFormMessage ? (
+                    <p className="success-message">{technicianFormMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={onTechnicianNew}
+                    disabled={isSavingTechnician}
+                  >
+                    {uiText.technicians.newTechnician}
+                  </button>
+
+                  <button className="button" type="submit" disabled={isSavingTechnician}>
+                    {isSavingTechnician
+                      ? uiText.technicians.saving
+                      : selectedTechnicianId
+                        ? uiText.technicians.update
+                        : uiText.technicians.save}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     );
   }
@@ -511,16 +1110,27 @@ export default function DashboardPage() {
   const [serviceOrders, setServiceOrders] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [calendarError, setCalendarError] = useState("");
-  const [calendarView, setCalendarView] = useState("month");
+  const [calendarView, setCalendarView] = useState("week");
   const [selectedServiceOrderId, setSelectedServiceOrderId] = useState(null);
   const [activeTab, setActiveTab] = useState(uiText.tabs.newServiceOrder);
   const [clients, setClients] = useState([]);
   const [clientsError, setClientsError] = useState("");
   const [isClientsLoading, setIsClientsLoading] = useState(false);
+  const [clientSubTab, setClientSubTab] = useState(defaultClientSubTab);
   const [clientForm, setClientForm] = useState(initialClientFormState);
+  const [selectedClientId, setSelectedClientId] = useState(null);
+  const [selectedBranchClientId, setSelectedBranchClientId] = useState(null);
+  const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [clientFormMessage, setClientFormMessage] = useState("");
   const [clientFormError, setClientFormError] = useState("");
   const [isSavingClient, setIsSavingClient] = useState(false);
+  const [branchForm, setBranchForm] = useState(initialBranchFormState);
+  const [branchesByClientId, setBranchesByClientId] = useState({});
+  const [branchesError, setBranchesError] = useState("");
+  const [branchFormMessage, setBranchFormMessage] = useState("");
+  const [branchFormError, setBranchFormError] = useState("");
+  const [isBranchesLoading, setIsBranchesLoading] = useState(false);
+  const [isSavingBranch, setIsSavingBranch] = useState(false);
   const [formState, setFormState] = useState(initialFormState);
   const [formMessage, setFormMessage] = useState("");
   const [formError, setFormError] = useState("");
@@ -528,15 +1138,23 @@ export default function DashboardPage() {
   const [technicians, setTechnicians] = useState([]);
   const [techniciansError, setTechniciansError] = useState("");
   const [isTechniciansLoading, setIsTechniciansLoading] = useState(false);
+  const [technicianSubTab, setTechnicianSubTab] = useState(defaultTechnicianSubTab);
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState(null);
   const [technicianForm, setTechnicianForm] = useState(initialTechnicianFormState);
   const [technicianFormMessage, setTechnicianFormMessage] = useState("");
   const [technicianFormError, setTechnicianFormError] = useState("");
   const [isSavingTechnician, setIsSavingTechnician] = useState(false);
+  const [supportsExtendedTechnicianFields, setSupportsExtendedTechnicianFields] =
+    useState(true);
   const [detailFormState, setDetailFormState] = useState(initialDetailFormState);
   const [detailFormMessage, setDetailFormMessage] = useState("");
   const [detailFormError, setDetailFormError] = useState("");
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const activeTechnicians = technicians.filter((technician) => technician.is_active);
+  const availableBranches = branchesByClientId[formState.clientId] || [];
+  const branches = branchesByClientId[selectedBranchClientId] || [];
+  const selectedBranch =
+    branches.find((branch) => branch.id === selectedBranchId) || null;
   const selectedServiceOrder =
     serviceOrders.find((serviceOrder) => serviceOrder.id === selectedServiceOrderId) || null;
 
@@ -554,8 +1172,18 @@ export default function DashboardPage() {
           status,
           created_at,
           client_id,
+          branch_id,
           clients (
-            name
+            name,
+            business_name,
+            trade_name
+          ),
+          branches (
+            name,
+            address,
+            phone,
+            contact,
+            notes
           )
         `
       )
@@ -587,8 +1215,20 @@ export default function DashboardPage() {
 
     const { data, error } = await supabase
       .from("clients")
-      .select("id, name, created_at")
-      .order("name", { ascending: true });
+      .select(
+        `
+          id,
+          name,
+          business_name,
+          trade_name,
+          tax_id,
+          main_address,
+          main_phone,
+          main_contact,
+          main_email,
+          created_at
+        `
+      );
 
     if (error) {
       setClients([]);
@@ -597,18 +1237,69 @@ export default function DashboardPage() {
       return;
     }
 
-    setClients(data || []);
+    const sortedClients = (data || [])
+      .map(normalizeClientRecord)
+      .sort((leftClient, rightClient) =>
+        leftClient.displayName.localeCompare(rightClient.displayName, "es", {
+          sensitivity: "base"
+        })
+      );
+
+    setClients(sortedClients);
     setClientsError("");
     setIsClientsLoading(false);
+  };
+
+  const fetchBranchesForClient = async (supabase, clientId) => {
+    if (!clientId) {
+      return [];
+    }
+
+    setIsBranchesLoading(true);
+
+    const { data, error } = await supabase
+      .from("branches")
+      .select("id, client_id, name, address, phone, contact, notes, created_at")
+      .eq("client_id", clientId)
+      .order("name", { ascending: true });
+
+    if (error) {
+      setBranchesError(uiText.clients.branchesLoadError);
+      setIsBranchesLoading(false);
+      return [];
+    }
+
+    const branchRecords = data || [];
+
+    setBranchesByClientId((currentState) => ({
+      ...currentState,
+      [clientId]: branchRecords
+    }));
+    setBranchesError("");
+    setIsBranchesLoading(false);
+    return branchRecords;
   };
 
   const fetchTechnicians = async (supabase) => {
     setIsTechniciansLoading(true);
 
-    const { data, error } = await supabase
+    let supportsExtendedFields = true;
+    let { data, error } = await supabase
       .from("technicians")
-      .select("id, full_name, is_active, created_at")
+      .select("id, full_name, phone, address, notes, is_active, created_at")
       .order("full_name", { ascending: true });
+
+    if (error) {
+      supportsExtendedFields = false;
+
+      const fallbackResult = await supabase
+        .from("technicians")
+        .select("id, full_name, is_active, created_at")
+        .order("full_name", { ascending: true });
+
+      data = fallbackResult.data;
+      error = fallbackResult.error;
+    }
 
     if (error) {
       setTechnicians([]);
@@ -617,7 +1308,15 @@ export default function DashboardPage() {
       return;
     }
 
-    setTechnicians(data || []);
+    setSupportsExtendedTechnicianFields(supportsExtendedFields);
+    setTechnicians(
+      (data || []).map((technician) => ({
+        phone: "",
+        address: "",
+        notes: "",
+        ...technician
+      }))
+    );
     setTechniciansError("");
     setIsTechniciansLoading(false);
   };
@@ -710,6 +1409,26 @@ export default function DashboardPage() {
   }, [activeTab, technicians.length]);
 
   useEffect(() => {
+    const supabase = getSupabaseClient();
+
+    if (!supabase || !formState.clientId) {
+      return;
+    }
+
+    fetchBranchesForClient(supabase, formState.clientId);
+  }, [formState.clientId]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+
+    if (!supabase || !selectedBranchClientId) {
+      return;
+    }
+
+    fetchBranchesForClient(supabase, selectedBranchClientId);
+  }, [selectedBranchClientId]);
+
+  useEffect(() => {
     if (!selectedServiceOrder) {
       setDetailFormState(initialDetailFormState);
       setDetailFormMessage("");
@@ -738,6 +1457,19 @@ export default function DashboardPage() {
     fetchTechnicians(supabase);
   }, [selectedServiceOrderId, technicians.length]);
 
+  useEffect(() => {
+    if (supportsExtendedTechnicianFields) {
+      return;
+    }
+
+    setTechnicianForm((currentState) => ({
+      ...currentState,
+      phone: "",
+      address: "",
+      notes: ""
+    }));
+  }, [supportsExtendedTechnicianFields]);
+
   const handleFormChange = (event) => {
     const { name, value } = event.target;
     setFormError("");
@@ -745,6 +1477,7 @@ export default function DashboardPage() {
 
     setFormState((currentState) => ({
       ...currentState,
+      branchId: name === "clientId" ? "" : currentState.branchId,
       [name]: value
     }));
   };
@@ -758,6 +1491,92 @@ export default function DashboardPage() {
       ...currentState,
       [name]: value
     }));
+  };
+
+  const handleBranchFormChange = (event) => {
+    const { name, value } = event.target;
+    setBranchFormError("");
+    setBranchFormMessage("");
+
+    setBranchForm((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleEditClient = (client) => {
+    setSelectedClientId(client.id);
+    setClientSubTab(uiText.clients.subTabs.form);
+    setClientFormError("");
+    setClientFormMessage("");
+    setClientForm({
+      businessName: client.business_name || client.name || "",
+      tradeName: client.trade_name || "",
+      taxId: client.tax_id || "",
+      mainAddress: client.main_address || "",
+      mainPhone: client.main_phone || "",
+      mainContact: client.main_contact || "",
+      mainEmail: client.main_email || ""
+    });
+  };
+
+  const handleNewClient = () => {
+    setSelectedClientId(null);
+    setClientSubTab(uiText.clients.subTabs.form);
+    setClientForm(initialClientFormState);
+    setClientFormError("");
+    setClientFormMessage("");
+  };
+
+  const handleSelectClientBranches = (client) => {
+    setSelectedBranchClientId(client.id);
+    setSelectedBranchId(null);
+    setClientSubTab(uiText.clients.subTabs.branches);
+    setBranchForm(initialBranchFormState);
+    setBranchFormError("");
+    setBranchFormMessage("");
+  };
+
+  const handleBranchEdit = (branch) => {
+    setSelectedBranchId(branch.id);
+    setBranchFormError("");
+    setBranchFormMessage("");
+    setBranchForm({
+      name: branch.name || "",
+      address: branch.address || "",
+      phone: branch.phone || "",
+      contact: branch.contact || "",
+      notes: branch.notes || ""
+    });
+  };
+
+  const handleNewBranch = () => {
+    setSelectedBranchId(null);
+    setBranchForm(initialBranchFormState);
+    setBranchFormError("");
+    setBranchFormMessage("");
+  };
+
+  const handleTechnicianEdit = (technician) => {
+    setSelectedTechnicianId(technician.id);
+    setTechnicianSubTab(uiText.technicians.subTabs.form);
+    setTechnicianFormError("");
+    setTechnicianFormMessage("");
+    setTechnicianForm({
+      fullName: technician.full_name || "",
+      phone: technician.phone || "",
+      address: technician.address || "",
+      notes: technician.notes || "",
+      isActive: Boolean(technician.is_active)
+    });
+  };
+
+  const handleNewTechnician = () => {
+    setSelectedTechnicianId(null);
+    setTechnicianSubTab(uiText.technicians.subTabs.form);
+    setTechnicianForm(initialTechnicianFormState);
+    setTechnicianFormError("");
+    setTechnicianFormMessage("");
   };
 
   const handleLogout = async () => {
@@ -814,6 +1633,7 @@ export default function DashboardPage() {
     // Only persist the columns that exist in the current schema.
     const payload = {
       client_id: formState.clientId,
+      branch_id: formState.branchId,
       technician_name: formState.technicianName.trim(),
       service_date: formState.serviceDate,
       service_time: formState.serviceTime.trim(),
@@ -855,11 +1675,25 @@ export default function DashboardPage() {
 
     setIsSavingClient(true);
 
+    const businessName = clientForm.businessName.trim();
+    const tradeName = clientForm.tradeName.trim();
     const payload = {
-      name: clientForm.name.trim()
+      // Keep the legacy `name` column aligned so existing dropdowns and older
+      // records continue to display a usable client label.
+      name: tradeName || businessName,
+      business_name: businessName,
+      trade_name: tradeName,
+      tax_id: clientForm.taxId.trim(),
+      main_address: clientForm.mainAddress.trim(),
+      main_phone: clientForm.mainPhone.trim(),
+      main_contact: clientForm.mainContact.trim(),
+      main_email: clientForm.mainEmail.trim()
     };
 
-    const { error } = await supabase.from("clients").insert(payload);
+    const clientQuery = selectedClientId
+      ? supabase.from("clients").update(payload).eq("id", selectedClientId)
+      : supabase.from("clients").insert(payload);
+    const { error } = await clientQuery;
 
     if (error) {
       setClientFormError(error.message || uiText.clients.createError);
@@ -870,8 +1704,64 @@ export default function DashboardPage() {
     // Refresh shared client state so the list and service-order dropdown stay aligned.
     await fetchClients(supabase);
     setClientForm(initialClientFormState);
-    setClientFormMessage(uiText.clients.success);
+    setSelectedClientId(null);
+    setClientFormMessage(
+      selectedClientId ? uiText.clients.updateSuccess : uiText.clients.success
+    );
     setIsSavingClient(false);
+  };
+
+  const handleCreateBranch = async (event) => {
+    event.preventDefault();
+    setBranchFormError("");
+    setBranchFormMessage("");
+
+    if (!selectedBranchClientId) {
+      setBranchFormError(uiText.clients.branchesSelectClient);
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setBranchFormError(uiText.clients.configError);
+      return;
+    }
+
+    setIsSavingBranch(true);
+
+    const payload = {
+      client_id: selectedBranchClientId,
+      name: branchForm.name.trim(),
+      address: branchForm.address.trim(),
+      phone: branchForm.phone.trim(),
+      contact: branchForm.contact.trim(),
+      notes: branchForm.notes.trim()
+    };
+
+    const branchQuery = selectedBranchId
+      ? supabase.from("branches").update(payload).eq("id", selectedBranchId)
+      : supabase.from("branches").insert(payload);
+    const { error } = await branchQuery;
+
+    if (error) {
+      setBranchFormError(error.message || uiText.clients.branchCreateError);
+      setIsSavingBranch(false);
+      return;
+    }
+
+    await fetchBranchesForClient(supabase, selectedBranchClientId);
+    if (formState.clientId === selectedBranchClientId) {
+      await fetchBranchesForClient(supabase, formState.clientId);
+    }
+    setBranchForm(initialBranchFormState);
+    setSelectedBranchId(null);
+    setBranchFormMessage(
+      selectedBranchId
+        ? uiText.clients.branchUpdateSuccess
+        : uiText.clients.branchCreateSuccess
+    );
+    setIsSavingBranch(false);
   };
 
   const handleCreateTechnician = async (event) => {
@@ -893,7 +1783,16 @@ export default function DashboardPage() {
       is_active: technicianForm.isActive
     };
 
-    const { error } = await supabase.from("technicians").insert(payload);
+    if (supportsExtendedTechnicianFields) {
+      payload.phone = technicianForm.phone.trim();
+      payload.address = technicianForm.address.trim();
+      payload.notes = technicianForm.notes.trim();
+    }
+
+    const technicianQuery = selectedTechnicianId
+      ? supabase.from("technicians").update(payload).eq("id", selectedTechnicianId)
+      : supabase.from("technicians").insert(payload);
+    const { error } = await technicianQuery;
 
     if (error) {
       setTechnicianFormError(error.message || uiText.technicians.createError);
@@ -904,7 +1803,12 @@ export default function DashboardPage() {
     // Refresh the roster after insert so the new technician appears immediately.
     await fetchTechnicians(supabase);
     setTechnicianForm(initialTechnicianFormState);
-    setTechnicianFormMessage(uiText.technicians.success);
+    setSelectedTechnicianId(null);
+    setTechnicianFormMessage(
+      selectedTechnicianId
+        ? uiText.technicians.updateSuccess
+        : uiText.technicians.success
+    );
     setIsSavingTechnician(false);
   };
 
@@ -1035,7 +1939,7 @@ export default function DashboardPage() {
                 messages={uiText.calendar.messages}
                 culture="es"
                 events={calendarEvents}
-                defaultView="month"
+                defaultView="week"
                 view={calendarView}
                 onView={setCalendarView}
                 views={["month", "week"]}
@@ -1044,7 +1948,8 @@ export default function DashboardPage() {
                 onSelectEvent={handleSelectServiceOrder}
                 style={{ height: 640 }}
                 components={{
-                  event: EventCard
+                  event: EventCard,
+                  eventWrapper: CalendarEventWrapper
                 }}
               />
             </div>
@@ -1082,19 +1987,35 @@ export default function DashboardPage() {
                 clientsError={clientsError}
                 isClientsLoading={isClientsLoading}
                 clientForm={clientForm}
+                selectedClientId={selectedClientId}
+                selectedBranchClientId={selectedBranchClientId}
+                clientSubTab={clientSubTab}
                 clientFormError={clientFormError}
                 clientFormMessage={clientFormMessage}
                 isSavingClient={isSavingClient}
+                branchForm={branchForm}
+                branches={branches}
+                selectedBranch={selectedBranch}
+                selectedBranchId={selectedBranchId}
+                branchesError={branchesError}
+                branchFormError={branchFormError}
+                branchFormMessage={branchFormMessage}
+                isBranchesLoading={isBranchesLoading}
+                isSavingBranch={isSavingBranch}
                 activeTechnicians={activeTechnicians}
                 technicians={technicians}
                 techniciansError={techniciansError}
                 isTechniciansLoading={isTechniciansLoading}
+                supportsExtendedTechnicianFields={supportsExtendedTechnicianFields}
+                technicianSubTab={technicianSubTab}
+                selectedTechnicianId={selectedTechnicianId}
                 technicianForm={technicianForm}
                 technicianFormError={technicianFormError}
                 technicianFormMessage={technicianFormMessage}
                 isSavingTechnician={isSavingTechnician}
                 serviceTimeOptions={serviceTimeOptions}
                 formState={formState}
+                availableBranches={availableBranches}
                 formMessage={formMessage}
                 formError={formError}
                 isSavingOrder={isSavingOrder}
@@ -1102,6 +2023,17 @@ export default function DashboardPage() {
                 onSubmit={handleCreateServiceOrder}
                 onClientFormChange={handleClientFormChange}
                 onClientSubmit={handleCreateClient}
+                onClientEdit={handleEditClient}
+                onClientNew={handleNewClient}
+                onClientSubTabChange={setClientSubTab}
+                onSelectClientBranches={handleSelectClientBranches}
+                onBranchEdit={handleBranchEdit}
+                onBranchNew={handleNewBranch}
+                onBranchFormChange={handleBranchFormChange}
+                onBranchSubmit={handleCreateBranch}
+                onTechnicianEdit={handleTechnicianEdit}
+                onTechnicianNew={handleNewTechnician}
+                onTechnicianSubTabChange={setTechnicianSubTab}
                 onTechnicianFormChange={handleTechnicianFormChange}
                 onTechnicianSubmit={handleCreateTechnician}
               />
@@ -1120,9 +2052,19 @@ export default function DashboardPage() {
               <div className="detail-row">
                 <span>{uiText.dashboard.detailFields.clientName}</span>
                 <strong>
-                  {selectedServiceOrder.clients?.name ||
-                    uiText.dashboard.detailFields.clientName}
+                  {getClientDisplayName(selectedServiceOrder.clients)}
                 </strong>
+              </div>
+
+              <div className="detail-row">
+                <span>{uiText.dashboard.detailFields.branchName}</span>
+                <strong>{getBranchDisplayName(selectedServiceOrder.branches)}</strong>
+                {selectedServiceOrder.branches ? (
+                  <small className="detail-subcopy">
+                    {getBranchSummary(selectedServiceOrder.branches) ||
+                      uiText.clients.branchSummaryFallback}
+                  </small>
+                ) : null}
               </div>
 
               <label className="workspace-input-group">

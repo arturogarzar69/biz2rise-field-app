@@ -143,6 +143,17 @@ textarea {
   box-shadow: 0 14px 24px rgba(16, 43, 86, 0.22);
 }
 
+.button-secondary {
+  background: #ffffff;
+  color: var(--accent);
+  border-color: var(--accent-border);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.button-secondary:hover:not(:disabled) {
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+}
+
 .button:disabled {
   opacity: 0.72;
   cursor: wait;
@@ -404,6 +415,44 @@ textarea {
   padding-top: 4px;
 }
 
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workspace-subtab {
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.workspace-subtab:hover {
+  background: rgba(231, 238, 251, 0.75);
+  color: var(--text);
+}
+
+.workspace-subtab-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.workspace-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .workspace-form-messages {
   display: grid;
   gap: 8px;
@@ -434,6 +483,13 @@ textarea {
   padding: 16px 18px;
   border-bottom: 1px solid var(--border-soft);
   background: #ffffff;
+}
+
+.workspace-list-header-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .workspace-list-header h4 {
@@ -476,6 +532,65 @@ textarea {
   color: var(--text);
 }
 
+.workspace-table-row-action {
+  cursor: pointer;
+}
+
+.workspace-table-row-action:hover td {
+  background: #f8fbff;
+}
+
+.workspace-table-row-selected td {
+  background: #eef4ff;
+}
+
+.workspace-table-button {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+}
+
+.branch-panel {
+  display: grid;
+  gap: 20px;
+  padding: 18px;
+}
+
+.branch-client-context,
+.branch-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.branch-client-context span,
+.branch-summary-card span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.branch-summary-card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.branch-panel-description {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.branch-list {
+  margin-top: 2px;
+}
+
 .detail-panel {
   display: grid;
   gap: 14px;
@@ -509,6 +624,11 @@ textarea {
 
 .detail-row strong {
   color: var(--text);
+}
+
+.detail-subcopy {
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .detail-save-button {
@@ -624,6 +744,10 @@ textarea {
   white-space: normal;
 }
 
+.rbc-event-label {
+  display: none;
+}
+
 .calendar-event {
   display: block;
   padding: 8px 10px;
@@ -635,6 +759,13 @@ textarea {
   display: block;
   font-weight: 700;
   color: var(--accent);
+}
+
+.calendar-event span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
 }
 
 input:focus,
