@@ -196,6 +196,16 @@ textarea {
     linear-gradient(180deg, #f7fafe 0%, #eef3f9 100%);
 }
 
+.technician-dashboard {
+  min-height: 100vh;
+  padding: 16px;
+  display: grid;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.68), transparent 22%),
+    linear-gradient(180deg, #f7fafe 0%, #eef3f9 100%);
+}
+
 .admin-header {
   display: flex;
   align-items: center;
@@ -209,11 +219,147 @@ textarea {
   backdrop-filter: blur(14px);
 }
 
+.technician-header,
+.technician-services-panel,
+.technician-detail-panel {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(217, 226, 236, 0.92);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+}
+
+.technician-header {
+  display: grid;
+  gap: 18px;
+  padding: 22px 20px;
+}
+
+.technician-subtitle {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-width: 640px;
+}
+
+.technician-header-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.technician-user-card {
+  display: grid;
+  gap: 6px;
+}
+
+.technician-logout-button {
+  width: 100%;
+}
+
+.technician-main {
+  display: grid;
+  gap: 18px;
+}
+
+.technician-services-panel,
+.technician-detail-panel {
+  padding: 20px;
+}
+
+.technician-service-list {
+  display: grid;
+  gap: 14px;
+}
+
+.technician-service-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.technician-service-card-selected {
+  border-color: var(--accent-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 0 0 3px rgba(22, 59, 117, 0.08);
+}
+
+.technician-service-card-copy {
+  display: grid;
+  gap: 14px;
+}
+
+.technician-service-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.technician-service-card-header h3,
+.technician-detail-panel h2 {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.technician-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.technician-service-card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.technician-detail-button {
+  width: 100%;
+}
+
 .admin-header h1,
 .calendar-panel h2,
 .admin-placeholder h2 {
   margin: 0;
   letter-spacing: -0.02em;
+}
+
+.admin-debug-panel {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.admin-debug-panel strong {
+  color: var(--text);
+}
+
+.admin-debug-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  max-width: 520px;
 }
 
 .admin-eyebrow {
@@ -244,9 +390,16 @@ textarea {
 
 .admin-content {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) minmax(180px, 240px);
+  grid-template-columns:
+    minmax(180px, 240px)
+    minmax(0, 1fr)
+    clamp(360px, 28vw, 420px);
   gap: 26px;
   align-items: start;
+}
+
+.admin-content > * {
+  min-width: 0;
 }
 
 .admin-placeholder,
@@ -270,6 +423,64 @@ textarea {
   line-height: 1.6;
 }
 
+.operations-indicator,
+.calendar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+}
+
+.operations-indicator strong,
+.calendar-chip strong {
+  color: #b42318;
+}
+
+.operations-indicator-active,
+.calendar-chip-active {
+  border-color: #f0b7ab;
+  background: #fff5f3;
+  color: #9f2d16;
+}
+
+.overdue-chip {
+  background: #fff1f0;
+  border: 1px solid #ffa39e;
+  color: #cf1322;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.overdue-chip:hover {
+  background: #ffeaea;
+}
+
+.overdue-chip.active {
+  background: #cf1322;
+  color: white;
+  border-color: #cf1322;
+}
+
+.overdue-active-banner {
+  background: #fff1f0;
+  color: #cf1322;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .calendar-panel {
   padding: 24px;
 }
@@ -280,6 +491,63 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.calendar-controls {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.calendar-filter {
+  display: inline-grid;
+  gap: 6px;
+}
+
+.calendar-filter span,
+.calendar-legend-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.calendar-filter select {
+  min-width: 180px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.calendar-legend {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.calendar-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+.calendar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.calendar-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
 .workspace-panel {
@@ -603,6 +871,31 @@ textarea {
   line-height: 1.55;
 }
 
+.detail-overdue-box {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid #f0b7ab;
+  border-radius: 14px;
+  background: #fff5f3;
+}
+
+.detail-overdue-box strong {
+  color: #9f2d16;
+}
+
+.detail-overdue-box p {
+  margin: 6px 0 0;
+  color: #7a2e1c;
+  line-height: 1.45;
+}
+
+.detail-reschedule-button {
+  white-space: nowrap;
+}
+
 .detail-row {
   display: grid;
   gap: 4px;
@@ -731,7 +1024,7 @@ textarea {
 }
 
 .rbc-event {
-  background: linear-gradient(180deg, #eff5ff 0%, #e3ecfb 100%);
+  background: #eff5ff;
   border: 1px solid var(--accent-border);
   color: var(--accent);
   border-radius: 12px;
@@ -744,6 +1037,12 @@ textarea {
   white-space: normal;
 }
 
+.rbc-time-view .rbc-event-content {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
 .rbc-event-label {
   display: none;
 }
@@ -753,19 +1052,214 @@ textarea {
   padding: 8px 10px;
   font-size: 0.78rem;
   line-height: 1.25;
+  transition:
+    box-shadow 0.16s ease,
+    transform 0.16s ease,
+    background-color 0.16s ease,
+    outline-color 0.16s ease;
+}
+
+.calendar-event-week {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+
+.calendar-event-week-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.calendar-event-week-accent {
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.82;
+}
+
+.calendar-event-week strong,
+.calendar-event-week span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .calendar-event strong {
   display: block;
   font-weight: 700;
-  color: var(--accent);
+  color: inherit;
 }
 
 .calendar-event span {
   display: block;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 0.72rem;
+  margin-top: 0;
+  color: color-mix(in srgb, currentColor 54%, #64748b 46%);
+  font-size: 0.69rem;
+  opacity: 0.92;
+}
+
+.calendar-event-month {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12px;
+  padding: 2px 0;
+}
+
+.calendar-event-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.calendar-event-overdue-dot {
+  position: absolute;
+  top: 0;
+  right: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.95);
+}
+
+.calendar-event-overdue-badge {
+  align-self: start;
+  justify-self: end;
+  max-width: 100%;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.12);
+  color: #b42318;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.calendar-event-selected {
+  position: relative;
+}
+
+.rbc-month-view .rbc-event {
+  min-height: 14px;
+  padding: 0;
+  border-radius: 999px;
+  box-shadow: none !important;
+}
+
+.rbc-month-view .rbc-event.calendar-event-shell-selected {
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.08),
+    0 0 0 4px rgba(29, 78, 216, 0.2) !important;
+}
+
+.rbc-month-view .calendar-event-selected .calendar-event-dot {
+  transform: scale(1.18);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.96),
+    0 0 0 5px rgba(29, 78, 216, 0.18);
+}
+
+.rbc-month-view .rbc-event-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 14px;
+}
+
+.rbc-time-view .rbc-event {
+  border-width: 1px;
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease,
+    filter 0.16s ease;
+}
+
+.rbc-time-view .rbc-event.calendar-event-shell-selected {
+  border-color: rgba(29, 78, 216, 0.78) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.96),
+    0 0 0 4px rgba(29, 78, 216, 0.15),
+    0 12px 24px rgba(15, 23, 42, 0.14) !important;
+}
+
+.rbc-time-view .rbc-event:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.05);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.14) !important;
+}
+
+.rbc-time-view .calendar-event-selected {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+
+.rbc-time-view .calendar-event-selected .calendar-event-week-accent {
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.58),
+    0 0 10px rgba(255, 255, 255, 0.14);
+}
+
+.rbc-time-view .calendar-event-week {
+  padding: 6px 8px;
+}
+
+.rbc-time-view .calendar-event-week strong {
+  font-size: 0.76rem;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.rbc-time-view .calendar-event-week span {
+  line-height: 1.1;
+  font-weight: 500;
+}
+
+.rbc-time-view .calendar-event-overdue .calendar-event-week-accent {
+  background: #dc2626;
+  opacity: 0.92;
+}
+
+.rbc-month-view .calendar-event-overdue {
+  border-color: #f1b5b5 !important;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(4px);
+}
+
+.quick-create-modal {
+  width: min(100%, 640px);
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(217, 226, 236, 0.92);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
 input:focus,
@@ -790,6 +1284,11 @@ button:focus-visible {
 
   .admin-placeholder {
     min-height: 0;
+  }
+
+  .technician-main {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    align-items: start;
   }
 }
 
@@ -818,6 +1317,25 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .calendar-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .calendar-controls {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .calendar-filter select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .calendar-legend-items {
+    justify-content: flex-start;
+  }
+
   .workspace-form-footer {
     flex-direction: column;
     align-items: flex-start;
@@ -825,5 +1343,39 @@ button:focus-visible {
 
   .card {
     padding: 26px 22px;
+  }
+
+  .technician-service-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .quick-create-modal {
+    padding: 20px;
+  }
+}
+
+@media (min-width: 721px) {
+  .technician-dashboard {
+    padding: 24px;
+  }
+
+  .technician-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .technician-header-actions {
+    justify-items: end;
+    align-content: start;
+  }
+
+  .technician-logout-button {
+    width: auto;
+  }
+
+  .technician-main {
+    grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+    align-items: start;
   }
 }
