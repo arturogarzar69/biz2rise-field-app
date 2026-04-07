@@ -1,14 +1,18 @@
 "use client";
 
-import { cloneElement, isValidElement, useEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
+import TimeGrid from "react-big-calendar/lib/TimeGrid";
+import SegmentedControl from "../../components/SegmentedControl";
 import {
+  addDays,
   format,
   isValid,
   parse,
   startOfWeek,
+  startOfDay,
   getDay,
   addHours,
   addMinutes,
@@ -17,6 +21,13 @@ import {
 import { es } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
+import ServiceListView from "../../components/ServiceListView";
+import {
+  isCompletedStatus,
+  isOverdueServiceOrder,
+  parseServiceOrderStart,
+  resolveDurationMinutes
+} from "../../lib/serviceOrderUtils";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { formatDisplayTime, getStatusLabel, uiText } from "../../lib/uiText";
 
@@ -51,6 +62,9 @@ const initialFormState = {
   serviceDate: "",
   serviceTime: "9:00 AM",
   durationMinutes: 60,
+  isRecurring: false,
+  recurrenceType: "weekly",
+  recurrenceEndDate: "",
   status: "scheduled",
   notes: ""
 };
@@ -80,6 +94,9 @@ const initialDetailFormState = {
   serviceDate: "",
   serviceTime: "9:00 AM",
   durationMinutes: 60,
+  isRecurring: false,
+  recurrenceType: "weekly",
+  recurrenceEndDate: "",
   status: "scheduled"
 };
 
@@ -117,6 +134,77 @@ const technicianColorPalette = [
 const quickCreateNewClientOption = "__new_client__";
 const serviceDurationOptions = [30, 60, 90, 120, 180];
 const minimumServiceDurationMinutes = 30;
+const defaultRecurrenceType = "weekly";
+const serviceOrderStatusOptions = ["scheduled", "completed", "cancelled"].map((status) => ({
+  value: status,
+  label: getStatusLabel(status)
+}));
+const adminViewTabs = {
+  calendar: "calendar",
+  list: "list"
+};
+const operationalCalendarView = "operational";
+
+function getOperationalRange(anchorDate) {
+  const normalizedAnchorDate = startOfDay(anchorDate || new Date());
+
+  return [0, 1, 2, 3, 4].map((offset) => startOfDay(addDays(normalizedAnchorDate, offset)));
+}
+
+function OperationalCalendarView({
+  date,
+  localizer,
+  min = localizer.startOf(new Date(), "day"),
+  max = localizer.endOf(new Date(), "day"),
+  scrollToTime = localizer.startOf(new Date(), "day"),
+  enableAutoScroll = true,
+  ...props
+}) {
+  return (
+    <TimeGrid
+      {...props}
+      range={getOperationalRange(date)}
+      eventOffset={15}
+      localizer={localizer}
+      min={min}
+      max={max}
+      scrollToTime={scrollToTime}
+      enableAutoScroll={enableAutoScroll}
+    />
+  );
+}
+
+OperationalCalendarView.range = (date) => getOperationalRange(date);
+OperationalCalendarView.defaultProps = TimeGrid.defaultProps;
+
+OperationalCalendarView.navigate = (date, action) => {
+  const normalizedAnchorDate = startOfDay(date || new Date());
+
+  switch (action) {
+    case "PREV":
+      return addDays(normalizedAnchorDate, -1);
+    case "NEXT":
+      return addDays(normalizedAnchorDate, 1);
+    case "TODAY":
+      return startOfDay(new Date());
+    default:
+      return normalizedAnchorDate;
+  }
+};
+
+OperationalCalendarView.title = (date, { localizer }) => {
+  const operationalRange = getOperationalRange(date);
+  const rangeStart = operationalRange[0];
+  const rangeEnd = operationalRange[operationalRange.length - 1];
+
+  return localizer.format(
+    {
+      start: rangeStart,
+      end: rangeEnd
+    },
+    "dayRangeHeaderFormat"
+  );
+};
 
 function formatTimeSlot(totalMinutes) {
   const hours24 = Math.floor(totalMinutes / 60);
@@ -148,33 +236,6 @@ function generateTimeSlots(startHour, endHour, intervalMinutes) {
   return slots;
 }
 
-function parseServiceOrderStart(serviceDate, serviceTime) {
-  const dateTimeValue = `${serviceDate} ${serviceTime}`;
-  const twelveHourDate = parse(dateTimeValue, "yyyy-MM-dd h:mm a", new Date());
-
-  if (isValid(twelveHourDate)) {
-    return twelveHourDate;
-  }
-
-  const twentyFourHourDate = parse(dateTimeValue, "yyyy-MM-dd HH:mm", new Date());
-
-  if (isValid(twentyFourHourDate)) {
-    return twentyFourHourDate;
-  }
-
-  return parse(serviceDate, "yyyy-MM-dd", new Date());
-}
-
-function resolveDurationMinutes(durationMinutes) {
-  const parsedDuration = Number(durationMinutes);
-
-  if (!Number.isFinite(parsedDuration) || parsedDuration <= 0) {
-    return 60;
-  }
-
-  return parsedDuration;
-}
-
 function resolveResizedDurationMinutes(start, end) {
   if (!start || !end || !isValid(start) || !isValid(end)) {
     return null;
@@ -187,6 +248,59 @@ function resolveResizedDurationMinutes(start, end) {
   }
 
   return Math.max(minimumServiceDurationMinutes, difference);
+}
+
+function generateSafeUuid() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `rec-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function normalizeRecurrenceType(recurrenceType) {
+  const normalizedType = String(recurrenceType || "").trim().toLowerCase();
+
+  if (["daily", "weekly", "biweekly", "monthly"].includes(normalizedType)) {
+    return normalizedType;
+  }
+
+  return defaultRecurrenceType;
+}
+
+function getRecurrenceFormState(serviceOrder) {
+  const isRecurring = Boolean(serviceOrder?.is_recurring);
+
+  return {
+    isRecurring,
+    recurrenceType: isRecurring
+      ? normalizeRecurrenceType(serviceOrder?.recurrence_type)
+      : defaultRecurrenceType,
+    recurrenceEndDate: serviceOrder?.recurrence_end_date || ""
+  };
+}
+
+function buildRecurrencePayload(orderState, existingOrder = null) {
+  if (!orderState?.isRecurring) {
+    return {
+      is_recurring: false,
+      recurrence_type: null,
+      recurrence_interval: 1,
+      recurrence_end_date: null,
+      recurrence_group_id: null,
+      parent_service_order_id: null
+    };
+  }
+
+  return {
+    is_recurring: true,
+    recurrence_type: normalizeRecurrenceType(orderState.recurrenceType),
+    recurrence_interval: 1,
+    recurrence_end_date: orderState.recurrenceEndDate || null,
+    recurrence_group_id:
+      existingOrder?.recurrence_group_id || generateSafeUuid(),
+    parent_service_order_id: existingOrder?.parent_service_order_id || null
+  };
 }
 
 function transformServiceOrdersToEvents(serviceOrders) {
@@ -346,28 +460,26 @@ function rangesOverlap(startA, endA, startB, endB) {
   return startA < endB && startB < endA;
 }
 
-function isCompletedStatus(status) {
-  return String(status || "").trim().toLowerCase() === "completed";
-}
-
-function isOverdueServiceOrder(serviceDate, serviceTime, status, durationMinutes) {
-  if (!serviceDate || !serviceTime) {
-    return false;
+function buildExternalDragPreview(serviceOrder) {
+  if (!serviceOrder?.service_date || !serviceOrder?.service_time) {
+    return null;
   }
 
-  if (isCompletedStatus(status)) {
-    return false;
-  }
-
-  const start = parseServiceOrderStart(serviceDate, serviceTime);
+  const start = parseServiceOrderStart(serviceOrder.service_date, serviceOrder.service_time);
 
   if (!isValid(start)) {
-    return false;
+    return null;
   }
 
-  const end = addMinutes(start, resolveDurationMinutes(durationMinutes));
+  const durationMinutes = resolveDurationMinutes(serviceOrder.duration_minutes);
 
-  return end.getTime() < Date.now();
+  return {
+    id: serviceOrder.id,
+    title: getClientDisplayName(serviceOrder.clients),
+    start,
+    end: addMinutes(start, durationMinutes),
+    allDay: false
+  };
 }
 
 function getBranchDisplayName(branch) {
@@ -763,19 +875,68 @@ function WorkspacePanel({
               </select>
             </label>
 
+            <label className="workspace-checkbox workspace-field-wide">
+              <input
+                name="isRecurring"
+                type="checkbox"
+                checked={formState.isRecurring}
+                onChange={onFormChange}
+                disabled={isSavingOrder}
+              />
+              <span>{uiText.serviceOrder.fields.isRecurring}</span>
+            </label>
+
+            {formState.isRecurring ? (
+              <>
+                <label className="workspace-input-group">
+                  <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                  <select
+                    name="recurrenceType"
+                    value={formState.recurrenceType}
+                    onChange={onFormChange}
+                    disabled={isSavingOrder}
+                    required
+                  >
+                    <option value="" disabled>
+                      {uiText.serviceOrder.placeholders.recurrenceType}
+                    </option>
+                    <option value="daily">
+                      {uiText.serviceOrder.recurrenceOptions.daily}
+                    </option>
+                    <option value="weekly">
+                      {uiText.serviceOrder.recurrenceOptions.weekly}
+                    </option>
+                    <option value="biweekly">
+                      {uiText.serviceOrder.recurrenceOptions.biweekly}
+                    </option>
+                    <option value="monthly">
+                      {uiText.serviceOrder.recurrenceOptions.monthly}
+                    </option>
+                  </select>
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                  <input
+                    name="recurrenceEndDate"
+                    type="date"
+                    value={formState.recurrenceEndDate}
+                    onChange={onFormChange}
+                    disabled={isSavingOrder}
+                  />
+                </label>
+              </>
+            ) : null}
+
             <label className="workspace-input-group">
               <span>{uiText.serviceOrder.fields.status}</span>
-              <select
+              <SegmentedControl
                 name="status"
                 value={formState.status}
                 onChange={onFormChange}
+                options={serviceOrderStatusOptions}
                 disabled={isSavingOrder}
-                required
-              >
-                <option value="scheduled">{getStatusLabel("scheduled")}</option>
-                <option value="completed">{getStatusLabel("completed")}</option>
-                <option value="cancelled">{getStatusLabel("cancelled")}</option>
-              </select>
+              />
             </label>
 
             <label className="workspace-input-group workspace-field-wide">
@@ -1532,8 +1693,14 @@ export default function DashboardPage() {
   const [calendarActionMessage, setCalendarActionMessage] = useState("");
   const [calendarActionError, setCalendarActionError] = useState("");
   const [isServiceOrdersLoading, setIsServiceOrdersLoading] = useState(false);
-  const [calendarView, setCalendarView] = useState("week");
+  const [calendarView, setCalendarView] = useState(operationalCalendarView);
+  const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()));
+  const [activeAdminView, setActiveAdminView] = useState(adminViewTabs.calendar);
   const [selectedCalendarTechnician, setSelectedCalendarTechnician] = useState("all");
+  const [draggedBacklogServiceOrder, setDraggedBacklogServiceOrder] = useState(null);
+  const [serviceListClientSearch, setServiceListClientSearch] = useState("");
+  const [serviceListTechnician, setServiceListTechnician] = useState("all");
+  const [serviceListRecurring, setServiceListRecurring] = useState("all");
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [selectedServiceOrderId, setSelectedServiceOrderId] = useState(null);
   const [selectedServiceOrderSnapshot, setSelectedServiceOrderSnapshot] = useState(null);
@@ -1649,11 +1816,88 @@ export default function DashboardPage() {
     const matchesTechnician =
       selectedCalendarTechnician && selectedCalendarTechnician !== "all"
         ? event.technician === selectedCalendarTechnician
-      : true;
+        : true;
     const matchesOverdue = showOnlyOverdue ? Boolean(event.isOverdue) : true;
 
     return matchesTechnician && matchesOverdue;
   });
+  const backlogServiceOrders = useMemo(
+    () =>
+      serviceOrders
+        .filter((serviceOrder) => {
+          const matchesTechnician =
+            selectedCalendarTechnician && selectedCalendarTechnician !== "all"
+              ? serviceOrder.technician_name === selectedCalendarTechnician
+              : true;
+          const isCancelled =
+            String(serviceOrder.status || "").trim().toLowerCase() === "cancelled";
+
+          return (
+            matchesTechnician &&
+            !isCancelled &&
+            isOverdueServiceOrder(
+              serviceOrder.service_date,
+              serviceOrder.service_time,
+              serviceOrder.status,
+              serviceOrder.duration_minutes
+            )
+          );
+        })
+        .sort((serviceOrderA, serviceOrderB) => {
+          const startA = parseServiceOrderStart(
+            serviceOrderA.service_date,
+            serviceOrderA.service_time
+          );
+          const startB = parseServiceOrderStart(
+            serviceOrderB.service_date,
+            serviceOrderB.service_time
+          );
+
+          return startA.getTime() - startB.getTime();
+        }),
+    [selectedCalendarTechnician, serviceOrders]
+  );
+  const serviceListTechnicianOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          serviceOrders
+            .map(
+              (serviceOrder) =>
+                serviceOrder.technician_name || uiText.dashboard.calendarTechnicianFallback
+            )
+            .filter(Boolean)
+        )
+      ).sort((left, right) => left.localeCompare(right)),
+    [serviceOrders]
+  );
+  const filteredServiceOrders = useMemo(() => {
+    const normalizedClientSearch = serviceListClientSearch.trim().toLowerCase();
+
+    return serviceOrders.filter((serviceOrder) => {
+      const clientName = getClientDisplayName(serviceOrder.clients);
+      const technicianName =
+        serviceOrder.technician_name || uiText.dashboard.calendarTechnicianFallback;
+      const matchesClient = normalizedClientSearch
+        ? clientName.toLowerCase().includes(normalizedClientSearch)
+        : true;
+      const matchesTechnician =
+        serviceListTechnician !== "all" ? technicianName === serviceListTechnician : true;
+      const matchesRecurring =
+        serviceListRecurring === "all"
+          ? true
+          : serviceListRecurring === "yes"
+            ? Boolean(serviceOrder.is_recurring)
+            : !serviceOrder.is_recurring;
+
+      return matchesClient && matchesTechnician && matchesRecurring;
+    });
+  }, [
+    serviceListClientSearch,
+    serviceListRecurring,
+    serviceListTechnician,
+    serviceOrders
+  ]);
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
@@ -1725,6 +1969,12 @@ export default function DashboardPage() {
           service_time,
           status,
           duration_minutes,
+          is_recurring,
+          recurrence_type,
+          recurrence_interval,
+          recurrence_end_date,
+          recurrence_group_id,
+          parent_service_order_id,
           created_at,
           client_id,
           branch_id,
@@ -1808,6 +2058,12 @@ export default function DashboardPage() {
           service_time,
           status,
           duration_minutes,
+          is_recurring,
+          recurrence_type,
+          recurrence_interval,
+          recurrence_end_date,
+          recurrence_group_id,
+          parent_service_order_id,
           created_at,
           notes,
           client_id,
@@ -1845,6 +2101,12 @@ export default function DashboardPage() {
             service_time,
             status,
             duration_minutes,
+            is_recurring,
+            recurrence_type,
+            recurrence_interval,
+            recurrence_end_date,
+            recurrence_group_id,
+            parent_service_order_id,
             created_at,
             client_id,
             branch_id,
@@ -2128,7 +2390,8 @@ export default function DashboardPage() {
       service_date: orderState.serviceDate,
       service_time: orderState.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
-      status: orderState.status
+      status: orderState.status,
+      ...buildRecurrencePayload(orderState)
     };
 
     const { error } = await supabase.from("service_orders").insert(payload);
@@ -2227,6 +2490,8 @@ export default function DashboardPage() {
     serviceTime,
     durationMinutes,
     status,
+    recurrenceState = null,
+    existingOrder = null,
     branchId = undefined,
     excludeOrderId = null
   }) => {
@@ -2264,6 +2529,10 @@ export default function DashboardPage() {
       duration_minutes: resolveDurationMinutes(durationMinutes),
       status
     };
+
+    if (recurrenceState) {
+      Object.assign(payload, buildRecurrencePayload(recurrenceState, existingOrder));
+    }
 
     if (branchId !== undefined) {
       payload.branch_id = branchId;
@@ -2307,6 +2576,27 @@ export default function DashboardPage() {
       .filter(Boolean)
       .join(" ")
   });
+
+  const handleCalendarViewChange = (nextView) => {
+    setCalendarView(nextView);
+
+    if (nextView === operationalCalendarView) {
+      setCalendarDate(startOfDay(new Date()));
+    }
+  };
+
+  const handleCalendarNavigate = (nextDate) => {
+    if (!nextDate || !isValid(nextDate)) {
+      return;
+    }
+
+    if (calendarView === operationalCalendarView) {
+      setCalendarDate(startOfDay(nextDate));
+      return;
+    }
+
+    setCalendarDate(nextDate);
+  };
 
   const saveClientRecord = async ({ clientState, clientId = null }) => {
     const supabase = getSupabaseClient();
@@ -2627,6 +2917,7 @@ export default function DashboardPage() {
       serviceDate: selectedServiceOrder.service_date || "",
       serviceTime: selectedServiceOrder.service_time || "9:00 AM",
       durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
+      ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
     });
     setDetailFormMessage("");
@@ -2767,14 +3058,20 @@ export default function DashboardPage() {
   }, [supportsExtendedTechnicianFields]);
 
   const handleFormChange = (event) => {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
     setFormError("");
     setFormMessage("");
 
     setFormState((currentState) => ({
       ...currentState,
       branchId: name === "clientId" ? "" : currentState.branchId,
-      [name]: value
+      recurrenceType:
+        name === "isRecurring" && checked === false
+          ? defaultRecurrenceType
+          : currentState.recurrenceType,
+      recurrenceEndDate:
+        name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
+      [name]: type === "checkbox" ? checked : value
     }));
   };
 
@@ -2954,13 +3251,19 @@ export default function DashboardPage() {
   };
 
   const handleDetailFormChange = (event) => {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
     setDetailFormError("");
     setDetailFormMessage("");
 
     setDetailFormState((currentState) => ({
       ...currentState,
-      [name]: value
+      recurrenceType:
+        name === "isRecurring" && checked === false
+          ? defaultRecurrenceType
+          : currentState.recurrenceType,
+      recurrenceEndDate:
+        name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
+      [name]: type === "checkbox" ? checked : value
     }));
   };
 
@@ -3374,6 +3677,8 @@ export default function DashboardPage() {
         serviceTime: detailFormState.serviceTime.trim(),
         durationMinutes: detailFormState.durationMinutes,
         status: detailFormState.status,
+        recurrenceState: detailFormState,
+        existingOrder: selectedServiceOrder,
         branchId: isResidentialDetailClient
           ? preferredDetailResidentialBranch?.id || selectedServiceOrder?.branch_id || null
           : detailFormState.branchId || selectedServiceOrder?.branch_id || null,
@@ -3421,6 +3726,57 @@ export default function DashboardPage() {
       }
     } catch (error) {
       setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
+    }
+  };
+
+  const handleBacklogDragStart = (serviceOrder) => {
+    setDraggedBacklogServiceOrder(serviceOrder);
+  };
+
+  const handleBacklogDragEnd = () => {
+    setDraggedBacklogServiceOrder(null);
+  };
+
+  const handleDropBacklogServiceOrder = async ({ start }) => {
+    if (!draggedBacklogServiceOrder?.id || !start || !isValid(start)) {
+      setDraggedBacklogServiceOrder(null);
+      return;
+    }
+
+    const nextServiceDate = getServiceDateFromCalendarSlot(start);
+    const nextServiceTime = getServiceTimeFromDropTarget(
+      start,
+      draggedBacklogServiceOrder.service_time,
+      calendarView,
+      serviceTimeOptions
+    );
+
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: draggedBacklogServiceOrder.id,
+        technicianName: draggedBacklogServiceOrder.technician_name,
+        serviceDate: nextServiceDate,
+        serviceTime: nextServiceTime,
+        durationMinutes: draggedBacklogServiceOrder.duration_minutes,
+        status: draggedBacklogServiceOrder.status,
+        recurrenceState: getRecurrenceFormState(draggedBacklogServiceOrder),
+        existingOrder: draggedBacklogServiceOrder,
+        branchId: draggedBacklogServiceOrder.branch_id ?? null,
+        excludeOrderId: draggedBacklogServiceOrder.id
+      });
+
+      if (selectedServiceOrderId === draggedBacklogServiceOrder.id) {
+        setDetailFormMessage(uiText.dashboard.detailSuccess);
+      }
+
+      setCalendarActionMessage(uiText.dashboard.detailSuccess);
+    } catch (error) {
+      setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
+    } finally {
+      setDraggedBacklogServiceOrder(null);
     }
   };
 
@@ -3860,55 +4216,173 @@ export default function DashboardPage() {
 
         <section className="calendar-panel">
           <div className="calendar-panel-header">
-            <div>
-              <h2>{uiText.dashboard.calendarTitle}</h2>
-              <p>{uiText.dashboard.calendarSubtitle}</p>
+            <div className="calendar-panel-row calendar-panel-row-1">
+              <div className="calendar-panel-row-left">
+                <h2>
+                  {activeAdminView === adminViewTabs.calendar
+                    ? uiText.dashboard.calendarTitle
+                    : uiText.serviceList.title}
+                </h2>
+              </div>
+              <div className="calendar-panel-row-right">
+                <div className="admin-view-tabs" role="tablist" aria-label={uiText.serviceList.title}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeAdminView === adminViewTabs.calendar}
+                    className={
+                      activeAdminView === adminViewTabs.calendar
+                        ? "admin-view-tab admin-view-tab-active"
+                        : "admin-view-tab"
+                    }
+                    onClick={() => setActiveAdminView(adminViewTabs.calendar)}
+                  >
+                    {uiText.serviceList.tabs.calendar}
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeAdminView === adminViewTabs.list}
+                    className={
+                      activeAdminView === adminViewTabs.list
+                        ? "admin-view-tab admin-view-tab-active"
+                        : "admin-view-tab"
+                    }
+                    onClick={() => setActiveAdminView(adminViewTabs.list)}
+                  >
+                    {uiText.serviceList.tabs.list}
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="calendar-controls">
-              <button
-                type="button"
-                className={
-                  showOnlyOverdue ? "overdue-chip active" : "overdue-chip"
-                }
-                onClick={toggleOverdueFilter}
-              >
-                {uiText.dashboard.overdueCounterLabel}: {overdueCount}
-              </button>
+            <div className="calendar-panel-row calendar-panel-row-2">
+              <div className="calendar-panel-row-left">
+                <p className="calendar-panel-subtitle">
+                  {activeAdminView === adminViewTabs.calendar
+                    ? uiText.dashboard.calendarSubtitle
+                    : uiText.serviceList.subtitle}
+                </p>
+              </div>
+              <div className="calendar-panel-row-right" />
+            </div>
 
-              <label className="calendar-filter">
-                <span>{uiText.dashboard.calendarFilterLabel}</span>
-                <select
-                  value={selectedCalendarTechnician}
-                  onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
-                >
-                  <option value="all">{uiText.dashboard.calendarFilterAll}</option>
-                  {technicianLegendItems.map((item) => (
-                    <option key={item.key} value={item.technicianName}>
-                      {item.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {technicianLegendItems.length > 0 ? (
-                <div className="calendar-legend" aria-label={uiText.dashboard.calendarLegendTitle}>
-                  <span className="calendar-legend-title">
-                    {uiText.dashboard.calendarLegendTitle}
-                  </span>
-                  <div className="calendar-legend-items">
-                    {technicianLegendItems.map((item) => (
-                      <span key={item.key} className="calendar-legend-item">
-                        <span
-                          className="calendar-legend-dot"
-                          style={{ backgroundColor: item.color.accent }}
-                        />
-                        <span>{item.displayName}</span>
-                      </span>
-                    ))}
+            <div className="calendar-panel-row calendar-panel-row-3">
+              {activeAdminView === adminViewTabs.calendar ? (
+                <>
+                  <div className="calendar-panel-row-left">
+                    <button
+                      type="button"
+                      className={showOnlyOverdue ? "overdue-chip active" : "overdue-chip"}
+                      onClick={toggleOverdueFilter}
+                    >
+                      {uiText.dashboard.overdueCounterLabel}: {overdueCount}
+                    </button>
                   </div>
-                </div>
-              ) : null}
+
+                  <div className="calendar-panel-row-right">
+                    <div className="calendar-controls-right">
+                      <div className="control-group">
+                        <label className="calendar-filter control-group-body">
+                          <span className="control-group-label">
+                            {uiText.dashboard.calendarFilterLabel}
+                          </span>
+                          <select
+                            value={selectedCalendarTechnician}
+                            onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
+                          >
+                            <option value="all">{uiText.dashboard.calendarFilterAll}</option>
+                            {technicianLegendItems.map((item) => (
+                              <option key={item.key} value={item.technicianName}>
+                                {item.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      {technicianLegendItems.length > 0 ? (
+                        <div
+                          className="calendar-legend control-group"
+                          aria-label={uiText.dashboard.calendarLegendTitle}
+                        >
+                          <span className="calendar-legend-title control-group-label">
+                            {uiText.dashboard.calendarLegendTitle}
+                          </span>
+                          <div className="calendar-legend-items control-group-body">
+                            {technicianLegendItems.map((item) => (
+                              <span key={item.key} className="calendar-legend-item">
+                                <span
+                                  className="calendar-legend-dot"
+                                  style={{ backgroundColor: item.color.accent }}
+                                />
+                                <span>{item.displayName}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="calendar-panel-row-left" />
+
+                  <div className="calendar-panel-row-right">
+                    <div className="calendar-controls-right service-list-controls">
+                      <div className="control-group">
+                        <label className="calendar-filter control-group-body">
+                          <span className="control-group-label">
+                            {uiText.serviceList.filters.client}
+                          </span>
+                          <input
+                            type="text"
+                            value={serviceListClientSearch}
+                            onChange={(event) => setServiceListClientSearch(event.target.value)}
+                            placeholder={uiText.serviceList.placeholders.clientSearch}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="control-group">
+                        <label className="calendar-filter control-group-body">
+                          <span className="control-group-label">
+                            {uiText.serviceList.filters.technician}
+                          </span>
+                          <select
+                            value={serviceListTechnician}
+                            onChange={(event) => setServiceListTechnician(event.target.value)}
+                          >
+                            <option value="all">{uiText.serviceList.filters.all}</option>
+                            {serviceListTechnicianOptions.map((technicianName) => (
+                              <option key={technicianName} value={technicianName}>
+                                {technicianName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="control-group">
+                        <label className="calendar-filter control-group-body">
+                          <span className="control-group-label">
+                            {uiText.serviceList.filters.recurring}
+                          </span>
+                          <select
+                            value={serviceListRecurring}
+                            onChange={(event) => setServiceListRecurring(event.target.value)}
+                          >
+                            <option value="all">{uiText.serviceList.filters.all}</option>
+                            <option value="yes">{uiText.serviceList.recurringYes}</option>
+                            <option value="no">{uiText.serviceList.recurringNo}</option>
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -3917,7 +4391,7 @@ export default function DashboardPage() {
             <p className="success-message">{calendarActionMessage}</p>
           ) : null}
 
-          {showOnlyOverdue ? (
+          {activeAdminView === adminViewTabs.calendar && showOnlyOverdue ? (
             <div className="overdue-active-banner">
               Mostrando solo pendientes de reagendar
             </div>
@@ -3936,59 +4410,149 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          {!calendarError && !isServiceOrdersLoading && filteredCalendarEvents.length === 0 ? (
+          {activeAdminView === adminViewTabs.calendar &&
+          !calendarError &&
+          !isServiceOrdersLoading &&
+          calendarView !== operationalCalendarView &&
+          filteredCalendarEvents.length === 0 ? (
             <div className="calendar-empty-state">
               <h3>{uiText.dashboard.calendarEmptyTitle}</h3>
               <p>{uiText.dashboard.calendarEmptyBody}</p>
             </div>
           ) : null}
 
-          {!calendarError && !isServiceOrdersLoading && filteredCalendarEvents.length > 0 ? (
+          {activeAdminView === adminViewTabs.calendar &&
+          !calendarError &&
+          !isServiceOrdersLoading ? (
             <div
-              className="calendar-shell"
-              onMouseDownCapture={handleCalendarMouseDownCapture}
-              onMouseUpCapture={handleCalendarMouseUpCapture}
+              className={
+                calendarView === operationalCalendarView
+                  ? "operational-calendar-layout"
+                  : undefined
+              }
             >
-              <DragAndDropCalendar
-                localizer={localizer}
-                messages={uiText.calendar.messages}
-                culture="es"
-                events={filteredCalendarEvents}
-                defaultView="week"
-                view={calendarView}
-                onView={setCalendarView}
-                views={["month", "week"]}
-                selectable
-                step={60}
-                timeslots={1}
-                startAccessor="start"
-                endAccessor="end"
-                onSelectEvent={handleSelectServiceOrder}
-                onSelectSlot={handleOpenQuickCreate}
-                onEventDrop={handleMoveServiceOrder}
-                onEventResize={handleResizeServiceOrder}
-                draggableAccessor={() => true}
-                resizable={calendarView === "week"}
-                eventPropGetter={getCalendarEventStyle}
-                style={{ height: 640 }}
-                components={{
-                  event: (eventProps) => (
-                    <EventCard
-                      {...eventProps}
-                      view={calendarView}
-                      onSelect={handleSelectServiceOrder}
-                      isSelected={eventProps.event?.id === selectedServiceOrderId}
-                    />
-                  ),
-                  eventWrapper: (wrapperProps) => (
-                    <CalendarEventWrapper
-                      {...wrapperProps}
-                      onSelect={handleSelectServiceOrder}
-                    />
-                  )
-                }}
-              />
+              {calendarView === operationalCalendarView ? (
+                <aside className="operational-backlog">
+                  <div className="operational-backlog-header">
+                    <h3>{uiText.dashboard.backlogTitle}</h3>
+                    <span>{backlogServiceOrders.length}</span>
+                  </div>
+                  <p className="operational-backlog-subtitle">
+                    {uiText.dashboard.backlogBody}
+                  </p>
+
+                  <div className="operational-backlog-list">
+                    {backlogServiceOrders.length === 0 ? (
+                      <p className="operational-backlog-empty">
+                        {uiText.dashboard.backlogEmpty}
+                      </p>
+                    ) : (
+                      backlogServiceOrders.map((serviceOrder) => (
+                        <button
+                          key={serviceOrder.id}
+                          type="button"
+                          draggable
+                          className={
+                            serviceOrder.id === selectedServiceOrderId
+                              ? "operational-backlog-card operational-backlog-card-selected"
+                              : "operational-backlog-card"
+                          }
+                          onClick={() => handleSelectServiceOrder(serviceOrder)}
+                          onDragStart={() => handleBacklogDragStart(serviceOrder)}
+                          onDragEnd={handleBacklogDragEnd}
+                        >
+                          <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
+                          <span>{getBranchDisplayName(serviceOrder.branches)}</span>
+                          <span>
+                            {formatServiceDate(serviceOrder.service_date)} ·{" "}
+                            {formatDisplayTime(serviceOrder.service_time)}
+                          </span>
+                          <span>
+                            {getTechnicianDisplayName(serviceOrder.technician_name)} ·{" "}
+                            {resolveDurationMinutes(serviceOrder.duration_minutes)} min
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </aside>
+              ) : null}
+
+              <div
+                className="calendar-shell"
+                onMouseDownCapture={handleCalendarMouseDownCapture}
+                onMouseUpCapture={handleCalendarMouseUpCapture}
+              >
+                <DragAndDropCalendar
+                  localizer={localizer}
+                  messages={uiText.calendar.messages}
+                  culture="es"
+                  events={filteredCalendarEvents}
+                  defaultView={operationalCalendarView}
+                  date={calendarDate}
+                  onNavigate={handleCalendarNavigate}
+                  view={calendarView}
+                  onView={handleCalendarViewChange}
+                  views={{
+                    [operationalCalendarView]: OperationalCalendarView,
+                    week: true,
+                    month: true
+                  }}
+                  selectable
+                  step={60}
+                  timeslots={1}
+                  startAccessor="start"
+                  endAccessor="end"
+                  onSelectEvent={handleSelectServiceOrder}
+                  onSelectSlot={handleOpenQuickCreate}
+                  onEventDrop={handleMoveServiceOrder}
+                  onEventResize={handleResizeServiceOrder}
+                  onDropFromOutside={
+                    calendarView === operationalCalendarView
+                      ? handleDropBacklogServiceOrder
+                      : undefined
+                  }
+                  dragFromOutsideItem={() =>
+                    draggedBacklogServiceOrder
+                      ? buildExternalDragPreview(draggedBacklogServiceOrder)
+                      : null
+                  }
+                  draggableAccessor={() => true}
+                  resizable={calendarView !== "month"}
+                  eventPropGetter={getCalendarEventStyle}
+                  style={{ height: 640 }}
+                  components={{
+                    event: (eventProps) => (
+                      <EventCard
+                        {...eventProps}
+                        view={calendarView}
+                        onSelect={handleSelectServiceOrder}
+                        isSelected={eventProps.event?.id === selectedServiceOrderId}
+                      />
+                    ),
+                    eventWrapper: (wrapperProps) => (
+                      <CalendarEventWrapper
+                        {...wrapperProps}
+                        onSelect={handleSelectServiceOrder}
+                      />
+                    )
+                  }}
+                />
+              </div>
             </div>
+          ) : null}
+
+          {activeAdminView === adminViewTabs.list ? (
+            <ServiceListView
+              serviceOrders={filteredServiceOrders}
+              selectedServiceOrderId={selectedServiceOrderId}
+              isLoading={isServiceOrdersLoading}
+              error={calendarError}
+              onSelectServiceOrder={handleSelectServiceOrder}
+              getClientDisplayName={getClientDisplayName}
+              getBranchDisplayName={getBranchDisplayName}
+              formatServiceDate={formatServiceDate}
+            />
           ) : null}
 
           <section className="workspace-panel">
@@ -4242,19 +4806,68 @@ export default function DashboardPage() {
                 </select>
               </label>
 
+              <label className="workspace-checkbox workspace-field-wide">
+                <input
+                  name="isRecurring"
+                  type="checkbox"
+                  checked={detailFormState.isRecurring}
+                  onChange={handleDetailFormChange}
+                  disabled={isSavingDetail}
+                />
+                <span>{uiText.serviceOrder.fields.isRecurring}</span>
+              </label>
+
+              {detailFormState.isRecurring ? (
+                <>
+                  <label className="workspace-input-group">
+                    <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                    <select
+                      name="recurrenceType"
+                      value={detailFormState.recurrenceType}
+                      onChange={handleDetailFormChange}
+                      disabled={isSavingDetail}
+                      required
+                    >
+                      <option value="" disabled>
+                        {uiText.serviceOrder.placeholders.recurrenceType}
+                      </option>
+                      <option value="daily">
+                        {uiText.serviceOrder.recurrenceOptions.daily}
+                      </option>
+                      <option value="weekly">
+                        {uiText.serviceOrder.recurrenceOptions.weekly}
+                      </option>
+                      <option value="biweekly">
+                        {uiText.serviceOrder.recurrenceOptions.biweekly}
+                      </option>
+                      <option value="monthly">
+                        {uiText.serviceOrder.recurrenceOptions.monthly}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                    <input
+                      name="recurrenceEndDate"
+                      type="date"
+                      value={detailFormState.recurrenceEndDate}
+                      onChange={handleDetailFormChange}
+                      disabled={isSavingDetail}
+                    />
+                  </label>
+                </>
+              ) : null}
+
               <label className="workspace-input-group">
                 <span>{uiText.dashboard.detailFields.status}</span>
-                <select
+                <SegmentedControl
                   name="status"
                   value={detailFormState.status}
                   onChange={handleDetailFormChange}
+                  options={serviceOrderStatusOptions}
                   disabled={isSavingDetail}
-                  required
-                >
-                  <option value="scheduled">{getStatusLabel("scheduled")}</option>
-                  <option value="completed">{getStatusLabel("completed")}</option>
-                  <option value="cancelled">{getStatusLabel("cancelled")}</option>
-                </select>
+                />
               </label>
 
               <div className="detail-row">
