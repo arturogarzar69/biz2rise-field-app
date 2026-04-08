@@ -125,6 +125,13 @@ export default function LoginPage() {
     return (
       <main className="page">
         <section className="card">
+          <div style={{ textAlign: "center", marginBottom: "24px" }}>
+            <img
+              src="/logo.svg"
+              alt="Biz2Rise"
+              style={{ maxWidth: "160px", height: "auto" }}
+            />
+          </div>
           <h1>{uiText.login.title}</h1>
           <p>{uiText.login.checkingSession}</p>
         </section>
@@ -135,6 +142,13 @@ export default function LoginPage() {
   return (
     <main className="page">
       <section className="card">
+        <div style={{ textAlign: "center", marginBottom: "24px" }}>
+          <img
+            src="/logo.svg"
+            alt="Biz2Rise"
+            style={{ maxWidth: "160px", height: "auto" }}
+          />
+        </div>
         <h1>{uiText.login.title}</h1>
         <p>{uiText.login.subtitle}</p>
 

@@ -45,13 +45,6 @@ const localizer = dateFnsLocalizer({
 
 const DragAndDropCalendar = withDragAndDrop(Calendar);
 
-const workspaceTabs = [
-  uiText.tabs.newServiceOrder,
-  uiText.tabs.clients,
-  uiText.tabs.technicians,
-  uiText.tabs.reports
-];
-
 const defaultClientSubTab = uiText.clients.subTabs.list;
 const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
 
@@ -89,6 +82,7 @@ const initialClientFormState = {
 };
 
 const initialDetailFormState = {
+  clientId: "",
   branchId: "",
   technicianName: "",
   serviceDate: "",
@@ -108,19 +102,6 @@ const initialBranchFormState = {
   notes: ""
 };
 
-const initialQuickClientState = {
-  name: "",
-  phone: "",
-  address: "",
-  clientType: "commercial"
-};
-
-const initialQuickBranchState = {
-  name: "",
-  address: ""
-};
-
-const quickCreateNewBranchOption = "__new_branch__";
 
 const technicianColorPalette = [
   { background: "#e9f2ff", border: "#bfd6ff", accent: "#1d4ed8", text: "#163b75" },
@@ -131,7 +112,6 @@ const technicianColorPalette = [
   { background: "#fff1f3", border: "#f4c6d1", accent: "#db2777", text: "#9d174d" }
 ];
 
-const quickCreateNewClientOption = "__new_client__";
 const serviceDurationOptions = [30, 60, 90, 120, 180];
 const minimumServiceDurationMinutes = 30;
 const defaultRecurrenceType = "weekly";
@@ -144,6 +124,13 @@ const adminViewTabs = {
   list: "list"
 };
 const operationalCalendarView = "operational";
+const calendarScrollToTime = addHours(startOfDay(new Date()), 6);
+const rightPanelModes = {
+  empty: "empty",
+  detail: "detail",
+  edit: "edit",
+  create: "create"
+};
 
 function getOperationalRange(anchorDate) {
   const normalizedAnchorDate = startOfDay(anchorDate || new Date());
@@ -218,6 +205,25 @@ function formatTimeSlot(totalMinutes) {
     value,
     label: formatDisplayTime(value)
   };
+}
+
+function parseTimeOptionToMinutes(timeValue) {
+  if (!timeValue) {
+    return null;
+  }
+
+  const match = String(timeValue).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const meridiem = match[3].toUpperCase();
+  const normalizedHours = hours % 12 + (meridiem === "PM" ? 12 : 0);
+
+  return normalizedHours * 60 + minutes;
 }
 
 function generateTimeSlots(startHour, endHour, intervalMinutes) {
@@ -311,6 +317,7 @@ function transformServiceOrdersToEvents(serviceOrders) {
       serviceOrder.service_time
     );
     const durationMinutes = resolveDurationMinutes(serviceOrder.duration_minutes);
+    const end = addMinutes(start, durationMinutes);
     const technicianColor = getTechnicianColorToken(serviceOrder.technician_name);
     const clientName = getClientDisplayName(serviceOrder.clients);
     const branchName = getBranchDisplayName(serviceOrder.branches);
@@ -342,10 +349,13 @@ function transformServiceOrdersToEvents(serviceOrders) {
         `Cliente: ${clientName || "-"}`,
         `Sucursal: ${branchName || uiText.dashboard.branchEmpty}`,
         `Tecnico: ${getTechnicianDisplayName(serviceOrder.technician_name)}`,
-        `Hora: ${formatDisplayTime(serviceOrder.service_time) || "-"}`
+        `Hora: ${formatDisplayTime(serviceOrder.service_time) || "-"} - ${
+          formatDisplayTime(format(end, "h:mm a").toUpperCase()) || "-"
+        }`,
+        `Duracion: ${durationMinutes} min`
       ].join("\n"),
       start,
-      end: addMinutes(start, durationMinutes)
+      end
     };
   });
 }
@@ -433,7 +443,42 @@ function getServiceTimeFromCalendarSlot(slotDate, calendarView, serviceTimeOptio
     (timeOption) => timeOption.value === rawValue
   );
 
-  return matchingOption?.value || initialFormState.serviceTime;
+  if (matchingOption?.value) {
+    return matchingOption.value;
+  }
+
+  const slotMinutes = slotDate.getHours() * 60 + slotDate.getMinutes();
+  const nearestTimeOption = serviceTimeOptions.reduce((closestOption, timeOption) => {
+    const optionMinutes = parseTimeOptionToMinutes(timeOption.value);
+
+    if (optionMinutes === null) {
+      return closestOption;
+    }
+
+    if (!closestOption) {
+      return {
+        value: timeOption.value,
+        distance: Math.abs(optionMinutes - slotMinutes)
+      };
+    }
+
+    const optionDistance = Math.abs(optionMinutes - slotMinutes);
+
+    return optionDistance < closestOption.distance
+      ? {
+          value: timeOption.value,
+          distance: optionDistance
+        }
+      : closestOption;
+  }, null);
+
+  console.log("[Backlog DnD Debug] normalized slot to nearest service time option:", {
+    rawValue,
+    slotMinutes,
+    nearestTimeOption: nearestTimeOption?.value || null
+  });
+
+  return nearestTimeOption?.value || initialFormState.serviceTime;
 }
 
 function getServiceDateFromCalendarSlot(slotDate) {
@@ -575,8 +620,11 @@ function EventCard({ event, view, onSelect, isSelected }) {
     >
       <div className="calendar-event-week-accent" />
       <div className="calendar-event-week-copy">
-        <strong>{event.clientName}</strong>
-        <span>{event.branchName}</span>
+        <strong className="calendar-event-week-primary">{event.clientName}</strong>
+        <span className="calendar-event-week-secondary">{event.branchName}</span>
+        <span className="calendar-event-week-tertiary">
+          {event.technicianDisplayName} · {event.durationMinutes} min
+        </span>
       </div>
       {event.isOverdue ? (
         <span className="calendar-event-overdue-badge">
@@ -665,6 +713,48 @@ function CalendarEventWrapper({ children, event, onSelect }) {
       handleClickCapture(nativeEvent);
     }
   });
+}
+
+function CalendarToolbar({ label, localizer, onNavigate, onView, view, views }) {
+  const viewNames = Array.isArray(views) ? views : Object.keys(views || {});
+  const messages = localizer.messages;
+
+  return (
+    <div className="calendar-toolbar">
+      <div className="calendar-toolbar-zone calendar-toolbar-zone-left">
+        <div className="calendar-toolbar-group">
+          <button type="button" onClick={() => onNavigate("TODAY")}>
+            {messages.today}
+          </button>
+          <button type="button" onClick={() => onNavigate("PREV")}>
+            {messages.previous}
+          </button>
+          <button type="button" onClick={() => onNavigate("NEXT")}>
+            {messages.next}
+          </button>
+        </div>
+      </div>
+
+      <div className="calendar-toolbar-zone calendar-toolbar-zone-center">
+        <span className="calendar-toolbar-label">{label}</span>
+      </div>
+
+      <div className="calendar-toolbar-zone calendar-toolbar-zone-right">
+        <div className="calendar-toolbar-group">
+          {viewNames.map((viewName) => (
+            <button
+              key={viewName}
+              type="button"
+              className={view === viewName ? "rbc-active" : undefined}
+              onClick={() => onView(viewName)}
+            >
+              {messages[viewName]}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function WorkspacePanel({
@@ -1704,7 +1794,8 @@ export default function DashboardPage() {
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [selectedServiceOrderId, setSelectedServiceOrderId] = useState(null);
   const [selectedServiceOrderSnapshot, setSelectedServiceOrderSnapshot] = useState(null);
-  const [activeTab, setActiveTab] = useState(uiText.tabs.newServiceOrder);
+  const [rightPanelMode, setRightPanelMode] = useState(rightPanelModes.empty);
+  const [activeTab] = useState(uiText.tabs.newServiceOrder);
   const [clients, setClients] = useState([]);
   const [clientsError, setClientsError] = useState("");
   const [isClientsLoading, setIsClientsLoading] = useState(false);
@@ -1727,21 +1818,6 @@ export default function DashboardPage() {
   const [formMessage, setFormMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSavingOrder, setIsSavingOrder] = useState(false);
-  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
-  const [quickCreateState, setQuickCreateState] = useState(initialFormState);
-  const [quickCreateError, setQuickCreateError] = useState("");
-  const [quickCreateMessage, setQuickCreateMessage] = useState("");
-  const [isInlineQuickClientOpen, setIsInlineQuickClientOpen] = useState(false);
-  const [quickClientState, setQuickClientState] = useState(initialQuickClientState);
-  const [quickClientError, setQuickClientError] = useState("");
-  const [quickClientMessage, setQuickClientMessage] = useState("");
-  const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
-  const [isInlineQuickBranchOpen, setIsInlineQuickBranchOpen] = useState(false);
-  const [quickBranchState, setQuickBranchState] = useState(initialQuickBranchState);
-  const [quickBranchError, setQuickBranchError] = useState("");
-  const [quickBranchMessage, setQuickBranchMessage] = useState("");
-  const [isSavingQuickBranch, setIsSavingQuickBranch] = useState(false);
-  const [isQuickCreatingOrder, setIsQuickCreatingOrder] = useState(false);
   const [technicians, setTechnicians] = useState([]);
   const [techniciansError, setTechniciansError] = useState("");
   const [isTechniciansLoading, setIsTechniciansLoading] = useState(false);
@@ -1757,7 +1833,11 @@ export default function DashboardPage() {
   const [detailFormMessage, setDetailFormMessage] = useState("");
   const [detailFormError, setDetailFormError] = useState("");
   const [isSavingDetail, setIsSavingDetail] = useState(false);
+  const [isConfirmingDeleteServiceOrder, setIsConfirmingDeleteServiceOrder] = useState(false);
+  const [isDeletingServiceOrder, setIsDeletingServiceOrder] = useState(false);
   const detailDateInputRef = useRef(null);
+  const draggedBacklogServiceOrderRef = useRef(null);
+  const externalDragCleanupTimeoutRef = useRef(null);
   const calendarPointerStateRef = useRef({
     serviceOrderId: null,
     x: 0,
@@ -1857,6 +1937,12 @@ export default function DashboardPage() {
         }),
     [selectedCalendarTechnician, serviceOrders]
   );
+  const hasExistingServiceOrderData = serviceOrders.length > 0 || calendarEvents.length > 0;
+  const shouldKeepCalendarVisibleDuringRefresh =
+    isServiceOrdersLoading && hasExistingServiceOrderData;
+  const shouldRenderCalendarContent =
+    !calendarError &&
+    (shouldKeepCalendarVisibleDuringRefresh || !isServiceOrdersLoading);
   const serviceListTechnicianOptions = useMemo(
     () =>
       Array.from(
@@ -1902,14 +1988,12 @@ export default function DashboardPage() {
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
   const preferredResidentialBranch = resolvePreferredBranch(availableBranches);
-  const quickAvailableBranches = branchesByClientId[quickCreateState.clientId] || [];
-  const selectedQuickClient =
-    clients.find((client) => client.id === quickCreateState.clientId) || null;
-  const isResidentialQuickClient = isResidentialClient(selectedQuickClient?.client_type);
-  const preferredQuickResidentialBranch = resolvePreferredBranch(quickAvailableBranches);
-  const selectedDetailClient = selectedServiceOrder?.clients || null;
+  const selectedDetailClient =
+    clients.find((client) => client.id === detailFormState.clientId) ||
+    selectedServiceOrder?.clients ||
+    null;
   const isResidentialDetailClient = isResidentialClient(selectedDetailClient?.client_type);
-  const detailAvailableBranches = branchesByClientId[selectedServiceOrder?.client_id] || [];
+  const detailAvailableBranches = branchesByClientId[detailFormState.clientId] || [];
   const preferredDetailResidentialBranch = resolvePreferredBranch(detailAvailableBranches);
   const isSelectedServiceOrderOverdue = selectedServiceOrder
     ? isOverdueServiceOrder(
@@ -1919,6 +2003,27 @@ export default function DashboardPage() {
         selectedServiceOrder.duration_minutes
       )
     : false;
+  const selectedOrder = selectedServiceOrder;
+  const selectedTechnician = selectedCalendarTechnician;
+  const viewMode = calendarView === "month" ? "month" : "week";
+  const focusedDate = calendarDate;
+  const pendingOrders = backlogServiceOrders;
+  const todayOrdersCount = useMemo(
+    () =>
+      serviceOrders.filter(
+        (serviceOrder) =>
+          serviceOrder.service_date === getTodayDateString() && serviceOrder.status !== "cancelled"
+      ).length,
+    [serviceOrders]
+  );
+  const completedTodayCount = useMemo(
+    () =>
+      serviceOrders.filter(
+        (serviceOrder) =>
+          serviceOrder.service_date === getTodayDateString() && serviceOrder.status === "completed"
+      ).length,
+    [serviceOrders]
+  );
 
   const fetchUserProfile = async (supabase, userId) => {
     const { data, error } = await supabase
@@ -1956,6 +2061,7 @@ export default function DashboardPage() {
     }
 
     setIsServiceOrdersLoading(true);
+    console.log("[Backlog DnD Debug] fetchServiceOrders start:", { companyId });
 
     // Read service orders together with the related client record so each
     // calendar event can show the customer's name without extra requests.
@@ -1999,6 +2105,7 @@ export default function DashboardPage() {
 
     if (error) {
       setIsServiceOrdersLoading(false);
+      console.error("[Backlog DnD Debug] fetchServiceOrders error:", error);
       throw error;
     }
 
@@ -2036,6 +2143,9 @@ export default function DashboardPage() {
       return nextSelectionExists;
     });
     setIsServiceOrdersLoading(false);
+    console.log("[Backlog DnD Debug] fetchServiceOrders complete:", {
+      count: (serviceOrders || []).length
+    });
   };
 
   const fetchTechnicianOrders = async (supabase, companyId, technicianName) => {
@@ -2319,6 +2429,67 @@ export default function DashboardPage() {
     setIsTechniciansLoading(false);
   };
 
+  const applyOptimisticServiceOrderPatch = (serviceOrderId, patch) => {
+    if (!serviceOrderId) {
+      return;
+    }
+
+    setServiceOrders((currentServiceOrders) => {
+      let didUpdate = false;
+      const nextServiceOrders = currentServiceOrders.map((serviceOrder) => {
+        if (serviceOrder.id !== serviceOrderId) {
+          return serviceOrder;
+        }
+
+        didUpdate = true;
+        return {
+          ...serviceOrder,
+          ...patch
+        };
+      });
+
+      if (!didUpdate) {
+        return currentServiceOrders;
+      }
+
+      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
+      setSelectedServiceOrderSnapshot((currentSnapshot) =>
+        currentSnapshot?.id === serviceOrderId
+          ? {
+              ...currentSnapshot,
+              ...patch
+            }
+          : currentSnapshot
+      );
+
+      return nextServiceOrders;
+    });
+  };
+
+  const appendLocalServiceOrder = (serviceOrder, { selectOnInsert = false } = {}) => {
+    if (!serviceOrder?.id) {
+      return;
+    }
+
+    setServiceOrders((currentServiceOrders) => {
+      const nextServiceOrders = [...currentServiceOrders, serviceOrder].sort((left, right) => {
+        const leftStart = parseServiceOrderStart(left.service_date, left.service_time);
+        const rightStart = parseServiceOrderStart(right.service_date, right.service_time);
+
+        return leftStart.getTime() - rightStart.getTime();
+      });
+
+      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
+
+      if (selectOnInsert) {
+        setSelectedServiceOrderId(serviceOrder.id);
+        setSelectedServiceOrderSnapshot(serviceOrder);
+      }
+
+      return nextServiceOrders;
+    });
+  };
+
   const resolveServiceOrderBranchId = (selectedClient, selectedBranchId, branchesForClient) => {
     if (isResidentialClient(selectedClient?.client_type)) {
       return resolvePreferredBranch(branchesForClient)?.id || null;
@@ -2339,13 +2510,6 @@ export default function DashboardPage() {
   }) => {
     setError("");
     setSuccess("");
-
-    const supabase = getSupabaseClient();
-
-    if (!supabase) {
-      setError(uiText.serviceOrder.configError);
-      return;
-    }
 
     if (!activeCompanyId) {
       setError(uiText.dashboard.profileLoadError);
@@ -2382,7 +2546,16 @@ export default function DashboardPage() {
 
     setSaving(true);
 
-    const payload = {
+    const resolvedClient =
+      clients.find((client) => client.id === orderState.clientId) || selectedClient || null;
+    const resolvedBranch =
+      branchesForClient.find((branch) => branch.id === resolvedBranchId) || null;
+
+    const nextServiceOrder = {
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `local-${Date.now()}`,
       company_id: activeCompanyId,
       client_id: orderState.clientId,
       branch_id: resolvedBranchId,
@@ -2391,26 +2564,17 @@ export default function DashboardPage() {
       service_time: orderState.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
       status: orderState.status,
+      created_at: new Date().toISOString(),
+      notes: orderState.notes || "",
+      clients: resolvedClient,
+      branches: resolvedBranch,
       ...buildRecurrencePayload(orderState)
     };
 
-    const { error } = await supabase.from("service_orders").insert(payload);
-
-    if (error) {
-      setError(error.message || uiText.serviceOrder.createError);
-      setSaving(false);
-      return;
-    }
-
-    try {
-      await fetchServiceOrders(supabase, activeCompanyId);
-      setSuccess(uiText.serviceOrder.success);
-      resetState();
-      onSuccess?.();
-    } catch (_refreshError) {
-      setCalendarError(uiText.serviceOrder.refreshError);
-    }
-
+    appendLocalServiceOrder(nextServiceOrder, { selectOnInsert: true });
+    setSuccess(uiText.serviceOrder.success);
+    resetState();
+    onSuccess?.(nextServiceOrder);
     setSaving(false);
   };
 
@@ -2423,18 +2587,22 @@ export default function DashboardPage() {
     excludeOrderId = null
   }) => {
     if (!companyId || !technicianName || !serviceDate || !serviceTime) {
-      return false;
-    }
-
-    const supabase = getSupabaseClient();
-
-    if (!supabase) {
+      console.log("[Backlog DnD Debug] conflict check skipped:", {
+        companyId,
+        technicianName,
+        serviceDate,
+        serviceTime
+      });
       return false;
     }
 
     const candidateStart = parseServiceOrderStart(serviceDate, serviceTime);
 
     if (!isValid(candidateStart)) {
+      console.warn("[Backlog DnD Debug] conflict check skipped: invalid candidate start", {
+        serviceDate,
+        serviceTime
+      });
       return false;
     }
 
@@ -2443,20 +2611,23 @@ export default function DashboardPage() {
       resolveDurationMinutes(durationMinutes)
     );
 
-    const { data, error } = await supabase
-      .from("service_orders")
-      .select("id, service_date, service_time, status, duration_minutes")
-      .eq("company_id", companyId)
-      .eq("technician_name", technicianName)
-      .eq("service_date", serviceDate)
-      .in("status", ["scheduled"])
-      .order("service_time", { ascending: true });
+    const hasConflict = serviceOrders.some((serviceOrder) => {
+      if (serviceOrder.company_id !== companyId) {
+        return false;
+      }
 
-    if (error || !data) {
-      return false;
-    }
+      if (serviceOrder.technician_name !== technicianName) {
+        return false;
+      }
 
-    return data.some((serviceOrder) => {
+      if (serviceOrder.service_date !== serviceDate) {
+        return false;
+      }
+
+      if (serviceOrder.status !== "scheduled") {
+        return false;
+      }
+
       if (excludeOrderId && serviceOrder.id === excludeOrderId) {
         return false;
       }
@@ -2481,6 +2652,17 @@ export default function DashboardPage() {
 
       return rangesOverlap(candidateStart, candidateEnd, existingStart, existingEnd);
     });
+
+    console.log("[Backlog DnD Debug] conflict check result:", {
+      technicianName,
+      serviceDate,
+      serviceTime,
+      durationMinutes: resolveDurationMinutes(durationMinutes),
+      excludeOrderId,
+      hasConflict
+    });
+
+    return hasConflict;
   };
 
   const updateServiceOrderSchedule = async ({
@@ -2490,10 +2672,12 @@ export default function DashboardPage() {
     serviceTime,
     durationMinutes,
     status,
+    clientId = undefined,
     recurrenceState = null,
     existingOrder = null,
     branchId = undefined,
-    excludeOrderId = null
+    excludeOrderId = null,
+    skipConflictCheck = false
   }) => {
     if (!serviceOrderId) {
       throw new Error(uiText.dashboard.detailError);
@@ -2503,24 +2687,32 @@ export default function DashboardPage() {
       throw new Error(uiText.dashboard.profileLoadError);
     }
 
-    const supabase = getSupabaseClient();
+    if (!skipConflictCheck) {
+      const hasConflict = await checkTechnicianScheduleConflict({
+        companyId: activeCompanyId,
+        technicianName,
+        serviceDate,
+        serviceTime,
+        durationMinutes,
+        excludeOrderId
+      });
 
-    if (!supabase) {
-      throw new Error(uiText.serviceOrder.configError);
+      if (hasConflict) {
+        throw new Error(uiText.serviceOrder.technicianConflict);
+      }
     }
 
-    const hasConflict = await checkTechnicianScheduleConflict({
-      companyId: activeCompanyId,
-      technicianName,
+    console.log("[Backlog DnD Debug] updateServiceOrderSchedule normalized input:", {
+      serviceOrderId,
+      technicianBefore: existingOrder?.technician_name || technicianName,
+      technicianAfter: technicianName,
       serviceDate,
       serviceTime,
-      durationMinutes,
-      excludeOrderId
+      durationMinutes: resolveDurationMinutes(durationMinutes),
+      branchId,
+      clientId,
+      recurrenceGroupId: existingOrder?.recurrence_group_id || null
     });
-
-    if (hasConflict) {
-      throw new Error(uiText.serviceOrder.technicianConflict);
-    }
 
     const payload = {
       technician_name: technicianName,
@@ -2538,39 +2730,59 @@ export default function DashboardPage() {
       payload.branch_id = branchId;
     }
 
-    const { error } = await supabase
-      .from("service_orders")
-      .update(payload)
-      .eq("id", serviceOrderId)
-      .eq("company_id", activeCompanyId);
-
-    if (error) {
-      throw new Error(error.message || uiText.dashboard.detailError);
+    if (clientId !== undefined) {
+      payload.client_id = clientId;
+      payload.clients = clients.find((client) => client.id === clientId) || null;
     }
 
-    await fetchServiceOrders(supabase, activeCompanyId);
+    if (branchId !== undefined) {
+      const availableClientBranches = branchesByClientId[clientId || existingOrder?.client_id] || [];
+      payload.branches =
+        availableClientBranches.find((branch) => branch.id === branchId) ||
+        existingOrder?.branches ||
+        null;
+    }
+
+    applyOptimisticServiceOrderPatch(serviceOrderId, payload);
+    console.log("[Backlog DnD Debug] updateServiceOrderSchedule success:", {
+      serviceOrderId,
+      payload
+    });
   };
 
   const getCalendarEventStyle = (event) => ({
     style: {
       background: event?.isOverdue
-        ? "color-mix(in srgb, #fff4f2 72%, " +
+        ? "color-mix(in srgb, #fff2ef " +
+          (showOnlyOverdue ? "78%" : "72%") +
+          ", " +
           (event?.technicianColor?.background || "#edf2f7") +
-          " 28%)"
-        : event?.technicianColor?.background || "#edf2f7",
+          " " +
+          (showOnlyOverdue ? "22%" : "28%") +
+          ")"
+        : "color-mix(in srgb, " +
+          (event?.technicianColor?.background || "#edf2f7") +
+          " 92%, #ffffff 8%)",
       borderColor: event?.isOverdue
-        ? "#f4b6a8"
+        ? showOnlyOverdue
+          ? "#e98f7d"
+          : "#f4b6a8"
         : event?.technicianColor?.border || "#d7e0ea",
       color: event?.isOverdue
         ? "#9f2d16"
         : event?.technicianColor?.text || "#334155",
       boxShadow: `0 3px 10px ${
-        (event?.isOverdue ? "#c2410c" : event?.technicianColor?.accent || "#64748b") +
-        "18"
-      }`
+        (event?.isOverdue
+          ? showOnlyOverdue
+            ? "#c2410c26"
+            : "#c2410c18"
+          : (event?.technicianColor?.accent || "#64748b") + "18")
+      }`,
+      borderLeftWidth: "4px"
     },
     className: [
       event?.isOverdue ? "calendar-event-overdue" : "",
+      event?.isOverdue && showOnlyOverdue ? "calendar-event-overdue-filtered" : "",
       event?.id === selectedServiceOrderId ? "calendar-event-shell-selected" : ""
     ]
       .filter(Boolean)
@@ -2837,7 +3049,7 @@ export default function DashboardPage() {
       !supabase ||
       !activeCompanyId ||
       isTechnicianUser ||
-      (!isQuickCreateOpen &&
+      (rightPanelMode !== rightPanelModes.create &&
         activeTab !== uiText.tabs.newServiceOrder &&
         activeTab !== uiText.tabs.clients) ||
       clients.length > 0
@@ -2846,7 +3058,7 @@ export default function DashboardPage() {
     }
 
     fetchClients(supabase, activeCompanyId);
-  }, [activeCompanyId, activeTab, clients.length, isQuickCreateOpen, isTechnicianUser]);
+  }, [activeCompanyId, activeTab, clients.length, isTechnicianUser, rightPanelMode]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -2855,7 +3067,7 @@ export default function DashboardPage() {
       !supabase ||
       !activeCompanyId ||
       isTechnicianUser ||
-      (!isQuickCreateOpen &&
+      (rightPanelMode !== rightPanelModes.create &&
         activeTab !== uiText.tabs.technicians &&
         activeTab !== uiText.tabs.newServiceOrder) ||
       technicians.length > 0
@@ -2868,8 +3080,8 @@ export default function DashboardPage() {
     activeCompanyId,
     activeTab,
     technicians.length,
-    isQuickCreateOpen,
-    isTechnicianUser
+    isTechnicianUser,
+    rightPanelMode
   ]);
 
   useEffect(() => {
@@ -2881,16 +3093,6 @@ export default function DashboardPage() {
 
     fetchBranchesForClient(supabase, formState.clientId, activeCompanyId);
   }, [activeCompanyId, clients, formState.clientId]);
-
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    if (!supabase || !activeCompanyId || !quickCreateState.clientId) {
-      return;
-    }
-
-    fetchBranchesForClient(supabase, quickCreateState.clientId, activeCompanyId);
-  }, [activeCompanyId, clients, quickCreateState.clientId]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -2907,11 +3109,17 @@ export default function DashboardPage() {
       setDetailFormState(initialDetailFormState);
       setDetailFormMessage("");
       setDetailFormError("");
+      setIsConfirmingDeleteServiceOrder(false);
+      setIsDeletingServiceOrder(false);
+      setRightPanelMode((currentMode) =>
+        currentMode === rightPanelModes.create ? currentMode : rightPanelModes.empty
+      );
       return;
     }
 
     // Mirror the selected order into local form state so the side panel can edit it.
     setDetailFormState({
+      clientId: selectedServiceOrder.client_id || "",
       branchId: selectedServiceOrder.branch_id || "",
       technicianName: selectedServiceOrder.technician_name || "",
       serviceDate: selectedServiceOrder.service_date || "",
@@ -2922,6 +3130,8 @@ export default function DashboardPage() {
     });
     setDetailFormMessage("");
     setDetailFormError("");
+    setIsConfirmingDeleteServiceOrder(false);
+    setRightPanelMode(rightPanelModes.detail);
   }, [selectedServiceOrder]);
 
   useEffect(() => {
@@ -2964,12 +3174,12 @@ export default function DashboardPage() {
   useEffect(() => {
     const supabase = getSupabaseClient();
 
-    if (!supabase || !activeCompanyId || !selectedServiceOrder?.client_id) {
+    if (!supabase || !activeCompanyId || !detailFormState.clientId) {
       return;
     }
 
-    fetchBranchesForClient(supabase, selectedServiceOrder.client_id, activeCompanyId);
-  }, [activeCompanyId, selectedServiceOrder?.client_id]);
+    fetchBranchesForClient(supabase, detailFormState.clientId, activeCompanyId);
+  }, [activeCompanyId, detailFormState.clientId]);
 
   useEffect(() => {
     if (!selectedServiceOrder) {
@@ -3072,57 +3282,6 @@ export default function DashboardPage() {
       recurrenceEndDate:
         name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
       [name]: type === "checkbox" ? checked : value
-    }));
-  };
-
-  const handleQuickCreateChange = (event) => {
-    const { name, value } = event.target;
-
-    setQuickCreateError("");
-    setQuickCreateMessage("");
-
-    if (name === "clientId" && value === quickCreateNewClientOption) {
-      setIsInlineQuickClientOpen(true);
-      setIsInlineQuickBranchOpen(false);
-      setQuickClientError("");
-      setQuickClientMessage("");
-      return;
-    }
-
-    if (name === "branchId" && value === quickCreateNewBranchOption) {
-      setIsInlineQuickBranchOpen(true);
-      setIsInlineQuickClientOpen(false);
-      setQuickBranchError("");
-      setQuickBranchMessage("");
-      return;
-    }
-
-    setQuickCreateState((currentState) => ({
-      ...currentState,
-      branchId: name === "clientId" ? "" : currentState.branchId,
-      [name]: value
-    }));
-  };
-
-  const handleQuickClientChange = (event) => {
-    const { name, value } = event.target;
-
-    setQuickClientError("");
-    setQuickClientMessage("");
-    setQuickClientState((currentState) => ({
-      ...currentState,
-      [name]: value
-    }));
-  };
-
-  const handleQuickBranchChange = (event) => {
-    const { name, value } = event.target;
-
-    setQuickBranchError("");
-    setQuickBranchMessage("");
-    setQuickBranchState((currentState) => ({
-      ...currentState,
-      [name]: value
     }));
   };
 
@@ -3257,6 +3416,7 @@ export default function DashboardPage() {
 
     setDetailFormState((currentState) => ({
       ...currentState,
+      branchId: name === "clientId" ? "" : currentState.branchId,
       recurrenceType:
         name === "isRecurring" && checked === false
           ? defaultRecurrenceType
@@ -3276,20 +3436,21 @@ export default function DashboardPage() {
       setError: setFormError,
       setSuccess: setFormMessage,
       setSaving: setIsSavingOrder,
-      resetState: () => setFormState(initialFormState)
+      resetState: () => setFormState(initialFormState),
+      onSuccess: () => {
+        setRightPanelMode(rightPanelModes.detail);
+      }
     });
   };
 
   const handleOpenQuickCreate = (slotInfo) => {
     const slotStart = slotInfo?.start instanceof Date ? slotInfo.start : new Date();
 
-    setQuickCreateError("");
-    setQuickCreateMessage("");
-    setIsInlineQuickClientOpen(false);
-    setQuickClientState(initialQuickClientState);
-    setQuickClientError("");
-    setQuickClientMessage("");
-    setQuickCreateState({
+    setSelectedServiceOrderId(null);
+    setSelectedServiceOrderSnapshot(null);
+    setFormError("");
+    setFormMessage("");
+    setFormState({
       ...initialFormState,
       serviceDate: getServiceDateFromCalendarSlot(slotStart),
       serviceTime: getServiceTimeFromCalendarSlot(
@@ -3298,110 +3459,14 @@ export default function DashboardPage() {
         serviceTimeOptions
       )
     });
-    setIsQuickCreateOpen(true);
+    setRightPanelMode(rightPanelModes.create);
   };
 
   const handleCloseQuickCreate = () => {
-    setIsQuickCreateOpen(false);
-    setQuickCreateState(initialFormState);
-    setQuickCreateError("");
-    setQuickCreateMessage("");
-    setIsInlineQuickClientOpen(false);
-    setQuickClientState(initialQuickClientState);
-    setQuickClientError("");
-    setQuickClientMessage("");
-    setIsInlineQuickBranchOpen(false);
-    setQuickBranchState(initialQuickBranchState);
-    setQuickBranchError("");
-    setQuickBranchMessage("");
-  };
-
-  const handleBackToQuickOrder = () => {
-    setIsInlineQuickClientOpen(false);
-    setQuickClientError("");
-    setQuickClientMessage("");
-    setIsInlineQuickBranchOpen(false);
-    setQuickBranchError("");
-    setQuickBranchMessage("");
-  };
-
-  const handleQuickCreateClient = async (event) => {
-    event.preventDefault();
-    setQuickClientError("");
-    setQuickClientMessage("");
-    setIsSavingQuickClient(true);
-
-    try {
-      const savedClient = await saveClientRecord({
-        clientState: {
-          clientType: quickClientState.clientType,
-          businessName: quickClientState.name,
-          tradeName: "",
-          taxId: "",
-          mainAddress: quickClientState.address,
-          mainPhone: quickClientState.phone,
-          mainContact: "",
-          mainEmail: ""
-        }
-      });
-
-      setQuickCreateState((currentState) => ({
-        ...currentState,
-        clientId: savedClient.id,
-        branchId: ""
-      }));
-      setQuickClientState(initialQuickClientState);
-      setQuickClientMessage(uiText.clients.success);
-      setIsInlineQuickClientOpen(false);
-    } catch (error) {
-      setQuickClientError(error.message || uiText.serviceOrder.quickCreate.clientCreateError);
-    }
-
-    setIsSavingQuickClient(false);
-  };
-
-  const handleQuickCreateBranch = async (event) => {
-    event.preventDefault();
-    setQuickBranchError("");
-    setQuickBranchMessage("");
-    setIsSavingQuickBranch(true);
-
-    try {
-      const savedBranch = await saveBranchRecord({
-        branchState: quickBranchState,
-        clientId: quickCreateState.clientId,
-        preserveOrderClient: true
-      });
-
-      setQuickCreateState((currentState) => ({
-        ...currentState,
-        branchId: savedBranch.id
-      }));
-      setQuickBranchState(initialQuickBranchState);
-      setQuickBranchMessage(uiText.clients.branchCreateSuccess);
-      setIsInlineQuickBranchOpen(false);
-    } catch (error) {
-      setQuickBranchError(error.message || uiText.serviceOrder.quickCreate.branchCreateError);
-    }
-
-    setIsSavingQuickBranch(false);
-  };
-
-  const handleQuickCreateServiceOrder = async (event) => {
-    event.preventDefault();
-
-    await createServiceOrderWithState({
-      orderState: quickCreateState,
-      selectedClient: selectedQuickClient,
-      branchesForClient: quickAvailableBranches,
-      setError: setQuickCreateError,
-      setSuccess: setQuickCreateMessage,
-      setSaving: setIsQuickCreatingOrder,
-      resetState: () => setQuickCreateState(initialFormState),
-      onSuccess: () => {
-        handleCloseQuickCreate();
-      }
-    });
+    setFormState(initialFormState);
+    setFormError("");
+    setFormMessage("");
+    setRightPanelMode(selectedServiceOrder ? rightPanelModes.detail : rightPanelModes.empty);
   };
 
   const handleCreateClient = async (event) => {
@@ -3580,10 +3645,45 @@ export default function DashboardPage() {
     console.log("[Service Order Debug] Resolved order candidate:", resolvedServiceOrder);
     setSelectedServiceOrderId(resolvedServiceOrder.id);
     setSelectedServiceOrderSnapshot(resolvedServiceOrder);
+    setRightPanelMode(rightPanelModes.detail);
     console.log("[Service Order Debug] Saving selection:", {
       selectedServiceOrderId: resolvedServiceOrder.id,
       selectedServiceOrderSnapshot: resolvedServiceOrder
     });
+  };
+
+  const handleOpenCreatePanel = () => {
+    setActiveAdminView(adminViewTabs.calendar);
+    handleOpenQuickCreate();
+  };
+
+  const handleViewToday = () => {
+    setActiveAdminView(adminViewTabs.calendar);
+    setCalendarView(operationalCalendarView);
+    setCalendarDate(startOfDay(new Date()));
+    setShowOnlyOverdue(false);
+  };
+
+  const handleViewPending = () => {
+    setActiveAdminView(adminViewTabs.calendar);
+    setCalendarView(operationalCalendarView);
+    setShowOnlyOverdue(true);
+  };
+
+  const handleSelectBacklogServiceOrder = (serviceOrder) => {
+    const serviceOrderStart = parseServiceOrderStart(
+      serviceOrder?.service_date,
+      serviceOrder?.service_time
+    );
+
+    setActiveAdminView(adminViewTabs.calendar);
+    setCalendarView(operationalCalendarView);
+
+    if (isValid(serviceOrderStart)) {
+      setCalendarDate(startOfDay(serviceOrderStart));
+    }
+
+    handleSelectServiceOrder(serviceOrder);
   };
 
   const handleCalendarMouseDownCapture = (nativeEvent) => {
@@ -3672,6 +3772,7 @@ export default function DashboardPage() {
     try {
       await updateServiceOrderSchedule({
         serviceOrderId: selectedServiceOrderId,
+        clientId: detailFormState.clientId,
         technicianName: detailFormState.technicianName.trim(),
         serviceDate: detailFormState.serviceDate,
         serviceTime: detailFormState.serviceTime.trim(),
@@ -3685,11 +3786,60 @@ export default function DashboardPage() {
         excludeOrderId: selectedServiceOrderId
       });
       setDetailFormMessage(uiText.dashboard.detailSuccess);
+      setRightPanelMode(rightPanelModes.detail);
     } catch (error) {
       setDetailFormError(error.message || uiText.dashboard.detailError);
     }
 
     setIsSavingDetail(false);
+  };
+
+  const handleDeleteServiceOrder = async () => {
+    if (!selectedServiceOrderId) {
+      return;
+    }
+
+    if (!activeCompanyId) {
+      setDetailFormError(uiText.dashboard.profileLoadError);
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setDetailFormError(uiText.serviceOrder.configError);
+      return;
+    }
+
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+    setIsDeletingServiceOrder(true);
+
+    try {
+      const { error } = await supabase
+        .from("service_orders")
+        .delete()
+        .eq("id", selectedServiceOrderId)
+        .eq("company_id", activeCompanyId);
+
+      if (error) {
+        throw new Error(error.message || uiText.dashboard.detailDeleteError);
+      }
+
+      await fetchServiceOrders(supabase, activeCompanyId);
+      setSelectedServiceOrderId(null);
+      setSelectedServiceOrderSnapshot(null);
+      setDetailFormState(initialDetailFormState);
+      setRightPanelMode(rightPanelModes.empty);
+      setCalendarActionMessage(uiText.dashboard.detailDeleteSuccess);
+      setIsConfirmingDeleteServiceOrder(false);
+    } catch (error) {
+      setDetailFormError(error.message || uiText.dashboard.detailDeleteError);
+    }
+
+    setIsDeletingServiceOrder(false);
   };
 
   const handleMoveServiceOrder = async ({ event, start }) => {
@@ -3729,54 +3879,189 @@ export default function DashboardPage() {
     }
   };
 
-  const handleBacklogDragStart = (serviceOrder) => {
-    setDraggedBacklogServiceOrder(serviceOrder);
-  };
-
-  const handleBacklogDragEnd = () => {
+  const clearDraggedBacklogServiceOrder = () => {
+    draggedBacklogServiceOrderRef.current = null;
     setDraggedBacklogServiceOrder(null);
   };
 
-  const handleDropBacklogServiceOrder = async ({ start }) => {
-    if (!draggedBacklogServiceOrder?.id || !start || !isValid(start)) {
-      setDraggedBacklogServiceOrder(null);
-      return;
+  const handleBacklogDragStart = (serviceOrder, nativeEvent) => {
+    if (externalDragCleanupTimeoutRef.current) {
+      clearTimeout(externalDragCleanupTimeoutRef.current);
+      externalDragCleanupTimeoutRef.current = null;
     }
 
-    const nextServiceDate = getServiceDateFromCalendarSlot(start);
-    const nextServiceTime = getServiceTimeFromDropTarget(
-      start,
-      draggedBacklogServiceOrder.service_time,
-      calendarView,
-      serviceTimeOptions
-    );
+    if (nativeEvent?.dataTransfer) {
+      nativeEvent.dataTransfer.effectAllowed = "move";
+      nativeEvent.dataTransfer.setData("text/plain", serviceOrder?.id || "");
+    }
+
+    draggedBacklogServiceOrderRef.current = serviceOrder;
+    setDraggedBacklogServiceOrder(serviceOrder);
+    console.log("[Backlog DnD Debug] drag start:", {
+      serviceOrderId: serviceOrder?.id,
+      technicianName: serviceOrder?.technician_name,
+      serviceDate: serviceOrder?.service_date,
+      serviceTime: serviceOrder?.service_time,
+      durationMinutes: resolveDurationMinutes(serviceOrder?.duration_minutes)
+    });
+  };
+
+  const handleBacklogDragEnd = () => {
+    console.log("[Backlog DnD Debug] drag end fired:", {
+      serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null
+    });
+
+    if (externalDragCleanupTimeoutRef.current) {
+      clearTimeout(externalDragCleanupTimeoutRef.current);
+    }
+
+    externalDragCleanupTimeoutRef.current = setTimeout(() => {
+      console.log("[Backlog DnD Debug] drag cleanup after dragend:", {
+        serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null
+      });
+      clearDraggedBacklogServiceOrder();
+      externalDragCleanupTimeoutRef.current = null;
+    }, 0);
+  };
+
+  const handleBacklogQuickReschedule = async (serviceOrder, dayOffset) => {
+    if (!serviceOrder?.id) {
+      return;
+    }
 
     setCalendarActionError("");
     setCalendarActionMessage("");
 
     try {
       await updateServiceOrderSchedule({
-        serviceOrderId: draggedBacklogServiceOrder.id,
-        technicianName: draggedBacklogServiceOrder.technician_name,
-        serviceDate: nextServiceDate,
-        serviceTime: nextServiceTime,
-        durationMinutes: draggedBacklogServiceOrder.duration_minutes,
-        status: draggedBacklogServiceOrder.status,
-        recurrenceState: getRecurrenceFormState(draggedBacklogServiceOrder),
-        existingOrder: draggedBacklogServiceOrder,
-        branchId: draggedBacklogServiceOrder.branch_id ?? null,
-        excludeOrderId: draggedBacklogServiceOrder.id
+        serviceOrderId: serviceOrder.id,
+        technicianName: serviceOrder.technician_name,
+        serviceDate: format(addDays(startOfDay(new Date()), dayOffset), "yyyy-MM-dd"),
+        serviceTime: serviceOrder.service_time,
+        durationMinutes: serviceOrder.duration_minutes,
+        status: serviceOrder.status,
+        recurrenceState: getRecurrenceFormState(serviceOrder),
+        existingOrder: serviceOrder,
+        branchId: serviceOrder.branch_id ?? null,
+        excludeOrderId: serviceOrder.id
       });
 
-      if (selectedServiceOrderId === draggedBacklogServiceOrder.id) {
+      if (selectedServiceOrderId === serviceOrder.id) {
         setDetailFormMessage(uiText.dashboard.detailSuccess);
       }
 
       setCalendarActionMessage(uiText.dashboard.detailSuccess);
     } catch (error) {
       setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
+    }
+  };
+
+  const handleBacklogQuickComplete = async (serviceOrder) => {
+    if (!serviceOrder?.id) {
+      return;
+    }
+
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: serviceOrder.id,
+        technicianName: serviceOrder.technician_name,
+        serviceDate: serviceOrder.service_date,
+        serviceTime: serviceOrder.service_time,
+        durationMinutes: serviceOrder.duration_minutes,
+        status: "completed",
+        recurrenceState: getRecurrenceFormState(serviceOrder),
+        existingOrder: serviceOrder,
+        branchId: serviceOrder.branch_id ?? null,
+        excludeOrderId: serviceOrder.id,
+        skipConflictCheck: true
+      });
+
+      if (selectedServiceOrderId === serviceOrder.id) {
+        setDetailFormMessage(uiText.dashboard.detailSuccess);
+      }
+
+      setCalendarActionMessage(uiText.dashboard.detailSuccess);
+    } catch (error) {
+      setCalendarActionError(error.message || uiText.dashboard.detailError);
+    }
+  };
+
+  const handleDropBacklogServiceOrder = async ({ start, end }) => {
+    const pendingDraggedServiceOrder = draggedBacklogServiceOrderRef.current;
+
+    console.log("[Backlog DnD Debug] drop received:", {
+      serviceOrderId: pendingDraggedServiceOrder?.id || null,
+      start,
+      end
+    });
+
+    if (externalDragCleanupTimeoutRef.current) {
+      clearTimeout(externalDragCleanupTimeoutRef.current);
+      externalDragCleanupTimeoutRef.current = null;
+    }
+
+    if (!pendingDraggedServiceOrder?.id || !start || !isValid(start)) {
+      console.warn("[Backlog DnD Debug] drop aborted: invalid dragged item or start", {
+        serviceOrderId: pendingDraggedServiceOrder?.id || null,
+        start
+      });
+      clearDraggedBacklogServiceOrder();
+      return;
+    }
+
+    const nextServiceDate = getServiceDateFromCalendarSlot(start);
+    const nextServiceTime = getServiceTimeFromDropTarget(
+      start,
+      pendingDraggedServiceOrder.service_time,
+      calendarView,
+      serviceTimeOptions
+    );
+
+    console.log("[Backlog DnD Debug] drop normalized target:", {
+      serviceOrderId: pendingDraggedServiceOrder.id,
+      serviceDate: nextServiceDate,
+      serviceTime: nextServiceTime,
+      technicianBefore: pendingDraggedServiceOrder.technician_name,
+      technicianAfter: pendingDraggedServiceOrder.technician_name
+    });
+
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: pendingDraggedServiceOrder.id,
+        technicianName: pendingDraggedServiceOrder.technician_name,
+        serviceDate: nextServiceDate,
+        serviceTime: nextServiceTime,
+        durationMinutes: pendingDraggedServiceOrder.duration_minutes,
+        status: pendingDraggedServiceOrder.status,
+        recurrenceState: getRecurrenceFormState(pendingDraggedServiceOrder),
+        existingOrder: pendingDraggedServiceOrder,
+        branchId: pendingDraggedServiceOrder.branch_id ?? null,
+        excludeOrderId: pendingDraggedServiceOrder.id
+      });
+
+      console.log("[Backlog DnD Debug] drop update completed:", {
+        serviceOrderId: pendingDraggedServiceOrder.id
+      });
+
+      if (selectedServiceOrderId === pendingDraggedServiceOrder.id) {
+        setDetailFormMessage(uiText.dashboard.detailSuccess);
+      }
+
+      setCalendarActionMessage(uiText.dashboard.detailSuccess);
+    } catch (error) {
+      console.error("[Backlog DnD Debug] drop update failed:", {
+        serviceOrderId: pendingDraggedServiceOrder.id,
+        error
+      });
+      setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
     } finally {
-      setDraggedBacklogServiceOrder(null);
+      clearDraggedBacklogServiceOrder();
     }
   };
 
@@ -3823,8 +4108,46 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCompleteSelectedServiceOrder = async () => {
+    if (!selectedServiceOrder) {
+      return;
+    }
+
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setIsSavingDetail(true);
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: selectedServiceOrder.id,
+        technicianName: selectedServiceOrder.technician_name || detailFormState.technicianName,
+        serviceDate: selectedServiceOrder.service_date,
+        serviceTime: selectedServiceOrder.service_time,
+        durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
+        status: "completed",
+        existingOrder: selectedServiceOrder,
+        branchId: selectedServiceOrder.branch_id || null,
+        excludeOrderId: selectedServiceOrder.id,
+        skipConflictCheck: true
+      });
+      setDetailFormState((currentState) => ({
+        ...currentState,
+        status: "completed"
+      }));
+      setDetailFormMessage(uiText.technicianDashboard.completionSuccess);
+      setRightPanelMode(rightPanelModes.detail);
+    } catch (error) {
+      setDetailFormError(error.message || uiText.technicianDashboard.completionError);
+    }
+
+    setIsSavingDetail(false);
+  };
+
   const handleStartReschedule = () => {
-    detailDateInputRef.current?.focus();
+    setRightPanelMode(rightPanelModes.edit);
+    setTimeout(() => {
+      detailDateInputRef.current?.focus();
+    }, 0);
   };
 
   const handleSelectTechnicianOrder = (serviceOrder) => {
@@ -4153,36 +4476,36 @@ export default function DashboardPage() {
   return (
     <main className="admin-dashboard">
       <header className="admin-header">
-        <div>
-          <p className="admin-eyebrow">{uiText.dashboard.eyebrow}</p>
-          <h1>{uiText.common.appName}</h1>
-          <div className="admin-debug-panel">
-            <span>{uiText.dashboard.companyDebugLabel}:</span>
-            <strong>{userProfile?.company_id || "-"}</strong>
+        <div className="admin-header-brand">
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <img
+              src="/logo.svg"
+              alt="Biz2Rise"
+              style={{ height: "26px", width: "auto" }}
+            />
+            <span>{uiText.common.appName}</span>
           </div>
-          <div className="admin-debug-panel">
-            <span>Auth user id:</span>
-            <strong>{authUserId || "-"}</strong>
-          </div>
-          <div className="admin-debug-panel">
-            <span>Profile id:</span>
-            <strong>{userProfile?.id || "-"}</strong>
-          </div>
-          <div className="admin-debug-panel">
-            <span>Profile full_name:</span>
-            <strong>{userProfile?.full_name || "-"}</strong>
-          </div>
-          <div className="admin-debug-panel">
-            <span>Profile role:</span>
-            <strong>{userProfile?.role || "-"}</strong>
-          </div>
-          {profileError ? <p className="admin-debug-error">{profileError}</p> : null}
+        </div>
+
+        <div className="admin-summary-bar" aria-label="Resumen operativo">
+          <span className="admin-summary-chip">
+            <span>Hoy</span>
+            <strong>{todayOrdersCount}</strong>
+          </span>
+          <span className="admin-summary-chip admin-summary-chip-warning">
+            <span>Pendientes</span>
+            <strong>{pendingOrders.length}</strong>
+          </span>
+          <span className="admin-summary-chip admin-summary-chip-success">
+            <span>Completados</span>
+            <strong>{completedTodayCount}</strong>
+          </span>
         </div>
 
         <div className="admin-header-actions">
           <div className="admin-user">
             <span className="admin-user-label">{uiText.common.loggedInAs}</span>
-            <strong>{userEmail}</strong>
+            <strong>{userProfile?.full_name || userEmail}</strong>
           </div>
 
           <button
@@ -4197,21 +4520,216 @@ export default function DashboardPage() {
       </header>
 
       <section className="admin-content">
-        <aside className="admin-placeholder">
-          <h2>{uiText.dashboard.operationsTitle}</h2>
-          <p>{uiText.dashboard.operationsBody}</p>
-          <button
-            type="button"
-            className={
-              showOnlyOverdue
-                ? "operations-indicator operations-indicator-active"
-                : "operations-indicator"
-            }
-            onClick={toggleOverdueFilter}
-          >
-            <span>{uiText.dashboard.overdueCounterLabel}:</span>
-            <strong>{overdueCount}</strong>
-          </button>
+        <aside className="operations-panel">
+          <div className="operations-inbox">
+            <div className="operations-inbox-header">
+              <div>
+                <span className="control-group-label">Inbox operativo</span>
+                <h2>Requiere atencion</h2>
+              </div>
+              <span>{pendingOrders.length}</span>
+            </div>
+            <p className="operations-inbox-copy">{uiText.dashboard.backlogBody}</p>
+
+            <div className="operations-pending-list">
+              {pendingOrders.length === 0 ? (
+                <p className="operational-backlog-empty">{uiText.dashboard.backlogEmpty}</p>
+              ) : (
+                pendingOrders.map((serviceOrder) => {
+                  const isPendingToday = serviceOrder.service_date === getTodayDateString();
+
+                  return (
+                    <div
+                      key={serviceOrder.id}
+                      className={
+                        serviceOrder.id === selectedServiceOrderId
+                          ? `operational-backlog-card-shell operational-backlog-card-selected ${
+                              isPendingToday
+                                ? "operational-backlog-card-today"
+                                : "operational-backlog-card-overdue"
+                            }`
+                          : `operational-backlog-card-shell ${
+                              isPendingToday
+                                ? "operational-backlog-card-today"
+                                : "operational-backlog-card-overdue"
+                            }`
+                      }
+                    >
+                      <button
+                        type="button"
+                        draggable
+                        className="operational-backlog-card-body"
+                        onClick={() => handleSelectBacklogServiceOrder(serviceOrder)}
+                        onDragStart={(event) => handleBacklogDragStart(serviceOrder, event)}
+                        onDragEnd={handleBacklogDragEnd}
+                      >
+                        <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
+                        <span>
+                          {formatDisplayTime(serviceOrder.service_time)} ·{" "}
+                          {getTechnicianDisplayName(serviceOrder.technician_name)}
+                        </span>
+                      </button>
+
+                      <div className="operational-backlog-actions">
+                        <button
+                          type="button"
+                          className="operational-backlog-action"
+                          draggable={false}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleBacklogQuickReschedule(serviceOrder, 0);
+                          }}
+                        >
+                          {uiText.dashboard.backlogActionToday}
+                        </button>
+                        <button
+                          type="button"
+                          className="operational-backlog-action operational-backlog-action-complete"
+                          draggable={false}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleBacklogQuickComplete(serviceOrder);
+                          }}
+                        >
+                          {uiText.dashboard.backlogActionComplete}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="operations-divider">
+            <span className="control-group-label">Operaciones</span>
+          </div>
+
+          <div className="operations-panel-header">
+            <div>
+              <h2>{uiText.dashboard.operationsTitle}</h2>
+              <p>Filtros y accesos rapidos para el despacho diario.</p>
+            </div>
+            <div className="operations-panel-actions">
+              <button className="button" type="button" onClick={handleOpenCreatePanel}>
+                + {uiText.tabs.newServiceOrder}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleViewToday}
+              >
+                Ver hoy
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleViewPending}
+              >
+                Ver pendientes
+              </button>
+            </div>
+          </div>
+
+          {activeAdminView === adminViewTabs.calendar ? (
+            <>
+              <div className="operations-panel-section">
+                <label className="calendar-filter control-group-body context-panel-filter">
+                  <span className="control-group-label">{uiText.dashboard.calendarFilterLabel}</span>
+                  <select
+                    value={selectedTechnician}
+                    onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
+                  >
+                    <option value="all">{uiText.dashboard.calendarFilterAll}</option>
+                    {technicianLegendItems.map((item) => (
+                      <option key={item.key} value={item.technicianName}>
+                        {item.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  className={
+                    showOnlyOverdue
+                      ? "operations-indicator operations-indicator-active"
+                      : "operations-indicator"
+                  }
+                  onClick={toggleOverdueFilter}
+                >
+                  <span>{uiText.dashboard.overdueCounterLabel}:</span>
+                  <strong>{overdueCount}</strong>
+                </button>
+              </div>
+
+              {technicianLegendItems.length > 0 ? (
+                <div
+                  className="calendar-legend calendar-legend-panel operations-panel-section"
+                  aria-label={uiText.dashboard.calendarLegendTitle}
+                >
+                  <span className="calendar-legend-title control-group-label">
+                    {uiText.dashboard.calendarLegendTitle}
+                  </span>
+                  <div className="calendar-legend-items control-group-body">
+                    {technicianLegendItems.map((item) => (
+                      <span key={item.key} className="calendar-legend-item">
+                        <span
+                          className="calendar-legend-dot"
+                          style={{ backgroundColor: item.color.accent }}
+                        />
+                        <span>{item.displayName}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="operations-panel-section">
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.serviceList.filters.client}</span>
+                <input
+                  type="text"
+                  value={serviceListClientSearch}
+                  onChange={(event) => setServiceListClientSearch(event.target.value)}
+                  placeholder={uiText.serviceList.placeholders.clientSearch}
+                />
+              </label>
+
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">
+                  {uiText.serviceList.filters.technician}
+                </span>
+                <select
+                  value={serviceListTechnician}
+                  onChange={(event) => setServiceListTechnician(event.target.value)}
+                >
+                  <option value="all">{uiText.serviceList.filters.all}</option>
+                  {serviceListTechnicianOptions.map((technicianName) => (
+                    <option key={technicianName} value={technicianName}>
+                      {technicianName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.serviceList.filters.recurring}</span>
+                <select
+                  value={serviceListRecurring}
+                  onChange={(event) => setServiceListRecurring(event.target.value)}
+                >
+                  <option value="all">{uiText.serviceList.filters.all}</option>
+                  <option value="yes">{uiText.serviceList.recurringYes}</option>
+                  <option value="no">{uiText.serviceList.recurringNo}</option>
+                </select>
+              </label>
+            </div>
+          )}
+
         </aside>
 
         <section className="calendar-panel">
@@ -4267,134 +4785,26 @@ export default function DashboardPage() {
               <div className="calendar-panel-row-right" />
             </div>
 
-            <div className="calendar-panel-row calendar-panel-row-3">
-              {activeAdminView === adminViewTabs.calendar ? (
-                <>
-                  <div className="calendar-panel-row-left">
-                    <button
-                      type="button"
-                      className={showOnlyOverdue ? "overdue-chip active" : "overdue-chip"}
-                      onClick={toggleOverdueFilter}
-                    >
-                      {uiText.dashboard.overdueCounterLabel}: {overdueCount}
-                    </button>
-                  </div>
+            {activeAdminView === adminViewTabs.calendar && showOnlyOverdue ? (
+              <div className="calendar-filter-banner" role="status" aria-live="polite">
+                <span>
+                  Mostrando {pendingOrders.length} servicios pendientes de reagendar
+                </span>
+                <button
+                  type="button"
+                  className="calendar-filter-banner-action"
+                  onClick={() => setShowOnlyOverdue(false)}
+                >
+                  Limpiar filtro
+                </button>
+              </div>
+            ) : null}
 
-                  <div className="calendar-panel-row-right">
-                    <div className="calendar-controls-right">
-                      <div className="control-group">
-                        <label className="calendar-filter control-group-body">
-                          <span className="control-group-label">
-                            {uiText.dashboard.calendarFilterLabel}
-                          </span>
-                          <select
-                            value={selectedCalendarTechnician}
-                            onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
-                          >
-                            <option value="all">{uiText.dashboard.calendarFilterAll}</option>
-                            {technicianLegendItems.map((item) => (
-                              <option key={item.key} value={item.technicianName}>
-                                {item.displayName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-
-                      {technicianLegendItems.length > 0 ? (
-                        <div
-                          className="calendar-legend control-group"
-                          aria-label={uiText.dashboard.calendarLegendTitle}
-                        >
-                          <span className="calendar-legend-title control-group-label">
-                            {uiText.dashboard.calendarLegendTitle}
-                          </span>
-                          <div className="calendar-legend-items control-group-body">
-                            {technicianLegendItems.map((item) => (
-                              <span key={item.key} className="calendar-legend-item">
-                                <span
-                                  className="calendar-legend-dot"
-                                  style={{ backgroundColor: item.color.accent }}
-                                />
-                                <span>{item.displayName}</span>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="calendar-panel-row-left" />
-
-                  <div className="calendar-panel-row-right">
-                    <div className="calendar-controls-right service-list-controls">
-                      <div className="control-group">
-                        <label className="calendar-filter control-group-body">
-                          <span className="control-group-label">
-                            {uiText.serviceList.filters.client}
-                          </span>
-                          <input
-                            type="text"
-                            value={serviceListClientSearch}
-                            onChange={(event) => setServiceListClientSearch(event.target.value)}
-                            placeholder={uiText.serviceList.placeholders.clientSearch}
-                          />
-                        </label>
-                      </div>
-
-                      <div className="control-group">
-                        <label className="calendar-filter control-group-body">
-                          <span className="control-group-label">
-                            {uiText.serviceList.filters.technician}
-                          </span>
-                          <select
-                            value={serviceListTechnician}
-                            onChange={(event) => setServiceListTechnician(event.target.value)}
-                          >
-                            <option value="all">{uiText.serviceList.filters.all}</option>
-                            {serviceListTechnicianOptions.map((technicianName) => (
-                              <option key={technicianName} value={technicianName}>
-                                {technicianName}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-
-                      <div className="control-group">
-                        <label className="calendar-filter control-group-body">
-                          <span className="control-group-label">
-                            {uiText.serviceList.filters.recurring}
-                          </span>
-                          <select
-                            value={serviceListRecurring}
-                            onChange={(event) => setServiceListRecurring(event.target.value)}
-                          >
-                            <option value="all">{uiText.serviceList.filters.all}</option>
-                            <option value="yes">{uiText.serviceList.recurringYes}</option>
-                            <option value="no">{uiText.serviceList.recurringNo}</option>
-                          </select>
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
           </div>
 
           {calendarActionError ? <p className="error">{calendarActionError}</p> : null}
           {calendarActionMessage ? (
             <p className="success-message">{calendarActionMessage}</p>
-          ) : null}
-
-          {activeAdminView === adminViewTabs.calendar && showOnlyOverdue ? (
-            <div className="overdue-active-banner">
-              Mostrando solo pendientes de reagendar
-            </div>
           ) : null}
 
           {calendarError ? (
@@ -4404,14 +4814,14 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          {!calendarError && isServiceOrdersLoading ? (
+          {!calendarError && isServiceOrdersLoading && !hasExistingServiceOrderData ? (
             <div className="calendar-empty-state">
               <h3>{uiText.common.loadingDashboard}</h3>
             </div>
           ) : null}
 
           {activeAdminView === adminViewTabs.calendar &&
-          !calendarError &&
+          shouldRenderCalendarContent &&
           !isServiceOrdersLoading &&
           calendarView !== operationalCalendarView &&
           filteredCalendarEvents.length === 0 ? (
@@ -4422,8 +4832,7 @@ export default function DashboardPage() {
           ) : null}
 
           {activeAdminView === adminViewTabs.calendar &&
-          !calendarError &&
-          !isServiceOrdersLoading ? (
+          shouldRenderCalendarContent ? (
             <div
               className={
                 calendarView === operationalCalendarView
@@ -4431,55 +4840,9 @@ export default function DashboardPage() {
                   : undefined
               }
             >
-              {calendarView === operationalCalendarView ? (
-                <aside className="operational-backlog">
-                  <div className="operational-backlog-header">
-                    <h3>{uiText.dashboard.backlogTitle}</h3>
-                    <span>{backlogServiceOrders.length}</span>
-                  </div>
-                  <p className="operational-backlog-subtitle">
-                    {uiText.dashboard.backlogBody}
-                  </p>
-
-                  <div className="operational-backlog-list">
-                    {backlogServiceOrders.length === 0 ? (
-                      <p className="operational-backlog-empty">
-                        {uiText.dashboard.backlogEmpty}
-                      </p>
-                    ) : (
-                      backlogServiceOrders.map((serviceOrder) => (
-                        <button
-                          key={serviceOrder.id}
-                          type="button"
-                          draggable
-                          className={
-                            serviceOrder.id === selectedServiceOrderId
-                              ? "operational-backlog-card operational-backlog-card-selected"
-                              : "operational-backlog-card"
-                          }
-                          onClick={() => handleSelectServiceOrder(serviceOrder)}
-                          onDragStart={() => handleBacklogDragStart(serviceOrder)}
-                          onDragEnd={handleBacklogDragEnd}
-                        >
-                          <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
-                          <span>{getBranchDisplayName(serviceOrder.branches)}</span>
-                          <span>
-                            {formatServiceDate(serviceOrder.service_date)} ·{" "}
-                            {formatDisplayTime(serviceOrder.service_time)}
-                          </span>
-                          <span>
-                            {getTechnicianDisplayName(serviceOrder.technician_name)} ·{" "}
-                            {resolveDurationMinutes(serviceOrder.duration_minutes)} min
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </aside>
-              ) : null}
-
               <div
                 className="calendar-shell"
+                data-view-mode={viewMode}
                 onMouseDownCapture={handleCalendarMouseDownCapture}
                 onMouseUpCapture={handleCalendarMouseUpCapture}
               >
@@ -4489,7 +4852,8 @@ export default function DashboardPage() {
                   culture="es"
                   events={filteredCalendarEvents}
                   defaultView={operationalCalendarView}
-                  date={calendarDate}
+                  scrollToTime={calendarScrollToTime}
+                  date={focusedDate}
                   onNavigate={handleCalendarNavigate}
                   view={calendarView}
                   onView={handleCalendarViewChange}
@@ -4498,11 +4862,12 @@ export default function DashboardPage() {
                     week: true,
                     month: true
                   }}
-                  selectable
-                  step={60}
-                  timeslots={1}
-                  startAccessor="start"
-                  endAccessor="end"
+                selectable
+                step={60}
+                timeslots={1}
+                dayLayoutAlgorithm={calendarView === "month" ? "overlap" : "no-overlap"}
+                startAccessor="start"
+                endAccessor="end"
                   onSelectEvent={handleSelectServiceOrder}
                   onSelectSlot={handleOpenQuickCreate}
                   onEventDrop={handleMoveServiceOrder}
@@ -4512,16 +4877,24 @@ export default function DashboardPage() {
                       ? handleDropBacklogServiceOrder
                       : undefined
                   }
-                  dragFromOutsideItem={() =>
-                    draggedBacklogServiceOrder
-                      ? buildExternalDragPreview(draggedBacklogServiceOrder)
-                      : null
-                  }
+                  dragFromOutsideItem={() => {
+                    const previewItem = buildExternalDragPreview(
+                      draggedBacklogServiceOrderRef.current
+                    );
+
+                    console.log("[Backlog DnD Debug] dragFromOutsideItem:", {
+                      serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null,
+                      previewItem
+                    });
+
+                    return previewItem;
+                  }}
                   draggableAccessor={() => true}
                   resizable={calendarView !== "month"}
                   eventPropGetter={getCalendarEventStyle}
                   style={{ height: 640 }}
                   components={{
+                    toolbar: CalendarToolbar,
                     event: (eventProps) => (
                       <EventCard
                         {...eventProps}
@@ -4554,33 +4927,60 @@ export default function DashboardPage() {
               formatServiceDate={formatServiceDate}
             />
           ) : null}
+        </section>
 
-          <section className="workspace-panel">
-            <div className="workspace-panel-header">
-              <div>
-                <h2>{uiText.dashboard.workspaceTitle}</h2>
-                <p>{uiText.dashboard.workspaceBody}</p>
-              </div>
+        <aside className="detail-sidebar">
+          <div className="detail-sidebar-header">
+            <div>
+              <h2>{uiText.dashboard.detailTitle}</h2>
+              <p>
+                {rightPanelMode === rightPanelModes.create
+                  ? uiText.serviceOrder.description
+                  : uiText.dashboard.detailDescription}
+              </p>
             </div>
-
-            <div className="workspace-tabs" role="tablist" aria-label="Herramientas del panel">
-              {workspaceTabs.map((tab) => (
+            {selectedOrder ? (
+              <div className="detail-action-bar">
                 <button
-                  key={tab}
+                  className="button button-secondary"
                   type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  className={
-                    activeTab === tab ? "workspace-tab workspace-tab-active" : "workspace-tab"
-                  }
-                  onClick={() => setActiveTab(tab)}
+                  onClick={handleCompleteSelectedServiceOrder}
+                  disabled={isSavingDetail || isDeletingServiceOrder}
                 >
-                  {tab}
+                  Completar
                 </button>
-              ))}
-            </div>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={handleStartReschedule}
+                  disabled={isSavingDetail || isDeletingServiceOrder}
+                >
+                  {uiText.dashboard.detailReschedule}
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => setRightPanelMode(rightPanelModes.edit)}
+                  disabled={isSavingDetail || isDeletingServiceOrder}
+                >
+                  Editar
+                </button>
+              </div>
+            ) : rightPanelMode === rightPanelModes.create ? (
+              <div className="detail-action-bar">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={handleCloseQuickCreate}
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : null}
+          </div>
 
-            <div className="workspace-body">
+          <div className="detail-sidebar-body">
+            {rightPanelMode === rightPanelModes.create ? (
               <WorkspacePanel
                 activeTab={activeTab}
                 clients={clients}
@@ -4641,664 +5041,260 @@ export default function DashboardPage() {
                 onTechnicianFormChange={handleTechnicianFormChange}
                 onTechnicianSubmit={handleCreateTechnician}
               />
-            </div>
-          </section>
-        </section>
-
-        <aside className="admin-placeholder">
-          <h2>{uiText.dashboard.detailTitle}</h2>
-          {!selectedServiceOrder ? (
-            <p>{uiText.dashboard.detailEmpty}</p>
-          ) : (
-            <form className="detail-panel" onSubmit={handleUpdateServiceOrder}>
-              <p className="detail-description">{uiText.dashboard.detailDescription}</p>
-
-              {isSelectedServiceOrderOverdue ? (
-                <div className="detail-overdue-box">
-                  <div>
-                    <strong>{uiText.dashboard.overdueLabel}</strong>
-                    <p>{uiText.dashboard.detailOverdueBody}</p>
-                  </div>
-                  <button
-                    className="button button-secondary detail-reschedule-button"
-                    type="button"
-                    onClick={handleStartReschedule}
-                  >
-                    {uiText.dashboard.detailReschedule}
-                  </button>
-                </div>
-              ) : null}
-
-              <div className="detail-row">
-                <span>{uiText.dashboard.detailFields.clientName}</span>
-                <strong>
-                  {getClientDisplayName(selectedServiceOrder.clients)}
-                </strong>
+            ) : !selectedOrder ? (
+              <div className="detail-empty-state">
+                <p>Selecciona una orden del calendario</p>
               </div>
-
-              <div className="detail-row">
-                <span>{uiText.dashboard.detailFields.branchName}</span>
-                <strong>{getBranchDisplayName(selectedServiceOrder.branches)}</strong>
-                {selectedServiceOrder.branches ? (
-                  <small className="detail-subcopy">
-                    {getBranchSummary(selectedServiceOrder.branches) ||
-                      uiText.clients.branchSummaryFallback}
-                  </small>
-                ) : null}
-              </div>
-
-              {isResidentialDetailClient ? (
-                <div className="detail-row">
-                  <span>{uiText.serviceOrder.fields.branch}</span>
-                  <strong>
-                    {preferredDetailResidentialBranch
-                      ? getBranchDisplayName(preferredDetailResidentialBranch)
-                      : getBranchDisplayName(selectedServiceOrder.branches)}
-                  </strong>
-                  <small className="detail-subcopy">
-                    {isBranchesLoading
-                      ? uiText.serviceOrder.placeholders.branchLoading
-                      : preferredDetailResidentialBranch || selectedServiceOrder.branches
-                      ? uiText.serviceOrder.residentialBranchAuto
-                      : uiText.serviceOrder.residentialBranchMissing}
-                  </small>
-                </div>
-              ) : (
-                <label className="workspace-input-group">
-                  <span>{uiText.serviceOrder.fields.branch}</span>
-                  <select
-                    name="branchId"
-                    value={detailFormState.branchId}
-                    onChange={handleDetailFormChange}
-                    disabled={
-                      isSavingDetail ||
-                      isBranchesLoading ||
-                      !selectedServiceOrder?.client_id
-                    }
-                    required
-                  >
-                    <option value="">
-                      {isBranchesLoading
-                        ? uiText.serviceOrder.placeholders.branchLoading
-                        : uiText.serviceOrder.placeholders.branch}
-                    </option>
-                    {detailAvailableBranches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {getBranchDisplayName(branch)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              <label className="workspace-input-group">
-                <span>{uiText.dashboard.detailFields.technicianName}</span>
-                <select
-                  name="technicianName"
-                  value={detailFormState.technicianName}
-                  onChange={handleDetailFormChange}
-                  disabled={isSavingDetail || isTechniciansLoading}
-                  required
-                >
-                  <option value="">
-                    {isTechniciansLoading
-                      ? uiText.serviceOrder.placeholders.technicianLoading
-                      : uiText.serviceOrder.placeholders.technician}
-                  </option>
-                  {activeTechnicians.map((technician) => (
-                    <option key={technician.id} value={technician.full_name}>
-                      {technician.full_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="workspace-input-group">
-                <span>{uiText.dashboard.detailFields.serviceDate}</span>
-                <input
-                  ref={detailDateInputRef}
-                  name="serviceDate"
-                  type="date"
-                  value={detailFormState.serviceDate}
-                  onChange={handleDetailFormChange}
-                  disabled={isSavingDetail}
-                  required
-                />
-              </label>
-
-              <label className="workspace-input-group">
-                <span>{uiText.dashboard.detailFields.serviceTime}</span>
-                <select
-                  name="serviceTime"
-                  value={detailFormState.serviceTime}
-                  onChange={handleDetailFormChange}
-                  disabled={isSavingDetail}
-                  required
-                >
-                  <option value="" disabled>
-                    {uiText.serviceOrder.placeholders.serviceTime}
-                  </option>
-                  {serviceTimeOptions.map((timeOption) => (
-                    <option key={timeOption.value} value={timeOption.value}>
-                      {timeOption.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="workspace-input-group">
-                <span>{uiText.serviceOrder.fields.duration}</span>
-                <select
-                  name="durationMinutes"
-                  value={detailFormState.durationMinutes}
-                  onChange={handleDetailFormChange}
-                  disabled={isSavingDetail}
-                  required
-                >
-                  <option value="" disabled>
-                    {uiText.serviceOrder.placeholders.duration}
-                  </option>
-                  {durationOptions.map((durationOption) => (
-                    <option key={durationOption} value={durationOption}>
-                      {durationOption} min
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="workspace-checkbox workspace-field-wide">
-                <input
-                  name="isRecurring"
-                  type="checkbox"
-                  checked={detailFormState.isRecurring}
-                  onChange={handleDetailFormChange}
-                  disabled={isSavingDetail}
-                />
-                <span>{uiText.serviceOrder.fields.isRecurring}</span>
-              </label>
-
-              {detailFormState.isRecurring ? (
-                <>
+            ) : rightPanelMode === rightPanelModes.edit ? (
+              <form className="detail-panel" onSubmit={handleUpdateServiceOrder}>
+                <div className="detail-edit-grid">
                   <label className="workspace-input-group">
-                    <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                    <span>{uiText.serviceOrder.fields.client}</span>
                     <select
-                      name="recurrenceType"
-                      value={detailFormState.recurrenceType}
+                      name="clientId"
+                      value={detailFormState.clientId}
                       onChange={handleDetailFormChange}
-                      disabled={isSavingDetail}
+                      disabled={isSavingDetail || isClientsLoading}
                       required
                     >
-                      <option value="" disabled>
-                        {uiText.serviceOrder.placeholders.recurrenceType}
+                      <option value="">
+                        {isClientsLoading
+                          ? uiText.serviceOrder.placeholders.clientLoading
+                          : uiText.serviceOrder.placeholders.client}
                       </option>
-                      <option value="daily">
-                        {uiText.serviceOrder.recurrenceOptions.daily}
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {isResidentialDetailClient ? (
+                    <div className="detail-row workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.branch}</span>
+                      <strong>
+                        {preferredDetailResidentialBranch
+                          ? getBranchDisplayName(preferredDetailResidentialBranch)
+                          : uiText.dashboard.branchEmpty}
+                      </strong>
+                    </div>
+                  ) : (
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.branch}</span>
+                      <select
+                        name="branchId"
+                        value={detailFormState.branchId}
+                        onChange={handleDetailFormChange}
+                        disabled={
+                          isSavingDetail || isBranchesLoading || !detailFormState.clientId
+                        }
+                        required
+                      >
+                        <option value="">
+                          {isBranchesLoading
+                            ? uiText.serviceOrder.placeholders.branchLoading
+                            : uiText.serviceOrder.placeholders.branch}
+                        </option>
+                        {detailAvailableBranches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {getBranchDisplayName(branch)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.detailFields.technicianName}</span>
+                    <select
+                      name="technicianName"
+                      value={detailFormState.technicianName}
+                      onChange={handleDetailFormChange}
+                      disabled={isSavingDetail || isTechniciansLoading}
+                      required
+                    >
+                      <option value="">
+                        {isTechniciansLoading
+                          ? uiText.serviceOrder.placeholders.technicianLoading
+                          : uiText.serviceOrder.placeholders.technician}
                       </option>
-                      <option value="weekly">
-                        {uiText.serviceOrder.recurrenceOptions.weekly}
-                      </option>
-                      <option value="biweekly">
-                        {uiText.serviceOrder.recurrenceOptions.biweekly}
-                      </option>
-                      <option value="monthly">
-                        {uiText.serviceOrder.recurrenceOptions.monthly}
-                      </option>
+                      {activeTechnicians.map((technician) => (
+                        <option key={technician.id} value={technician.full_name}>
+                          {technician.full_name}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
                   <label className="workspace-input-group">
-                    <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                    <span>{uiText.dashboard.detailFields.serviceDate}</span>
                     <input
-                      name="recurrenceEndDate"
+                      ref={detailDateInputRef}
+                      name="serviceDate"
                       type="date"
-                      value={detailFormState.recurrenceEndDate}
+                      value={detailFormState.serviceDate}
                       onChange={handleDetailFormChange}
                       disabled={isSavingDetail}
+                      required
                     />
                   </label>
-                </>
-              ) : null}
 
-              <label className="workspace-input-group">
-                <span>{uiText.dashboard.detailFields.status}</span>
-                <SegmentedControl
-                  name="status"
-                  value={detailFormState.status}
-                  onChange={handleDetailFormChange}
-                  options={serviceOrderStatusOptions}
-                  disabled={isSavingDetail}
-                />
-              </label>
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.detailFields.serviceTime}</span>
+                    <select
+                      name="serviceTime"
+                      value={detailFormState.serviceTime}
+                      onChange={handleDetailFormChange}
+                      disabled={isSavingDetail}
+                      required
+                    >
+                      {serviceTimeOptions.map((timeOption) => (
+                        <option key={timeOption.value} value={timeOption.value}>
+                          {timeOption.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-              <div className="detail-row">
-                <span>{uiText.dashboard.detailFields.createdAt}</span>
-                <strong>{formatCreatedAt(selectedServiceOrder.created_at)}</strong>
-              </div>
+                  <label className="workspace-input-group">
+                    <span>{uiText.serviceOrder.fields.duration}</span>
+                    <select
+                      name="durationMinutes"
+                      value={detailFormState.durationMinutes}
+                      onChange={handleDetailFormChange}
+                      disabled={isSavingDetail}
+                      required
+                    >
+                      {durationOptions.map((durationOption) => (
+                        <option key={durationOption} value={durationOption}>
+                          {durationOption} min
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
-              <div className="workspace-form-messages">
-                {!isTechniciansLoading && activeTechnicians.length === 0 ? (
-                  <p className="empty-hint">{uiText.dashboard.detailTechnicianEmpty}</p>
+                <div className="workspace-form-messages">
+                  {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                  {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
+                </div>
+
+                <div className="detail-edit-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => setRightPanelMode(rightPanelModes.detail)}
+                    disabled={isSavingDetail}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="button"
+                    type="submit"
+                    disabled={
+                      isSavingDetail ||
+                      isTechniciansLoading ||
+                      (!isResidentialDetailClient &&
+                        !detailFormState.branchId &&
+                        detailAvailableBranches.length > 0) ||
+                      activeTechnicians.length === 0 ||
+                      !detailFormState.technicianName
+                    }
+                  >
+                    {isSavingDetail
+                      ? uiText.dashboard.detailSaving
+                      : uiText.dashboard.detailSave}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="detail-summary">
+                {isSelectedServiceOrderOverdue ? (
+                  <div className="detail-overdue-box">
+                    <div>
+                      <strong>{uiText.dashboard.overdueLabel}</strong>
+                      <p>{uiText.dashboard.detailOverdueBody}</p>
+                    </div>
+                  </div>
                 ) : null}
-                {techniciansError ? <p className="error">{techniciansError}</p> : null}
-                {detailFormError ? <p className="error">{detailFormError}</p> : null}
-                {detailFormMessage ? (
-                  <p className="success-message">{detailFormMessage}</p>
-                ) : null}
-              </div>
 
-              <button
-                className="button detail-save-button"
-                type="submit"
-                disabled={
-                  isSavingDetail ||
-                  isTechniciansLoading ||
-                  (!isResidentialDetailClient &&
-                    !detailFormState.branchId &&
-                    detailAvailableBranches.length > 0) ||
-                  activeTechnicians.length === 0 ||
-                  !detailFormState.technicianName
-                }
-              >
-                {isSavingDetail
-                  ? uiText.dashboard.detailSaving
-                  : uiText.dashboard.detailSave}
-              </button>
-            </form>
-          )}
+                <div className="detail-row">
+                  <span>{uiText.dashboard.detailFields.clientName}</span>
+                  <strong>{getClientDisplayName(selectedOrder.clients)}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{uiText.dashboard.detailFields.branchName}</span>
+                  <strong>{getBranchDisplayName(selectedOrder.branches)}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{uiText.dashboard.detailFields.technicianName}</span>
+                  <strong>{getTechnicianDisplayName(selectedOrder.technician_name)}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{uiText.dashboard.detailFields.serviceDate}</span>
+                  <strong>
+                    {formatServiceDate(selectedOrder.service_date)} ·{" "}
+                    {formatDisplayTime(selectedOrder.service_time)}
+                  </strong>
+                </div>
+                <div className="detail-row">
+                  <span>{uiText.serviceOrder.fields.duration}</span>
+                  <strong>{resolveDurationMinutes(selectedOrder.duration_minutes)} min</strong>
+                </div>
+                <div className="detail-row detail-row-notes">
+                  <span>{uiText.serviceOrder.fields.notes}</span>
+                  <strong>{selectedOrder.notes || uiText.technicianDashboard.fallbacks.notes}</strong>
+                </div>
+                <div className="detail-row">
+                  <span>{uiText.dashboard.detailFields.createdAt}</span>
+                  <strong>{formatCreatedAt(selectedOrder.created_at)}</strong>
+                </div>
+
+                <div className="workspace-form-messages">
+                  {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                  {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
+                </div>
+
+                {isConfirmingDeleteServiceOrder ? (
+                  <div className="detail-delete-confirmation">
+                    <p>{uiText.dashboard.detailDeleteConfirmTitle}</p>
+                    <div className="detail-delete-actions">
+                      <button
+                        className="button button-danger"
+                        type="button"
+                        onClick={handleDeleteServiceOrder}
+                        disabled={isDeletingServiceOrder}
+                      >
+                        {isDeletingServiceOrder
+                          ? uiText.common.loadingDashboard
+                          : uiText.dashboard.detailDeleteConfirm}
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => setIsConfirmingDeleteServiceOrder(false)}
+                        disabled={isDeletingServiceOrder}
+                      >
+                        {uiText.dashboard.detailDeleteCancel}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="button button-danger button-danger-secondary"
+                    type="button"
+                    onClick={() => setIsConfirmingDeleteServiceOrder(true)}
+                    disabled={isSavingDetail || isDeletingServiceOrder}
+                  >
+                    {uiText.dashboard.detailDelete}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </aside>
       </section>
-
-      {isQuickCreateOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={handleCloseQuickCreate}>
-          <section
-            className="quick-create-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="quick-create-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {!isInlineQuickClientOpen && !isInlineQuickBranchOpen ? (
-              <>
-                <div className="workspace-copy">
-                  <h3 id="quick-create-title">{uiText.serviceOrder.quickCreate.title}</h3>
-                  <p>{uiText.serviceOrder.quickCreate.description}</p>
-                </div>
-
-                <form className="workspace-form" onSubmit={handleQuickCreateServiceOrder}>
-                  <div className="workspace-grid">
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.client}</span>
-                      <select
-                        name="clientId"
-                        value={quickCreateState.clientId}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder || isClientsLoading}
-                        required
-                      >
-                        <option value="">
-                          {isClientsLoading
-                            ? uiText.serviceOrder.placeholders.clientLoading
-                            : uiText.serviceOrder.placeholders.client}
-                        </option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.displayName}
-                          </option>
-                        ))}
-                        <option value={quickCreateNewClientOption}>
-                          {uiText.serviceOrder.quickCreate.newClient}
-                        </option>
-                      </select>
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.technician}</span>
-                      <select
-                        name="technicianName"
-                        value={quickCreateState.technicianName}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder || isTechniciansLoading}
-                        required
-                      >
-                        <option value="">
-                          {isTechniciansLoading
-                            ? uiText.serviceOrder.placeholders.technicianLoading
-                            : uiText.serviceOrder.placeholders.technician}
-                        </option>
-                        {activeTechnicians.map((technician) => (
-                          <option key={technician.id} value={technician.full_name}>
-                            {technician.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    {isResidentialQuickClient ? (
-                      <div className="detail-row workspace-field-wide">
-                        <span>{uiText.serviceOrder.fields.branch}</span>
-                        <strong>
-                          {preferredQuickResidentialBranch
-                            ? getBranchDisplayName(preferredQuickResidentialBranch)
-                            : uiText.dashboard.branchEmpty}
-                        </strong>
-                        <small className="detail-subcopy">
-                          {isBranchesLoading
-                            ? uiText.serviceOrder.placeholders.branchLoading
-                            : preferredQuickResidentialBranch
-                              ? uiText.serviceOrder.residentialBranchAuto
-                              : uiText.serviceOrder.residentialBranchMissing}
-                        </small>
-                      </div>
-                    ) : (
-                      <label className="workspace-input-group">
-                        <span>{uiText.serviceOrder.fields.branch}</span>
-                        <select
-                          name="branchId"
-                          value={quickCreateState.branchId}
-                          onChange={handleQuickCreateChange}
-                          disabled={
-                            isQuickCreatingOrder ||
-                            isClientsLoading ||
-                            !quickCreateState.clientId
-                          }
-                          required
-                        >
-                          <option value="">
-                            {!quickCreateState.clientId
-                              ? uiText.serviceOrder.placeholders.branchDisabled
-                              : isBranchesLoading
-                                ? uiText.serviceOrder.placeholders.branchLoading
-                                : uiText.serviceOrder.placeholders.branch}
-                          </option>
-                          {quickAvailableBranches.map((branch) => (
-                            <option key={branch.id} value={branch.id}>
-                              {getBranchDisplayName(branch)}
-                            </option>
-                          ))}
-                          {quickCreateState.clientId ? (
-                            <option value={quickCreateNewBranchOption}>
-                              {uiText.serviceOrder.quickCreate.newBranch}
-                            </option>
-                          ) : null}
-                        </select>
-                      </label>
-                    )}
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.serviceDate}</span>
-                      <input
-                        name="serviceDate"
-                        type="date"
-                        value={quickCreateState.serviceDate}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.serviceTime}</span>
-                      <select
-                        name="serviceTime"
-                        value={quickCreateState.serviceTime}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder}
-                        required
-                      >
-                        <option value="" disabled>
-                          {uiText.serviceOrder.placeholders.serviceTime}
-                        </option>
-                        {serviceTimeOptions.map((timeOption) => (
-                          <option key={timeOption.value} value={timeOption.value}>
-                            {timeOption.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.duration}</span>
-                      <select
-                        name="durationMinutes"
-                        value={quickCreateState.durationMinutes}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder}
-                        required
-                      >
-                        <option value="" disabled>
-                          {uiText.serviceOrder.placeholders.duration}
-                        </option>
-                        {durationOptions.map((durationOption) => (
-                          <option key={durationOption} value={durationOption}>
-                            {durationOption} min
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.status}</span>
-                      <select
-                        name="status"
-                        value={quickCreateState.status}
-                        onChange={handleQuickCreateChange}
-                        disabled={isQuickCreatingOrder}
-                        required
-                      >
-                        <option value="scheduled">{getStatusLabel("scheduled")}</option>
-                        <option value="completed">{getStatusLabel("completed")}</option>
-                        <option value="cancelled">{getStatusLabel("cancelled")}</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="workspace-form-footer">
-                    <div className="workspace-form-messages">
-                      {quickCreateState.clientId &&
-                      isResidentialQuickClient &&
-                      !isBranchesLoading &&
-                      !preferredQuickResidentialBranch ? (
-                        <p className="empty-hint">
-                          {uiText.serviceOrder.residentialBranchMissing}
-                        </p>
-                      ) : null}
-                      {quickCreateState.clientId &&
-                      !isResidentialQuickClient &&
-                      !isBranchesLoading &&
-                      quickAvailableBranches.length === 0 ? (
-                        <p className="empty-hint">{uiText.serviceOrder.branchEmpty}</p>
-                      ) : null}
-                      {quickClientMessage ? (
-                        <p className="success-message">{quickClientMessage}</p>
-                      ) : null}
-                      {quickCreateError ? <p className="error">{quickCreateError}</p> : null}
-                    </div>
-
-                    <div className="workspace-actions">
-                      <button
-                        className="button button-secondary"
-                        type="button"
-                        onClick={handleCloseQuickCreate}
-                        disabled={isQuickCreatingOrder}
-                      >
-                        {uiText.serviceOrder.quickCreate.cancel}
-                      </button>
-
-                      <button
-                        className="button"
-                        type="submit"
-                        disabled={
-                          isQuickCreatingOrder ||
-                          isClientsLoading ||
-                          isTechniciansLoading ||
-                          !quickCreateState.clientId ||
-                          !quickCreateState.technicianName ||
-                          (!isResidentialQuickClient && !quickCreateState.branchId) ||
-                          (isResidentialQuickClient && !preferredQuickResidentialBranch)
-                        }
-                      >
-                        {isQuickCreatingOrder
-                          ? uiText.serviceOrder.quickCreate.saving
-                          : uiText.serviceOrder.quickCreate.save}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </>
-            ) : isInlineQuickClientOpen ? (
-              <>
-                <div className="workspace-copy">
-                  <h3 id="quick-create-title">
-                    {uiText.serviceOrder.quickCreate.inlineClientTitle}
-                  </h3>
-                  <p>{uiText.serviceOrder.quickCreate.inlineClientDescription}</p>
-                </div>
-
-                <form className="workspace-form" onSubmit={handleQuickCreateClient}>
-                  <div className="workspace-grid">
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.quickCreate.fields.clientName}</span>
-                      <input
-                        name="name"
-                        type="text"
-                        value={quickClientState.name}
-                        onChange={handleQuickClientChange}
-                        disabled={isSavingQuickClient}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.clients.fields.clientType}</span>
-                      <select
-                        name="clientType"
-                        value={quickClientState.clientType}
-                        onChange={handleQuickClientChange}
-                        disabled={isSavingQuickClient}
-                        required
-                      >
-                        <option value="residential">
-                          {uiText.clients.typeOptions.residential}
-                        </option>
-                        <option value="commercial">
-                          {uiText.clients.typeOptions.commercial}
-                        </option>
-                      </select>
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.quickCreate.fields.phone}</span>
-                      <input
-                        name="phone"
-                        type="tel"
-                        value={quickClientState.phone}
-                        onChange={handleQuickClientChange}
-                        disabled={isSavingQuickClient}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>{uiText.serviceOrder.quickCreate.fields.address}</span>
-                      <textarea
-                        name="address"
-                        value={quickClientState.address}
-                        onChange={handleQuickClientChange}
-                        disabled={isSavingQuickClient}
-                        rows={3}
-                        required
-                      />
-                    </label>
-                  </div>
-
-                  <div className="workspace-form-footer">
-                    <div className="workspace-form-messages">
-                      {quickClientError ? <p className="error">{quickClientError}</p> : null}
-                    </div>
-
-                    <div className="workspace-actions">
-                      <button
-                        className="button button-secondary"
-                        type="button"
-                        onClick={handleBackToQuickOrder}
-                        disabled={isSavingQuickClient}
-                      >
-                        {uiText.serviceOrder.quickCreate.backToOrder}
-                      </button>
-
-                      <button className="button" type="submit" disabled={isSavingQuickClient}>
-                        {isSavingQuickClient
-                          ? uiText.serviceOrder.quickCreate.creatingClient
-                          : uiText.serviceOrder.quickCreate.createClient}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </>
-            ) : (
-              <>
-                <div className="workspace-copy">
-                  <h3 id="quick-create-title">
-                    {uiText.serviceOrder.quickCreate.inlineBranchTitle}
-                  </h3>
-                  <p>{uiText.serviceOrder.quickCreate.inlineBranchDescription}</p>
-                </div>
-
-                <form className="workspace-form" onSubmit={handleQuickCreateBranch}>
-                  <div className="workspace-grid">
-                    <label className="workspace-input-group">
-                      <span>{uiText.clients.branchFields.name}</span>
-                      <input
-                        name="name"
-                        type="text"
-                        value={quickBranchState.name}
-                        onChange={handleQuickBranchChange}
-                        disabled={isSavingQuickBranch}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>{uiText.clients.branchFields.address}</span>
-                      <textarea
-                        name="address"
-                        value={quickBranchState.address}
-                        onChange={handleQuickBranchChange}
-                        disabled={isSavingQuickBranch}
-                        rows={3}
-                        required
-                      />
-                    </label>
-                  </div>
-
-                  <div className="workspace-form-footer">
-                    <div className="workspace-form-messages">
-                      {quickBranchError ? <p className="error">{quickBranchError}</p> : null}
-                    </div>
-
-                    <div className="workspace-actions">
-                      <button
-                        className="button button-secondary"
-                        type="button"
-                        onClick={handleBackToQuickOrder}
-                        disabled={isSavingQuickBranch}
-                      >
-                        {uiText.serviceOrder.quickCreate.backToOrder}
-                      </button>
-
-                      <button className="button" type="submit" disabled={isSavingQuickBranch}>
-                        {isSavingQuickBranch
-                          ? uiText.serviceOrder.quickCreate.creatingBranch
-                          : uiText.serviceOrder.quickCreate.createBranch}
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </>
-            )}
-          </section>
-        </div>
-      ) : null}
     </main>
   );
 }
