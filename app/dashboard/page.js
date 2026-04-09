@@ -102,6 +102,28 @@ const initialBranchFormState = {
   notes: ""
 };
 
+const initialQuickClientState = {
+  name: "",
+  phone: "",
+  clientType: "commercial",
+  businessName: "",
+  tradeName: "",
+  taxId: "",
+  street: "",
+  streetNumber: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  reference: ""
+};
+
+const initialQuickBranchState = {
+  name: "",
+  address: "",
+  phone: "",
+  contact: ""
+};
+
 
 const technicianColorPalette = [
   { background: "#e9f2ff", border: "#bfd6ff", accent: "#1d4ed8", text: "#163b75" },
@@ -122,6 +144,12 @@ const serviceOrderStatusOptions = ["scheduled", "completed", "cancelled"].map((s
 const adminViewTabs = {
   calendar: "calendar",
   list: "list"
+};
+const dashboardTabs = {
+  calendar: "calendar",
+  clients: "clients",
+  technicians: "technicians",
+  settings: "settings"
 };
 const operationalCalendarView = "operational";
 const calendarScrollToTime = addHours(startOfDay(new Date()), 6);
@@ -581,6 +609,20 @@ function buildDefaultBranchPayload(client, companyId) {
     contact: client.main_contact || "",
     notes: ""
   };
+}
+
+function buildStructuredAddress({
+  street,
+  streetNumber,
+  city,
+  state,
+  postalCode,
+  reference
+}) {
+  const primaryLine = [street, streetNumber].filter(Boolean).join(" ");
+  const localityLine = [city, state, postalCode].filter(Boolean).join(", ");
+
+  return [primaryLine, localityLine, reference].filter(Boolean).join(" | ");
 }
 
 function EventCard({ event, view, onSelect, isSelected }) {
@@ -1785,12 +1827,16 @@ export default function DashboardPage() {
   const [isServiceOrdersLoading, setIsServiceOrdersLoading] = useState(false);
   const [calendarView, setCalendarView] = useState(operationalCalendarView);
   const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()));
+  const [activeTopLevelTab, setActiveTopLevelTab] = useState(dashboardTabs.calendar);
   const [activeAdminView, setActiveAdminView] = useState(adminViewTabs.calendar);
   const [selectedCalendarTechnician, setSelectedCalendarTechnician] = useState("all");
   const [draggedBacklogServiceOrder, setDraggedBacklogServiceOrder] = useState(null);
   const [serviceListClientSearch, setServiceListClientSearch] = useState("");
   const [serviceListTechnician, setServiceListTechnician] = useState("all");
   const [serviceListRecurring, setServiceListRecurring] = useState("all");
+  const [clientSidebarSearch, setClientSidebarSearch] = useState("");
+  const [clientSidebarType, setClientSidebarType] = useState("all");
+  const [technicianSidebarStatus, setTechnicianSidebarStatus] = useState("all");
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [selectedServiceOrderId, setSelectedServiceOrderId] = useState(null);
   const [selectedServiceOrderSnapshot, setSelectedServiceOrderSnapshot] = useState(null);
@@ -1807,6 +1853,15 @@ export default function DashboardPage() {
   const [clientFormMessage, setClientFormMessage] = useState("");
   const [clientFormError, setClientFormError] = useState("");
   const [isSavingClient, setIsSavingClient] = useState(false);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [clientModalState, setClientModalState] = useState(initialQuickClientState);
+  const [clientModalError, setClientModalError] = useState("");
+  const [isSavingClientModal, setIsSavingClientModal] = useState(false);
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [branchModalState, setBranchModalState] = useState(initialQuickBranchState);
+  const [branchModalError, setBranchModalError] = useState("");
+  const [isSavingBranchModal, setIsSavingBranchModal] = useState(false);
+  const [pendingBranchClient, setPendingBranchClient] = useState(null);
   const [branchForm, setBranchForm] = useState(initialBranchFormState);
   const [branchesByClientId, setBranchesByClientId] = useState({});
   const [branchesError, setBranchesError] = useState("");
@@ -1984,6 +2039,38 @@ export default function DashboardPage() {
     serviceListTechnician,
     serviceOrders
   ]);
+  const filteredClients = useMemo(() => {
+    const normalizedSearch = clientSidebarSearch.trim().toLowerCase();
+
+    return clients.filter((client) => {
+      const displayName = client.displayName || getClientDisplayName(client);
+      const matchesSearch = normalizedSearch
+        ? displayName.toLowerCase().includes(normalizedSearch)
+        : true;
+      const matchesType =
+        clientSidebarType === "all" ? true : client.client_type === clientSidebarType;
+
+      return matchesSearch && matchesType;
+    });
+  }, [clientSidebarSearch, clientSidebarType, clients]);
+  const filteredTechnicians = useMemo(
+    () =>
+      technicians.filter((technician) => {
+        if (technicianSidebarStatus === "active") {
+          return Boolean(technician.is_active);
+        }
+
+        if (technicianSidebarStatus === "inactive") {
+          return !technician.is_active;
+        }
+
+        return true;
+      }),
+    [technicianSidebarStatus, technicians]
+  );
+  const selectedClient =
+    clients.find((client) => client.id === selectedClientId) || null;
+  const selectedClientBranches = branchesByClientId[selectedClientId] || [];
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
@@ -2810,7 +2897,12 @@ export default function DashboardPage() {
     setCalendarDate(nextDate);
   };
 
-  const saveClientRecord = async ({ clientState, clientId = null }) => {
+  const saveClientRecord = async ({
+    clientState,
+    clientId = null,
+    autoCreateDefaultBranch = true,
+    defaultBranchPayload = null
+  }) => {
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -2884,7 +2976,7 @@ export default function DashboardPage() {
       throw new Error(error.message || uiText.clients.createError);
     }
 
-    if (savedClient?.id) {
+    if (savedClient?.id && autoCreateDefaultBranch) {
       const { count, error: branchCountError } = await supabase
         .from("branches")
         .select("id", { count: "exact", head: true })
@@ -2892,9 +2984,17 @@ export default function DashboardPage() {
         .eq("company_id", activeCompanyId);
 
       if (!branchCountError && count === 0) {
-        await supabase.from("branches").insert(
-          buildDefaultBranchPayload(normalizeClientRecord(savedClient), activeCompanyId)
-        );
+        const resolvedDefaultBranchPayload = defaultBranchPayload
+          ? {
+              ...defaultBranchPayload,
+              company_id: activeCompanyId,
+              client_id: savedClient.id
+            }
+          : buildDefaultBranchPayload(normalizeClientRecord(savedClient), activeCompanyId);
+
+        await supabase
+          .from("branches")
+          .insert(resolvedDefaultBranchPayload);
       }
     }
 
@@ -3105,6 +3205,21 @@ export default function DashboardPage() {
   }, [activeCompanyId, clients, selectedBranchClientId]);
 
   useEffect(() => {
+    const supabase = getSupabaseClient();
+
+    if (
+      !supabase ||
+      !activeCompanyId ||
+      activeTopLevelTab !== dashboardTabs.clients ||
+      !selectedClientId
+    ) {
+      return;
+    }
+
+    fetchBranchesForClient(supabase, selectedClientId, activeCompanyId);
+  }, [activeCompanyId, activeTopLevelTab, selectedClientId]);
+
+  useEffect(() => {
     if (!selectedServiceOrder) {
       setDetailFormState(initialDetailFormState);
       setDetailFormMessage("");
@@ -3296,6 +3411,24 @@ export default function DashboardPage() {
     }));
   };
 
+  const handleClientModalChange = (event) => {
+    const { name, value } = event.target;
+    setClientModalError("");
+    setClientModalState((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleBranchModalChange = (event) => {
+    const { name, value } = event.target;
+    setBranchModalError("");
+    setBranchModalState((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
   const handleBranchFormChange = (event) => {
     const { name, value } = event.target;
     setBranchFormError("");
@@ -3467,6 +3600,132 @@ export default function DashboardPage() {
     setFormError("");
     setFormMessage("");
     setRightPanelMode(selectedServiceOrder ? rightPanelModes.detail : rightPanelModes.empty);
+  };
+
+  const handleOpenClientModal = () => {
+    setClientModalState(initialQuickClientState);
+    setClientModalError("");
+    setIsClientModalOpen(true);
+  };
+
+  const handleCloseClientModal = () => {
+    if (isSavingClientModal) {
+      return;
+    }
+
+    setIsClientModalOpen(false);
+    setClientModalState(initialQuickClientState);
+    setClientModalError("");
+  };
+
+  const handleCloseBranchModal = () => {
+    if (isSavingBranchModal) {
+      return;
+    }
+
+    setIsBranchModalOpen(false);
+    setBranchModalState(initialQuickBranchState);
+    setBranchModalError("");
+    setPendingBranchClient(null);
+  };
+
+  const handleCreateClientFromModal = async (event) => {
+    event.preventDefault();
+    setClientModalError("");
+    setIsSavingClientModal(true);
+
+    try {
+      const isResidential = isResidentialClient(clientModalState.clientType);
+      const residentialAddress = buildStructuredAddress({
+        street: clientModalState.street.trim(),
+        streetNumber: clientModalState.streetNumber.trim(),
+        city: clientModalState.city.trim(),
+        state: clientModalState.state.trim(),
+        postalCode: clientModalState.postalCode.trim(),
+        reference: clientModalState.reference.trim()
+      });
+
+      if (isResidential && !residentialAddress) {
+        throw new Error("Ingresa una direccion valida para la sucursal principal.");
+      }
+
+      const savedClient = await saveClientRecord({
+        clientState: {
+          clientType: clientModalState.clientType,
+          businessName: (clientModalState.businessName || clientModalState.name).trim(),
+          tradeName: clientModalState.tradeName.trim(),
+          taxId: clientModalState.taxId.trim(),
+          mainAddress: isResidential ? residentialAddress : "",
+          mainPhone: clientModalState.phone.trim(),
+          mainContact: "",
+          mainEmail: ""
+        },
+        autoCreateDefaultBranch: isResidential,
+        defaultBranchPayload: isResidential
+          ? {
+              name: "Principal",
+              address: residentialAddress,
+              phone: clientModalState.phone.trim(),
+              contact: "",
+              notes: clientModalState.reference.trim()
+            }
+          : null
+      });
+
+      setCalendarActionError("");
+      setCalendarActionMessage(
+        isResidential ? uiText.clients.success : "Cliente creado. Agrega la primera sucursal."
+      );
+      setIsClientModalOpen(false);
+      setClientModalState(initialQuickClientState);
+      setClientModalError("");
+
+      if (!isResidential && savedClient) {
+        setPendingBranchClient(savedClient);
+        setBranchModalState({
+          ...initialQuickBranchState,
+          name: "Principal",
+          phone: clientModalState.phone.trim()
+        });
+        setBranchModalError("");
+        setIsBranchModalOpen(true);
+      }
+    } catch (error) {
+      setClientModalError(error.message || uiText.clients.createError);
+    }
+
+    setIsSavingClientModal(false);
+  };
+
+  const handleCreateBranchFromModal = async (event) => {
+    event.preventDefault();
+    setBranchModalError("");
+    setIsSavingBranchModal(true);
+
+    try {
+      await saveBranchRecord({
+        branchState: {
+          name: branchModalState.name,
+          address: branchModalState.address,
+          phone: branchModalState.phone,
+          contact: branchModalState.contact,
+          notes: ""
+        },
+        clientId: pendingBranchClient?.id,
+        preserveOrderClient: true
+      });
+
+      setCalendarActionError("");
+      setCalendarActionMessage(uiText.clients.branchCreateSuccess);
+      setIsBranchModalOpen(false);
+      setBranchModalState(initialQuickBranchState);
+      setBranchModalError("");
+      setPendingBranchClient(null);
+    } catch (error) {
+      setBranchModalError(error.message || uiText.clients.branchCreateError);
+    }
+
+    setIsSavingBranchModal(false);
   };
 
   const handleCreateClient = async (event) => {
@@ -4519,7 +4778,33 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <section className="admin-content">
+      <div className="admin-primary-tabs" role="tablist" aria-label="Secciones principales">
+        {Object.entries(dashboardTabs).map(([key, value]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={activeTopLevelTab === value}
+            className={
+              activeTopLevelTab === value
+                ? "admin-primary-tab admin-primary-tab-active"
+                : "admin-primary-tab"
+            }
+            onClick={() => setActiveTopLevelTab(value)}
+          >
+            {uiText.dashboard.topTabs[key]}
+          </button>
+        ))}
+      </div>
+
+      <section
+        className={
+          activeTopLevelTab === dashboardTabs.calendar
+            ? "admin-content"
+            : "admin-content admin-content-two-column"
+        }
+      >
+        {activeTopLevelTab === dashboardTabs.calendar ? (
         <aside className="operations-panel">
           <div className="operations-inbox">
             <div className="operations-inbox-header">
@@ -4615,6 +4900,13 @@ export default function DashboardPage() {
             <div className="operations-panel-actions">
               <button className="button" type="button" onClick={handleOpenCreatePanel}>
                 + {uiText.tabs.newServiceOrder}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleOpenClientModal}
+              >
+                + Cliente
               </button>
               <button
                 className="button button-secondary"
@@ -4731,7 +5023,130 @@ export default function DashboardPage() {
           )}
 
         </aside>
+        ) : null}
 
+        {activeTopLevelTab === dashboardTabs.clients ? (
+          <aside className="operations-panel">
+            <div className="operations-divider">
+              <span className="control-group-label">{uiText.dashboard.topTabs.clients}</span>
+            </div>
+
+            <div className="operations-panel-header">
+              <div>
+                <h2>{uiText.clients.title}</h2>
+                <p>Busca clientes, filtra por tipo y crea nuevos registros rapidamente.</p>
+              </div>
+              <div className="operations-panel-actions">
+                <button className="button" type="button" onClick={handleOpenClientModal}>
+                  + Cliente
+                </button>
+              </div>
+            </div>
+
+            <div className="operations-panel-section">
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.serviceList.filters.client}</span>
+                <input
+                  type="text"
+                  value={clientSidebarSearch}
+                  onChange={(event) => setClientSidebarSearch(event.target.value)}
+                  placeholder={uiText.serviceList.placeholders.clientSearch}
+                />
+              </label>
+
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.clients.fields.clientType}</span>
+                <select
+                  value={clientSidebarType}
+                  onChange={(event) => setClientSidebarType(event.target.value)}
+                >
+                  <option value="all">{uiText.dashboard.clientTypeAll}</option>
+                  <option value="residential">{uiText.clients.typeOptions.residential}</option>
+                  <option value="commercial">{uiText.clients.typeOptions.commercial}</option>
+                </select>
+              </label>
+            </div>
+          </aside>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.technicians ? (
+          <aside className="operations-panel">
+            <div className="operations-divider">
+              <span className="control-group-label">{uiText.dashboard.topTabs.technicians}</span>
+            </div>
+
+            <div className="operations-panel-header">
+              <div>
+                <h2>{uiText.technicians.title}</h2>
+                <p>Consulta el roster tecnico y filtra rapidamente por estado.</p>
+              </div>
+              <div className="operations-panel-actions">
+                <button className="button" type="button">
+                  + Tecnico
+                </button>
+              </div>
+            </div>
+
+            <div className="operations-panel-section">
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.technicians.headers.status}</span>
+                <select
+                  value={technicianSidebarStatus}
+                  onChange={(event) => setTechnicianSidebarStatus(event.target.value)}
+                >
+                  <option value="all">{uiText.dashboard.technicianStatusAll}</option>
+                  <option value="active">{uiText.dashboard.technicianStatusActive}</option>
+                  <option value="inactive">{uiText.dashboard.technicianStatusInactive}</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="operations-panel-section">
+              <span className="control-group-label">{uiText.technicians.listTitle}</span>
+              <div className="operations-pending-list">
+                {filteredTechnicians.map((technician) => (
+                  <div key={technician.id} className="operations-list-item">
+                    <strong>{technician.full_name}</strong>
+                    <span>
+                      {technician.is_active
+                        ? uiText.technicians.active
+                        : uiText.technicians.inactive}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.settings ? (
+          <aside className="operations-panel">
+            <div className="operations-divider">
+              <span className="control-group-label">{uiText.dashboard.topTabs.settings}</span>
+            </div>
+
+            <div className="operations-panel-header">
+              <div>
+                <h2>{uiText.dashboard.settingsPanelTitle}</h2>
+                <p>Accesos a configuraciones globales del despacho.</p>
+              </div>
+            </div>
+
+            <div className="operations-panel-section">
+              <button type="button" className="button button-secondary operations-nav-button">
+                {uiText.dashboard.settingsNav.company}
+              </button>
+              <button type="button" className="button button-secondary operations-nav-button">
+                {uiText.dashboard.settingsNav.preferences}
+              </button>
+              <button type="button" className="button button-secondary operations-nav-button">
+                {uiText.dashboard.settingsNav.notifications}
+              </button>
+            </div>
+          </aside>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.calendar ? (
         <section className="calendar-panel">
           <div className="calendar-panel-header">
             <div className="calendar-panel-row calendar-panel-row-1">
@@ -4928,7 +5343,180 @@ export default function DashboardPage() {
             />
           ) : null}
         </section>
+        ) : null}
 
+        {activeTopLevelTab === dashboardTabs.clients ? (
+          <section className="calendar-panel admin-secondary-panel">
+            <div className="calendar-panel-header">
+              <div className="calendar-panel-row calendar-panel-row-1">
+                <div className="calendar-panel-row-left">
+                  <h2>{uiText.dashboard.clientsPanelTitle}</h2>
+                </div>
+              </div>
+              <div className="calendar-panel-row calendar-panel-row-2">
+                <div className="calendar-panel-row-left">
+                  <p className="calendar-panel-subtitle">{uiText.dashboard.clientsPanelBody}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="clients-master-detail">
+              <div className="clients-master-list">
+                {filteredClients.length === 0 ? (
+                  <div className="calendar-empty-state clients-empty-state">
+                    <h3>{uiText.clients.listTitle}</h3>
+                    <p>{uiText.clients.empty}</p>
+                  </div>
+                ) : (
+                  filteredClients.map((client) => {
+                    const isActive = client.id === selectedClientId;
+
+                    return (
+                      <button
+                        key={client.id}
+                        type="button"
+                        className={
+                          isActive
+                            ? "client-list-row client-list-row-active"
+                            : "client-list-row"
+                        }
+                        onClick={() => setSelectedClientId(client.id)}
+                      >
+                        <div className="client-list-row-header">
+                          <strong>{client.displayName}</strong>
+                          <span className="service-list-badge">
+                            {getClientTypeLabel(client.client_type)}
+                          </span>
+                        </div>
+                        <span className="client-list-row-meta">{client.main_phone || "-"}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="clients-detail-panel">
+                {!selectedClient ? (
+                  <div className="calendar-empty-state clients-empty-state">
+                    <h3>{uiText.clients.title}</h3>
+                    <p>Selecciona un cliente para ver detalles</p>
+                  </div>
+                ) : (
+                  <div className="clients-detail-card">
+                    <div className="client-detail-header">
+                      <div>
+                        <h3>{selectedClient.displayName}</h3>
+                        <span className="service-list-badge">
+                          {getClientTypeLabel(selectedClient.client_type)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="detail-row">
+                      <span>{uiText.clients.headers.phone}</span>
+                      <strong>{selectedClient.main_phone || "-"}</strong>
+                    </div>
+
+                    {selectedClient.main_email ? (
+                      <div className="detail-row">
+                        <span>{uiText.clients.fields.mainEmail}</span>
+                        <strong>{selectedClient.main_email}</strong>
+                      </div>
+                    ) : null}
+
+                    <div className="clients-branches-section">
+                      <div className="workspace-list-header">
+                        <h4>{uiText.clients.branchesPanelTitle}</h4>
+                      </div>
+
+                      <div className="clients-branches-list">
+                        {selectedClientBranches.length === 0 ? (
+                          <p className="workspace-list-message">
+                            {uiText.clients.branchesEmptyState}
+                          </p>
+                        ) : (
+                          selectedClientBranches.map((branch) => (
+                            <div key={branch.id} className="branch-summary-card">
+                              <strong>{branch.name}</strong>
+                              <p>{branch.address || "-"}</p>
+                              {branch.phone ? <p>{branch.phone}</p> : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.technicians ? (
+          <section className="calendar-panel admin-secondary-panel">
+            <div className="calendar-panel-header">
+              <div className="calendar-panel-row calendar-panel-row-1">
+                <div className="calendar-panel-row-left">
+                  <h2>{uiText.dashboard.techniciansPanelTitle}</h2>
+                </div>
+              </div>
+              <div className="calendar-panel-row calendar-panel-row-2">
+                <div className="calendar-panel-row-left">
+                  <p className="calendar-panel-subtitle">{uiText.dashboard.techniciansPanelBody}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="workspace-table-wrapper service-list-table-wrapper">
+              <table className="workspace-table">
+                <thead>
+                  <tr>
+                    <th>{uiText.technicians.headers.fullName}</th>
+                    <th>{uiText.technicians.headers.phone}</th>
+                    <th>{uiText.technicians.headers.status}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTechnicians.map((technician) => (
+                    <tr key={technician.id}>
+                      <td>{technician.full_name}</td>
+                      <td>{technician.phone || "-"}</td>
+                      <td>
+                        {technician.is_active
+                          ? uiText.technicians.active
+                          : uiText.technicians.inactive}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.settings ? (
+          <section className="calendar-panel admin-secondary-panel">
+            <div className="calendar-panel-header">
+              <div className="calendar-panel-row calendar-panel-row-1">
+                <div className="calendar-panel-row-left">
+                  <h2>{uiText.dashboard.settingsPanelTitle}</h2>
+                </div>
+              </div>
+              <div className="calendar-panel-row calendar-panel-row-2">
+                <div className="calendar-panel-row-left">
+                  <p className="calendar-panel-subtitle">{uiText.dashboard.settingsPanelBody}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="calendar-empty-state admin-settings-placeholder">
+              <h3>{uiText.dashboard.settingsPanelTitle}</h3>
+              <p>{uiText.dashboard.settingsPanelBody}</p>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTopLevelTab === dashboardTabs.calendar ? (
         <aside className="detail-sidebar">
           <div className="detail-sidebar-header">
             <div>
@@ -5294,7 +5882,296 @@ export default function DashboardPage() {
             )}
           </div>
         </aside>
+        ) : null}
       </section>
+
+      {isClientModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={handleCloseClientModal}>
+          <section
+            className="quick-create-modal quick-create-modal-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-copy">
+              <h3 id="client-modal-title">{uiText.clients.formCreateTitle}</h3>
+              <p>
+                Registra rapidamente un cliente utilizable para programar servicios sin
+                salir del panel.
+              </p>
+            </div>
+
+            <form className="workspace-form" onSubmit={handleCreateClientFromModal}>
+              <div className="workspace-grid">
+                <label className="workspace-input-group">
+                  <span>{uiText.serviceOrder.quickCreate.fields.clientName}</span>
+                  <input
+                    name="name"
+                    type="text"
+                    value={clientModalState.name}
+                    onChange={handleClientModalChange}
+                    disabled={isSavingClientModal}
+                    required
+                  />
+                </label>
+
+                {clientModalState.clientType === "commercial" ? (
+                  <>
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.fields.businessName}</span>
+                      <input
+                        name="businessName"
+                        type="text"
+                        value={clientModalState.businessName}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.fields.tradeName}</span>
+                      <input
+                        name="tradeName"
+                        type="text"
+                        value={clientModalState.tradeName}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.fields.clientType}</span>
+                  <select
+                    name="clientType"
+                    value={clientModalState.clientType}
+                    onChange={handleClientModalChange}
+                    disabled={isSavingClientModal}
+                    required
+                  >
+                    <option value="residential">
+                      {uiText.clients.typeOptions.residential}
+                    </option>
+                    <option value="commercial">
+                      {uiText.clients.typeOptions.commercial}
+                    </option>
+                  </select>
+                </label>
+
+                {clientModalState.clientType === "commercial" ? (
+                  <label className="workspace-input-group">
+                    <span>{uiText.clients.fields.taxId}</span>
+                    <input
+                      name="taxId"
+                      type="text"
+                      value={clientModalState.taxId}
+                      onChange={handleClientModalChange}
+                      disabled={isSavingClientModal}
+                    />
+                  </label>
+                ) : null}
+
+                <label className="workspace-input-group">
+                  <span>{uiText.serviceOrder.quickCreate.fields.phone}</span>
+                  <input
+                    name="phone"
+                    type="tel"
+                    value={clientModalState.phone}
+                    onChange={handleClientModalChange}
+                    disabled={isSavingClientModal}
+                  />
+                </label>
+
+                {clientModalState.clientType === "residential" ? (
+                  <>
+                    <label className="workspace-input-group">
+                      <span>Calle</span>
+                      <input
+                        name="street"
+                        type="text"
+                        value={clientModalState.street}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Numero</span>
+                      <input
+                        name="streetNumber"
+                        type="text"
+                        value={clientModalState.streetNumber}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Ciudad</span>
+                      <input
+                        name="city"
+                        type="text"
+                        value={clientModalState.city}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Estado</span>
+                      <input
+                        name="state"
+                        type="text"
+                        value={clientModalState.state}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Codigo postal</span>
+                      <input
+                        name="postalCode"
+                        type="text"
+                        value={clientModalState.postalCode}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Referencia / notas</span>
+                      <textarea
+                        name="reference"
+                        value={clientModalState.reference}
+                        onChange={handleClientModalChange}
+                        disabled={isSavingClientModal}
+                        rows={3}
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="workspace-form-footer">
+                <div className="workspace-form-messages">
+                  {clientModalError ? <p className="error">{clientModalError}</p> : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleCloseClientModal}
+                    disabled={isSavingClientModal}
+                  >
+                    {uiText.common.cancel}
+                  </button>
+                  <button className="button" type="submit" disabled={isSavingClientModal}>
+                    {isSavingClientModal ? uiText.clients.saving : uiText.clients.save}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isBranchModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={handleCloseBranchModal}>
+          <section
+            className="quick-create-modal quick-create-modal-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="branch-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-copy">
+              <h3 id="branch-modal-title">{uiText.clients.branchesFormCreateTitle}</h3>
+              <p>
+                Agrega la primera sucursal para {pendingBranchClient?.displayName || "el cliente"}.
+              </p>
+            </div>
+
+            <form className="workspace-form" onSubmit={handleCreateBranchFromModal}>
+              <div className="workspace-grid">
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.branchFields.name}</span>
+                  <input
+                    name="name"
+                    type="text"
+                    value={branchModalState.name}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                    required
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.branchFields.phone}</span>
+                  <input
+                    name="phone"
+                    type="text"
+                    value={branchModalState.phone}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.clients.branchFields.contact}</span>
+                  <input
+                    name="contact"
+                    type="text"
+                    value={branchModalState.contact}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.clients.branchFields.address}</span>
+                  <textarea
+                    name="address"
+                    value={branchModalState.address}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                    rows={3}
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="workspace-form-footer">
+                <div className="workspace-form-messages">
+                  {branchModalError ? <p className="error">{branchModalError}</p> : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleCloseBranchModal}
+                    disabled={isSavingBranchModal}
+                  >
+                    {uiText.common.cancel}
+                  </button>
+                  <button className="button" type="submit" disabled={isSavingBranchModal}>
+                    {isSavingBranchModal ? uiText.clients.branchSaving : uiText.clients.branchSave}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
