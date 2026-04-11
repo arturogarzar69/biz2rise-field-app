@@ -1848,6 +1848,11 @@ export default function DashboardPage() {
   const [clientSubTab, setClientSubTab] = useState(defaultClientSubTab);
   const [clientForm, setClientForm] = useState(initialClientFormState);
   const [selectedClientId, setSelectedClientId] = useState(null);
+  const [expandedClientIds, setExpandedClientIds] = useState({});
+  const [activeEntityType, setActiveEntityType] = useState(null);
+  const [activeEntityId, setActiveEntityId] = useState(null);
+  const [activeParentClientId, setActiveParentClientId] = useState(null);
+  const [activeMode, setActiveMode] = useState(null);
   const [selectedBranchClientId, setSelectedBranchClientId] = useState(null);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [clientFormMessage, setClientFormMessage] = useState("");
@@ -2053,6 +2058,29 @@ export default function DashboardPage() {
       return matchesSearch && matchesType;
     });
   }, [clientSidebarSearch, clientSidebarType, clients]);
+  const activeClientHierarchyMessage = useMemo(() => {
+    if (activeEntityType === "client" && activeMode === "edit" && activeEntityId) {
+      const activeClient = clients.find((client) => client.id === activeEntityId);
+
+      return activeClient ? `Modo edicion cliente: ${activeClient.displayName}` : "";
+    }
+
+    if (activeEntityType === "branch" && activeMode === "create" && activeParentClientId) {
+      const parentClient = clients.find((client) => client.id === activeParentClientId);
+
+      return parentClient ? `Creando sucursal para: ${parentClient.displayName}` : "";
+    }
+
+    if (activeEntityType === "branch" && activeMode === "edit" && activeEntityId) {
+      const activeBranch = Object.values(branchesByClientId)
+        .flat()
+        .find((branch) => branch.id === activeEntityId);
+
+      return activeBranch ? `Modo edicion sucursal: ${activeBranch.name}` : "";
+    }
+
+    return "";
+  }, [activeEntityId, activeEntityType, activeMode, activeParentClientId, branchesByClientId, clients]);
   const filteredTechnicians = useMemo(
     () =>
       technicians.filter((technician) => {
@@ -2071,6 +2099,30 @@ export default function DashboardPage() {
   const selectedClient =
     clients.find((client) => client.id === selectedClientId) || null;
   const selectedClientBranches = branchesByClientId[selectedClientId] || [];
+  const activeBranch = Object.values(branchesByClientId)
+    .flat()
+    .find((branch) => branch.id === activeEntityId) || null;
+  const activeClient =
+    (activeEntityType === "client" && activeEntityId
+      ? clients.find((client) => client.id === activeEntityId)
+      : null) ||
+    (activeEntityType === "branch" && activeMode === "create" && activeParentClientId
+      ? clients.find((client) => client.id === activeParentClientId)
+      : null) ||
+    (activeEntityType === "branch" && activeBranch?.client_id
+      ? clients.find((client) => client.id === activeBranch.client_id)
+      : null) ||
+    null;
+  const activeDrawerTitle =
+    activeEntityType === "client" && activeMode === "edit"
+      ? "Editar cliente"
+      : activeEntityType === "client" && activeMode === "create"
+        ? "Nuevo cliente"
+        : activeEntityType === "branch" && activeMode === "create"
+          ? "Nueva sucursal"
+          : activeEntityType === "branch" && activeMode === "edit"
+            ? "Editar sucursal"
+            : "";
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
@@ -3418,6 +3470,58 @@ export default function DashboardPage() {
       ...currentState,
       [name]: value
     }));
+  };
+
+  const toggleExpandedClient = async (clientId) => {
+    const isExpanding = !expandedClientIds[clientId];
+
+    setExpandedClientIds((currentState) => ({
+      ...currentState,
+      [clientId]: !currentState[clientId]
+    }));
+
+    if (!isExpanding || branchesByClientId[clientId]) {
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase || !activeCompanyId) {
+      return;
+    }
+
+    await fetchBranchesForClient(supabase, clientId, activeCompanyId);
+  };
+
+  const handleClientHierarchyEdit = (client) => {
+    setActiveEntityType("client");
+    setActiveEntityId(client.id);
+    setActiveParentClientId(null);
+    setActiveMode("edit");
+    console.log("Edit client", client);
+  };
+
+  const handleClientHierarchyCreateBranch = (client) => {
+    setActiveEntityType("branch");
+    setActiveEntityId(null);
+    setActiveParentClientId(client.id);
+    setActiveMode("create");
+    console.log("Create branch for client", client);
+  };
+
+  const handleClientHierarchyEditBranch = (branch) => {
+    setActiveEntityType("branch");
+    setActiveEntityId(branch.id);
+    setActiveParentClientId(branch.client_id || null);
+    setActiveMode("edit");
+    console.log("Edit branch", branch);
+  };
+
+  const handleCloseClientsDrawer = () => {
+    setActiveEntityType(null);
+    setActiveEntityId(null);
+    setActiveParentClientId(null);
+    setActiveMode(null);
   };
 
   const handleBranchModalChange = (event) => {
@@ -5360,95 +5464,114 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="clients-master-detail">
-              <div className="clients-master-list">
-                {filteredClients.length === 0 ? (
-                  <div className="calendar-empty-state clients-empty-state">
-                    <h3>{uiText.clients.listTitle}</h3>
-                    <p>{uiText.clients.empty}</p>
-                  </div>
-                ) : (
-                  filteredClients.map((client) => {
-                    const isActive = client.id === selectedClientId;
+            {filteredClients.length === 0 ? (
+              <div className="calendar-empty-state clients-empty-state">
+                <h3>{uiText.clients.listTitle}</h3>
+                <p>{uiText.clients.empty}</p>
+              </div>
+            ) : (
+              <div className="clients-hierarchy">
+                {activeClientHierarchyMessage ? (
+                  <div className="clients-hierarchy-feedback">{activeClientHierarchyMessage}</div>
+                ) : null}
+                <div className="clients-hierarchy-header">
+                  <span />
+                  <span>{uiText.clients.headers.name}</span>
+                  <span>{uiText.clients.headers.type}</span>
+                  <span>{uiText.clients.headers.phone}</span>
+                  <span>{uiText.clients.fields.mainEmail}</span>
+                  <span>{uiText.clients.subTabs.branches}</span>
+                  <span>{uiText.clients.headers.actions}</span>
+                </div>
+
+                <div className="clients-hierarchy-body">
+                  {filteredClients.map((client) => {
+                    const isExpanded = Boolean(expandedClientIds[client.id]);
+                    const clientBranches = branchesByClientId[client.id] || [];
+                    const branchCountLabel = branchesByClientId[client.id]
+                      ? `${clientBranches.length}`
+                      : "—";
 
                     return (
-                      <button
-                        key={client.id}
-                        type="button"
-                        className={
-                          isActive
-                            ? "client-list-row client-list-row-active"
-                            : "client-list-row"
-                        }
-                        onClick={() => setSelectedClientId(client.id)}
-                      >
-                        <div className="client-list-row-header">
+                      <div key={client.id} className="clients-hierarchy-group">
+                        <div
+                          className={
+                            isExpanded
+                              ? "clients-parent-row clients-parent-row-expanded"
+                              : "clients-parent-row"
+                          }
+                        >
+                          <button
+                            type="button"
+                            className="clients-disclosure"
+                            onClick={() => toggleExpandedClient(client.id)}
+                            aria-expanded={isExpanded}
+                            aria-label={
+                              isExpanded
+                                ? `Ocultar sucursales de ${client.displayName}`
+                                : `Mostrar sucursales de ${client.displayName}`
+                            }
+                          >
+                            {isExpanded ? "▼" : "▶"}
+                          </button>
                           <strong>{client.displayName}</strong>
-                          <span className="service-list-badge">
-                            {getClientTypeLabel(client.client_type)}
-                          </span>
+                          <span>{getClientTypeLabel(client.client_type)}</span>
+                          <span>{client.main_phone || "-"}</span>
+                          <span>{client.main_email || "-"}</span>
+                          <span>{branchCountLabel}</span>
+                          <div className="clients-row-actions">
+                            <button
+                              type="button"
+                              className="clients-row-action-button"
+                              onClick={() => handleClientHierarchyEdit(client)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="clients-row-action-button"
+                              onClick={() => handleClientHierarchyCreateBranch(client)}
+                            >
+                              + Sucursal
+                            </button>
+                          </div>
                         </div>
-                        <span className="client-list-row-meta">{client.main_phone || "-"}</span>
-                      </button>
+
+                        {isExpanded ? (
+                          <div className="clients-child-rows">
+                            {clientBranches.length === 0 ? (
+                              <div className="clients-child-row clients-child-row-empty">
+                                <span>└</span>
+                                <span>{uiText.clients.branchesEmptyState}</span>
+                              </div>
+                            ) : (
+                              clientBranches.map((branch) => (
+                                <div key={branch.id} className="clients-child-row">
+                                  <span>└</span>
+                                  <strong>{branch.name}</strong>
+                                  <span>{branch.address || "-"}</span>
+                                  <span>{branch.phone || "-"}</span>
+                                  <span>{branch.contact || "-"}</span>
+                                  <div className="clients-row-actions">
+                                    <button
+                                      type="button"
+                                      className="clients-row-action-button"
+                                      onClick={() => handleClientHierarchyEditBranch(branch)}
+                                    >
+                                      Editar
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     );
-                  })
-                )}
+                  })}
+                </div>
               </div>
-
-              <div className="clients-detail-panel">
-                {!selectedClient ? (
-                  <div className="calendar-empty-state clients-empty-state">
-                    <h3>{uiText.clients.title}</h3>
-                    <p>Selecciona un cliente para ver detalles</p>
-                  </div>
-                ) : (
-                  <div className="clients-detail-card">
-                    <div className="client-detail-header">
-                      <div>
-                        <h3>{selectedClient.displayName}</h3>
-                        <span className="service-list-badge">
-                          {getClientTypeLabel(selectedClient.client_type)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="detail-row">
-                      <span>{uiText.clients.headers.phone}</span>
-                      <strong>{selectedClient.main_phone || "-"}</strong>
-                    </div>
-
-                    {selectedClient.main_email ? (
-                      <div className="detail-row">
-                        <span>{uiText.clients.fields.mainEmail}</span>
-                        <strong>{selectedClient.main_email}</strong>
-                      </div>
-                    ) : null}
-
-                    <div className="clients-branches-section">
-                      <div className="workspace-list-header">
-                        <h4>{uiText.clients.branchesPanelTitle}</h4>
-                      </div>
-
-                      <div className="clients-branches-list">
-                        {selectedClientBranches.length === 0 ? (
-                          <p className="workspace-list-message">
-                            {uiText.clients.branchesEmptyState}
-                          </p>
-                        ) : (
-                          selectedClientBranches.map((branch) => (
-                            <div key={branch.id} className="branch-summary-card">
-                              <strong>{branch.name}</strong>
-                              <p>{branch.address || "-"}</p>
-                              {branch.phone ? <p>{branch.phone}</p> : null}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
           </section>
         ) : null}
 
@@ -6170,6 +6293,95 @@ export default function DashboardPage() {
               </div>
             </form>
           </section>
+        </div>
+      ) : null}
+
+      {activeTopLevelTab === dashboardTabs.clients && activeEntityType ? (
+        <div
+          className="entity-drawer-backdrop"
+          role="presentation"
+          onClick={handleCloseClientsDrawer}
+        >
+          <aside
+            className="entity-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="entity-drawer-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="entity-drawer-header">
+              <div>
+                <h3 id="entity-drawer-title">{activeDrawerTitle}</h3>
+                <p>Panel lateral reutilizable para clientes y sucursales.</p>
+              </div>
+              <button
+                type="button"
+                className="entity-drawer-close"
+                onClick={handleCloseClientsDrawer}
+                aria-label="Cerrar panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="entity-drawer-body">
+              {activeEntityType === "client" ? (
+                <div className="entity-drawer-section">
+                  <div className="detail-row">
+                    <span>Cliente</span>
+                    <strong>{activeClient?.displayName || "-"}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Tipo</span>
+                    <strong>
+                      {activeClient ? getClientTypeLabel(activeClient.client_type) : "-"}
+                    </strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Telefono</span>
+                    <strong>{activeClient?.main_phone || "-"}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Email</span>
+                    <strong>{activeClient?.main_email || "-"}</strong>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeEntityType === "branch" && activeMode === "create" ? (
+                <div className="entity-drawer-section">
+                  <div className="detail-row">
+                    <span>Cliente padre</span>
+                    <strong>{activeClient?.displayName || "-"}</strong>
+                  </div>
+                  <p className="detail-subcopy">
+                    Creando sucursal para: {activeClient?.displayName || "cliente seleccionado"}.
+                  </p>
+                </div>
+              ) : null}
+
+              {activeEntityType === "branch" && activeMode === "edit" ? (
+                <div className="entity-drawer-section">
+                  <div className="detail-row">
+                    <span>Sucursal</span>
+                    <strong>{activeBranch?.name || "-"}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Direccion</span>
+                    <strong>{activeBranch?.address || "-"}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Telefono</span>
+                    <strong>{activeBranch?.phone || "-"}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Cliente</span>
+                    <strong>{activeClient?.displayName || "-"}</strong>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </aside>
         </div>
       ) : null}
     </main>
