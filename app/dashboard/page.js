@@ -28,6 +28,11 @@ import {
   parseServiceOrderStart,
   resolveDurationMinutes
 } from "../../lib/serviceOrderUtils";
+import {
+  fetchContactsForClient,
+  saveContactRecord,
+  updateContactRecord
+} from "../../lib/contactRecords";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 import { formatDisplayTime, getStatusLabel, uiText } from "../../lib/uiText";
 
@@ -122,6 +127,32 @@ const initialQuickBranchState = {
   address: "",
   phone: "",
   contact: ""
+};
+
+const clientDrawerTabs = {
+  client: "client",
+  contacts: "contacts",
+  branches: "branches"
+};
+
+const initialClientDrawerForm = {
+  name: "",
+  clientType: "commercial",
+  mainPhone: "",
+  mainEmail: "",
+  mainContact: "",
+  businessName: "",
+  tradeName: "",
+  taxId: ""
+};
+
+const initialContactDrawerForm = {
+  fullName: "",
+  phone: "",
+  email: "",
+  role: "",
+  notes: "",
+  isPrimary: false
 };
 
 
@@ -659,13 +690,15 @@ function EventCard({ event, view, onSelect, isSelected }) {
         console.log("[Service Order Debug] EventCard onClick:", event);
         onSelect?.(event);
       }}
-    >
+      >
       <div className="calendar-event-week-accent" />
       <div className="calendar-event-week-copy">
-        <strong className="calendar-event-week-primary">{event.clientName}</strong>
-        <span className="calendar-event-week-secondary">{event.branchName}</span>
-        <span className="calendar-event-week-tertiary">
-          {event.technicianDisplayName} · {event.durationMinutes} min
+        <strong className="calendar-event-week-line-primary">
+          {event.clientName} - {event.branchName || uiText.dashboard.branchEmpty}
+        </strong>
+        <span className="calendar-event-week-line-secondary">
+          {event.technicianDisplayName || uiText.dashboard.calendarTechnicianFallback} -{" "}
+          {event.durationMinutes} min
         </span>
       </div>
       {event.isOverdue ? (
@@ -1853,6 +1886,24 @@ export default function DashboardPage() {
   const [activeEntityId, setActiveEntityId] = useState(null);
   const [activeParentClientId, setActiveParentClientId] = useState(null);
   const [activeMode, setActiveMode] = useState(null);
+  const [activeClientDrawerTab, setActiveClientDrawerTab] = useState(clientDrawerTabs.client);
+  const [clientDrawerForm, setClientDrawerForm] = useState(initialClientDrawerForm);
+  const [clientDrawerError, setClientDrawerError] = useState("");
+  const [clientDrawerMessage, setClientDrawerMessage] = useState("");
+  const [isSavingClientDrawer, setIsSavingClientDrawer] = useState(false);
+  const [contactsByClientId, setContactsByClientId] = useState({});
+  const [contactsError, setContactsError] = useState("");
+  const [contactsMessage, setContactsMessage] = useState("");
+  const [isContactsLoading, setIsContactsLoading] = useState(false);
+  const [activeContactId, setActiveContactId] = useState(null);
+  const [contactDrawerForm, setContactDrawerForm] = useState(initialContactDrawerForm);
+  const [contactDrawerError, setContactDrawerError] = useState("");
+  const [isSavingContactDrawer, setIsSavingContactDrawer] = useState(false);
+  const [activeBranchFormId, setActiveBranchFormId] = useState(null);
+  const [drawerBranchForm, setDrawerBranchForm] = useState(initialBranchFormState);
+  const [drawerBranchError, setDrawerBranchError] = useState("");
+  const [drawerBranchMessage, setDrawerBranchMessage] = useState("");
+  const [isSavingDrawerBranch, setIsSavingDrawerBranch] = useState(false);
   const [selectedBranchClientId, setSelectedBranchClientId] = useState(null);
   const [selectedBranchId, setSelectedBranchId] = useState(null);
   const [clientFormMessage, setClientFormMessage] = useState("");
@@ -1883,6 +1934,7 @@ export default function DashboardPage() {
   const [isTechniciansLoading, setIsTechniciansLoading] = useState(false);
   const [technicianSubTab, setTechnicianSubTab] = useState(defaultTechnicianSubTab);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState(null);
+  const [technicianDrawerMode, setTechnicianDrawerMode] = useState(null);
   const [technicianForm, setTechnicianForm] = useState(initialTechnicianFormState);
   const [technicianFormMessage, setTechnicianFormMessage] = useState("");
   const [technicianFormError, setTechnicianFormError] = useState("");
@@ -2096,6 +2148,50 @@ export default function DashboardPage() {
       }),
     [technicianSidebarStatus, technicians]
   );
+  const technicianWorkloadByName = useMemo(() => {
+    const workloadMap = new Map();
+    const todayDateString = getTodayDateString();
+
+    serviceOrders.forEach((serviceOrder) => {
+      const technicianName = String(serviceOrder.technician_name || "").trim();
+
+      if (!technicianName) {
+        return;
+      }
+
+      const currentStats = workloadMap.get(technicianName) || {
+        scheduledToday: 0,
+        overdueAssigned: 0
+      };
+
+      if (
+        serviceOrder.service_date === todayDateString &&
+        serviceOrder.status === "scheduled"
+      ) {
+        currentStats.scheduledToday += 1;
+      }
+
+      if (
+        serviceOrder.status !== "cancelled" &&
+        isOverdueServiceOrder(
+          serviceOrder.service_date,
+          serviceOrder.service_time,
+          serviceOrder.status,
+          serviceOrder.duration_minutes
+        )
+      ) {
+        currentStats.overdueAssigned += 1;
+      }
+
+      workloadMap.set(technicianName, currentStats);
+    });
+
+    return workloadMap;
+  }, [serviceOrders]);
+  const activeTechnician =
+    technicians.find((technician) => technician.id === selectedTechnicianId) || null;
+  const activeTechniciansCount = technicians.filter((technician) => technician.is_active).length;
+  const inactiveTechniciansCount = technicians.filter((technician) => !technician.is_active).length;
   const selectedClient =
     clients.find((client) => client.id === selectedClientId) || null;
   const selectedClientBranches = branchesByClientId[selectedClientId] || [];
@@ -2113,6 +2209,22 @@ export default function DashboardPage() {
       ? clients.find((client) => client.id === activeBranch.client_id)
       : null) ||
     null;
+  const activeDrawerClientId = activeClient?.id || null;
+  const activeClientContacts = activeDrawerClientId
+    ? contactsByClientId[activeDrawerClientId] || []
+    : [];
+  const activeEditingContact =
+    activeContactId && activeDrawerClientId
+      ? (contactsByClientId[activeDrawerClientId] || []).find(
+          (contact) => contact.id === activeContactId
+        ) || null
+      : null;
+  const activeEditingBranch =
+    activeBranchFormId && activeDrawerClientId
+      ? (branchesByClientId[activeDrawerClientId] || []).find(
+          (branch) => branch.id === activeBranchFormId
+        ) || null
+      : null;
   const activeDrawerTitle =
     activeEntityType === "client" && activeMode === "edit"
       ? "Editar cliente"
@@ -2120,9 +2232,52 @@ export default function DashboardPage() {
         ? "Nuevo cliente"
         : activeEntityType === "branch" && activeMode === "create"
           ? "Nueva sucursal"
-          : activeEntityType === "branch" && activeMode === "edit"
+        : activeEntityType === "branch" && activeMode === "edit"
             ? "Editar sucursal"
             : "";
+  const isClientDrawerDirty =
+    activeMode === "create"
+      ? Boolean(clientDrawerForm.name.trim())
+      : Boolean(activeClient) &&
+        JSON.stringify({
+          name: clientDrawerForm.name.trim(),
+          clientType: clientDrawerForm.clientType,
+          mainPhone: clientDrawerForm.mainPhone.trim(),
+          mainEmail: clientDrawerForm.mainEmail.trim(),
+          mainContact: clientDrawerForm.mainContact.trim(),
+          businessName: clientDrawerForm.businessName.trim(),
+          tradeName: clientDrawerForm.tradeName.trim(),
+          taxId: clientDrawerForm.taxId.trim()
+        }) !==
+          JSON.stringify({
+            name: activeClient?.name || activeClient?.displayName || "",
+            clientType: activeClient?.client_type || "commercial",
+            mainPhone: activeClient?.main_phone || "",
+            mainEmail: activeClient?.main_email || "",
+            mainContact: activeClient?.main_contact || "",
+            businessName: activeClient?.business_name || "",
+            tradeName: activeClient?.trade_name || "",
+            taxId: activeClient?.tax_id || ""
+          });
+  const isBranchDrawerDirty =
+    activeEntityType === "branch" && activeMode === "edit"
+      ? Boolean(activeBranch) &&
+        JSON.stringify({
+          name: drawerBranchForm.name.trim(),
+          address: drawerBranchForm.address.trim(),
+          phone: drawerBranchForm.phone.trim(),
+          contact: drawerBranchForm.contact.trim(),
+          notes: drawerBranchForm.notes.trim()
+        }) !==
+          JSON.stringify({
+            name: activeBranch?.name || "",
+            address: activeBranch?.address || "",
+            phone: activeBranch?.phone || "",
+            contact: activeBranch?.contact || "",
+            notes: activeBranch?.notes || ""
+          })
+      : Boolean(drawerBranchForm.name.trim() || drawerBranchForm.address.trim());
+  const isContactDrawerDirty = Boolean(contactDrawerForm.fullName.trim());
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
@@ -2826,6 +2981,12 @@ export default function DashboardPage() {
       throw new Error(uiText.dashboard.profileLoadError);
     }
 
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      throw new Error(uiText.serviceOrder.configError);
+    }
+
     if (!skipConflictCheck) {
       const hasConflict = await checkTechnicianScheduleConflict({
         companyId: activeCompanyId,
@@ -2853,7 +3014,10 @@ export default function DashboardPage() {
       recurrenceGroupId: existingOrder?.recurrence_group_id || null
     });
 
-    const payload = {
+    const currentOrder =
+      existingOrder || serviceOrders.find((serviceOrder) => serviceOrder.id === serviceOrderId) || null;
+
+    const persistencePayload = {
       technician_name: technicianName,
       service_date: serviceDate,
       service_time: serviceTime,
@@ -2862,30 +3026,80 @@ export default function DashboardPage() {
     };
 
     if (recurrenceState) {
-      Object.assign(payload, buildRecurrencePayload(recurrenceState, existingOrder));
+      Object.assign(persistencePayload, buildRecurrencePayload(recurrenceState, existingOrder));
     }
 
     if (branchId !== undefined) {
-      payload.branch_id = branchId;
+      persistencePayload.branch_id = branchId;
     }
 
     if (clientId !== undefined) {
-      payload.client_id = clientId;
-      payload.clients = clients.find((client) => client.id === clientId) || null;
+      persistencePayload.client_id = clientId;
     }
 
+    const optimisticPatch = {
+      ...persistencePayload
+    };
+
     if (branchId !== undefined) {
-      const availableClientBranches = branchesByClientId[clientId || existingOrder?.client_id] || [];
-      payload.branches =
+      const availableClientBranches = branchesByClientId[clientId || currentOrder?.client_id] || [];
+      optimisticPatch.branches =
         availableClientBranches.find((branch) => branch.id === branchId) ||
-        existingOrder?.branches ||
+        currentOrder?.branches ||
         null;
     }
 
-    applyOptimisticServiceOrderPatch(serviceOrderId, payload);
+    if (clientId !== undefined) {
+      optimisticPatch.clients = clients.find((client) => client.id === clientId) || null;
+    }
+
+    applyOptimisticServiceOrderPatch(serviceOrderId, optimisticPatch);
+    console.log("[Backlog DnD Debug] updateServiceOrderSchedule optimistic patch applied:", {
+      serviceOrderId,
+      payload: optimisticPatch
+    });
+
+    console.log("[Backlog DnD Debug] updateServiceOrderSchedule Supabase payload:", {
+      serviceOrderId,
+      payload: persistencePayload
+    });
+
+    const { error: updateError } = await supabase
+      .from("service_orders")
+      .update(persistencePayload)
+      .eq("id", serviceOrderId)
+      .eq("company_id", activeCompanyId);
+
+    if (updateError) {
+      if (currentOrder) {
+        applyOptimisticServiceOrderPatch(serviceOrderId, {
+          technician_name: currentOrder.technician_name,
+          service_date: currentOrder.service_date,
+          service_time: currentOrder.service_time,
+          duration_minutes: currentOrder.duration_minutes,
+          status: currentOrder.status,
+          branch_id: currentOrder.branch_id ?? null,
+          client_id: currentOrder.client_id ?? null,
+          clients: currentOrder.clients || null,
+          branches: currentOrder.branches || null,
+          ...buildRecurrencePayload(getRecurrenceFormState(currentOrder), currentOrder)
+        });
+      }
+
+      console.error("[Backlog DnD Debug] updateServiceOrderSchedule Supabase failure:", {
+        serviceOrderId,
+        error: updateError
+      });
+      throw new Error(updateError.message || uiText.dashboard.detailError);
+    }
+
+    console.log("[Backlog DnD Debug] updateServiceOrderSchedule Supabase success:", {
+      serviceOrderId
+    });
+
     console.log("[Backlog DnD Debug] updateServiceOrderSchedule success:", {
       serviceOrderId,
-      payload
+      payload: optimisticPatch
     });
   };
 
@@ -2967,9 +3181,10 @@ export default function DashboardPage() {
 
     const businessName = clientState.businessName.trim();
     const tradeName = clientState.tradeName.trim();
+    const explicitName = (clientState.name || "").trim();
     const payload = {
       company_id: activeCompanyId,
-      name: tradeName || businessName,
+      name: explicitName || tradeName || businessName,
       client_type: clientState.clientType,
       business_name: businessName,
       trade_name: tradeName,
@@ -3054,7 +3269,12 @@ export default function DashboardPage() {
     return normalizeClientRecord(savedClient);
   };
 
-  const saveBranchRecord = async ({ branchState, clientId, preserveOrderClient = false }) => {
+  const saveBranchRecord = async ({
+    branchState,
+    clientId,
+    branchId = null,
+    preserveOrderClient = false
+  }) => {
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -3074,16 +3294,26 @@ export default function DashboardPage() {
       client_id: clientId,
       name: branchState.name.trim(),
       address: branchState.address.trim(),
-      phone: "",
-      contact: "",
-      notes: ""
+      phone: (branchState.phone || "").trim(),
+      contact: (branchState.contact || "").trim(),
+      notes: (branchState.notes || "").trim()
     };
 
-    const { data: savedBranch, error } = await supabase
-      .from("branches")
-      .insert(payload)
-      .select("id, client_id, name, address, phone, contact, notes, created_at")
-      .single();
+    const branchQuery = branchId
+      ? supabase
+          .from("branches")
+          .update(payload)
+          .eq("id", branchId)
+          .eq("company_id", activeCompanyId)
+          .select("id, client_id, name, address, phone, contact, notes, created_at")
+          .single()
+      : supabase
+          .from("branches")
+          .insert(payload)
+          .select("id, client_id, name, address, phone, contact, notes, created_at")
+          .single();
+
+    const { data: savedBranch, error } = await branchQuery;
 
     if (error) {
       throw new Error(error.message || uiText.clients.branchCreateError);
@@ -3270,6 +3500,120 @@ export default function DashboardPage() {
 
     fetchBranchesForClient(supabase, selectedClientId, activeCompanyId);
   }, [activeCompanyId, activeTopLevelTab, selectedClientId]);
+
+  useEffect(() => {
+    if (!activeEntityType) {
+      setClientDrawerForm(initialClientDrawerForm);
+      setContactDrawerForm(initialContactDrawerForm);
+      setDrawerBranchForm(initialBranchFormState);
+      return;
+    }
+
+    if (activeEntityType === "client") {
+      setActiveClientDrawerTab(clientDrawerTabs.client);
+      setActiveContactId(null);
+      setActiveBranchFormId(null);
+      setClientDrawerForm(
+        activeClient
+          ? {
+              name: activeClient.name || activeClient.displayName || "",
+              clientType: activeClient.client_type || "commercial",
+              mainPhone: activeClient.main_phone || "",
+              mainEmail: activeClient.main_email || "",
+              mainContact: activeClient.main_contact || "",
+              businessName: activeClient.business_name || "",
+              tradeName: activeClient.trade_name || "",
+              taxId: activeClient.tax_id || ""
+            }
+          : initialClientDrawerForm
+      );
+      setContactDrawerForm(initialContactDrawerForm);
+      setDrawerBranchForm(initialBranchFormState);
+      setClientDrawerError("");
+      setClientDrawerMessage("");
+      setContactDrawerError("");
+      setDrawerBranchError("");
+      setDrawerBranchMessage("");
+      return;
+    }
+
+    setActiveContactId(null);
+    setDrawerBranchForm(
+      activeBranch
+        ? {
+            name: activeBranch.name || "",
+            address: activeBranch.address || "",
+            phone: activeBranch.phone || "",
+            contact: activeBranch.contact || "",
+            notes: activeBranch.notes || ""
+          }
+        : {
+            ...initialBranchFormState,
+            name: "Principal"
+          }
+    );
+    setActiveBranchFormId(activeBranch?.id || null);
+    setContactDrawerForm(initialContactDrawerForm);
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+    setContactDrawerError("");
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+  }, [activeBranch, activeClient, activeEntityType]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+
+    if (
+      !supabase ||
+      !activeCompanyId ||
+      activeTopLevelTab !== dashboardTabs.clients ||
+      !activeDrawerClientId
+    ) {
+      return;
+    }
+
+    if (!branchesByClientId[activeDrawerClientId]) {
+      fetchBranchesForClient(supabase, activeDrawerClientId, activeCompanyId);
+    }
+
+    if (contactsByClientId[activeDrawerClientId]) {
+      return;
+    }
+
+    let isMounted = true;
+    setIsContactsLoading(true);
+    setContactsError("");
+
+    fetchContactsForClient(supabase, activeDrawerClientId, activeCompanyId)
+      .then((contacts) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setContactsByClientId((currentState) => ({
+          ...currentState,
+          [activeDrawerClientId]: contacts
+        }));
+        setContactsError("");
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setContactsError(error.message || "No fue posible cargar los contactos.");
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsContactsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeCompanyId, activeDrawerClientId, activeTopLevelTab, branchesByClientId, contactsByClientId]);
 
   useEffect(() => {
     if (!selectedServiceOrder) {
@@ -3498,6 +3842,7 @@ export default function DashboardPage() {
     setActiveEntityId(client.id);
     setActiveParentClientId(null);
     setActiveMode("edit");
+    setActiveClientDrawerTab(clientDrawerTabs.client);
     console.log("Edit client", client);
   };
 
@@ -3506,6 +3851,7 @@ export default function DashboardPage() {
     setActiveEntityId(null);
     setActiveParentClientId(client.id);
     setActiveMode("create");
+    setActiveClientDrawerTab(clientDrawerTabs.branches);
     console.log("Create branch for client", client);
   };
 
@@ -3514,6 +3860,7 @@ export default function DashboardPage() {
     setActiveEntityId(branch.id);
     setActiveParentClientId(branch.client_id || null);
     setActiveMode("edit");
+    setActiveClientDrawerTab(clientDrawerTabs.branches);
     console.log("Edit branch", branch);
   };
 
@@ -3522,6 +3869,65 @@ export default function DashboardPage() {
     setActiveEntityId(null);
     setActiveParentClientId(null);
     setActiveMode(null);
+    setActiveClientDrawerTab(clientDrawerTabs.client);
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+    setContactsError("");
+    setContactsMessage("");
+    setActiveContactId(null);
+    setContactDrawerError("");
+    setActiveBranchFormId(null);
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+  };
+
+  const handleOpenClientDrawerCreate = () => {
+    setActiveEntityType("client");
+    setActiveEntityId(null);
+    setActiveParentClientId(null);
+    setActiveMode("create");
+    setActiveClientDrawerTab(clientDrawerTabs.client);
+  };
+
+  const resetContactDrawerEditor = () => {
+    setActiveContactId(null);
+    setContactDrawerForm(initialContactDrawerForm);
+    setContactDrawerError("");
+    setContactsMessage("");
+  };
+
+  const handleEditContactFromDrawer = (contact) => {
+    setActiveContactId(contact.id);
+    setContactDrawerError("");
+    setContactsMessage("");
+    setContactDrawerForm({
+      fullName: contact.full_name || "",
+      phone: contact.phone || "",
+      email: contact.email || "",
+      role: contact.role || "",
+      notes: contact.notes || "",
+      isPrimary: Boolean(contact.is_primary)
+    });
+  };
+
+  const resetBranchDrawerEditor = () => {
+    setActiveBranchFormId(null);
+    setDrawerBranchForm(initialBranchFormState);
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+  };
+
+  const handleEditBranchFromDrawer = (branch) => {
+    setActiveBranchFormId(branch.id);
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+    setDrawerBranchForm({
+      name: branch.name || "",
+      address: branch.address || "",
+      phone: branch.phone || "",
+      contact: branch.contact || "",
+      notes: branch.notes || ""
+    });
   };
 
   const handleBranchModalChange = (event) => {
@@ -3615,6 +4021,33 @@ export default function DashboardPage() {
   const handleNewTechnician = () => {
     setSelectedTechnicianId(null);
     setTechnicianSubTab(uiText.technicians.subTabs.form);
+    setTechnicianForm(initialTechnicianFormState);
+    setTechnicianFormError("");
+    setTechnicianFormMessage("");
+  };
+
+  const handleOpenTechnicianDrawerCreate = () => {
+    handleNewTechnician();
+    setTechnicianDrawerMode("create");
+  };
+
+  const handleOpenTechnicianDrawerEdit = (technician) => {
+    handleTechnicianEdit(technician);
+    setTechnicianDrawerMode("edit");
+  };
+
+  const handleViewTechnicianInCalendar = (technician) => {
+    const technicianName = technician?.full_name || "all";
+
+    setActiveTopLevelTab(dashboardTabs.calendar);
+    setActiveAdminView(adminViewTabs.calendar);
+    setSelectedCalendarTechnician(technicianName);
+    setTechnicianDrawerMode(null);
+  };
+
+  const handleCloseTechnicianDrawer = () => {
+    setTechnicianDrawerMode(null);
+    setSelectedTechnicianId(null);
     setTechnicianForm(initialTechnicianFormState);
     setTechnicianFormError("");
     setTechnicianFormMessage("");
@@ -3731,6 +4164,204 @@ export default function DashboardPage() {
     setBranchModalState(initialQuickBranchState);
     setBranchModalError("");
     setPendingBranchClient(null);
+  };
+
+  const handleClientDrawerFormChange = (event) => {
+    const { name, value } = event.target;
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+    setClientDrawerForm((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleContactDrawerFormChange = (event) => {
+    const { name, value, type, checked } = event.target;
+    setContactDrawerError("");
+    setContactsMessage("");
+    setContactDrawerForm((currentState) => ({
+      ...currentState,
+      [name]: type === "checkbox" ? checked : value
+    }));
+  };
+
+  const handleDrawerBranchFormChange = (event) => {
+    const { name, value } = event.target;
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+    setDrawerBranchForm((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleSaveClientFromDrawer = async (event) => {
+    event.preventDefault();
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+    setIsSavingClientDrawer(true);
+
+    try {
+      const savedClient = await saveClientRecord({
+        clientState: {
+          name: clientDrawerForm.name,
+          clientType: clientDrawerForm.clientType,
+          businessName: clientDrawerForm.businessName || clientDrawerForm.name,
+          tradeName: clientDrawerForm.tradeName,
+          taxId: clientDrawerForm.taxId,
+          mainAddress: "",
+          mainPhone: clientDrawerForm.mainPhone,
+          mainContact: clientDrawerForm.mainContact,
+          mainEmail: clientDrawerForm.mainEmail
+        },
+        clientId: activeMode === "edit" ? activeEntityId : null,
+        autoCreateDefaultBranch: false
+      });
+
+      setSelectedClientId(savedClient.id);
+      setExpandedClientIds((currentState) => ({
+        ...currentState,
+        [savedClient.id]: Boolean(currentState[savedClient.id])
+      }));
+      setActiveEntityType("client");
+      setActiveEntityId(savedClient.id);
+      setActiveParentClientId(null);
+      setActiveMode("edit");
+      setClientDrawerMessage(
+        activeMode === "edit" ? uiText.clients.updateSuccess : uiText.clients.success
+      );
+    } catch (error) {
+      setClientDrawerError(error.message || uiText.clients.createError);
+    }
+
+    setIsSavingClientDrawer(false);
+  };
+
+  const handleSaveContactFromDrawer = async (event) => {
+    event.preventDefault();
+
+    if (!activeDrawerClientId) {
+      setContactDrawerError("Guarda el cliente primero para agregar contactos.");
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setContactDrawerError(uiText.clients.configError);
+      return;
+    }
+
+    setContactDrawerError("");
+    setContactsMessage("");
+    setIsSavingContactDrawer(true);
+
+    try {
+      const nextContactState = {
+        clientId: activeDrawerClientId,
+        branchId: null,
+        fullName: contactDrawerForm.fullName,
+        phone: contactDrawerForm.phone,
+        email: contactDrawerForm.email,
+        role: contactDrawerForm.role,
+        notes: contactDrawerForm.notes,
+        isPrimary: contactDrawerForm.isPrimary
+      };
+
+      const savedContact = activeContactId
+        ? await updateContactRecord({
+            supabase,
+            companyId: activeCompanyId,
+            contactId: activeContactId,
+            contactState: nextContactState
+          })
+        : await saveContactRecord({
+            supabase,
+            companyId: activeCompanyId,
+            contactState: nextContactState
+          });
+
+      const refreshedContacts = await fetchContactsForClient(
+        supabase,
+        activeDrawerClientId,
+        activeCompanyId
+      );
+
+      setContactsByClientId((currentState) => ({
+        ...currentState,
+        [activeDrawerClientId]: refreshedContacts
+      }));
+      setActiveContactId(savedContact?.id || activeContactId || null);
+      setContactDrawerForm(
+        savedContact
+          ? {
+              fullName: savedContact.full_name || "",
+              phone: savedContact.phone || "",
+              email: savedContact.email || "",
+              role: savedContact.role || "",
+              notes: savedContact.notes || "",
+              isPrimary: Boolean(savedContact.is_primary)
+            }
+          : initialContactDrawerForm
+      );
+      setContactsMessage(
+        activeContactId ? "Contacto actualizado correctamente." : "Contacto guardado correctamente."
+      );
+    } catch (error) {
+      setContactDrawerError(error.message || "No fue posible guardar el contacto.");
+    }
+
+    setIsSavingContactDrawer(false);
+  };
+
+  const handleSaveBranchFromDrawer = async (event) => {
+    event.preventDefault();
+    const drawerClientId = activeEntityType === "branch" ? activeParentClientId : activeDrawerClientId;
+
+    if (!drawerClientId) {
+      setDrawerBranchError("Guarda el cliente primero para agregar sucursales.");
+      return;
+    }
+
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+    setIsSavingDrawerBranch(true);
+
+    try {
+      const savedBranch = await saveBranchRecord({
+        branchState: drawerBranchForm,
+        clientId: drawerClientId,
+        branchId:
+          activeEntityType === "branch" && activeMode === "edit"
+            ? activeEntityId
+            : activeBranchFormId,
+        preserveOrderClient: true
+      });
+
+      setExpandedClientIds((currentState) => ({
+        ...currentState,
+        [drawerClientId]: true
+      }));
+      setDrawerBranchMessage(
+        (activeEntityType === "branch" && activeMode === "edit") || activeBranchFormId
+          ? uiText.clients.branchUpdateSuccess
+          : uiText.clients.branchCreateSuccess
+      );
+      setActiveBranchFormId(savedBranch?.id || activeBranchFormId || null);
+      setDrawerBranchForm({
+        name: savedBranch?.name || drawerBranchForm.name,
+        address: savedBranch?.address || drawerBranchForm.address,
+        phone: savedBranch?.phone || drawerBranchForm.phone,
+        contact: savedBranch?.contact || drawerBranchForm.contact,
+        notes: savedBranch?.notes || drawerBranchForm.notes
+      });
+
+    } catch (error) {
+      setDrawerBranchError(error.message || uiText.clients.branchCreateError);
+    }
+
+    setIsSavingDrawerBranch(false);
   };
 
   const handleCreateClientFromModal = async (event) => {
@@ -3970,8 +4601,14 @@ export default function DashboardPage() {
           .update(payload)
           .eq("id", selectedTechnicianId)
           .eq("company_id", activeCompanyId)
-      : supabase.from("technicians").insert(payload);
-    const { error } = await technicianQuery;
+          .select("id, full_name, phone, address, notes, is_active, created_at")
+          .single()
+      : supabase
+          .from("technicians")
+          .insert(payload)
+          .select("id, full_name, phone, address, notes, is_active, created_at")
+          .single();
+    const { data: savedTechnician, error } = await technicianQuery;
 
     if (error) {
       setTechnicianFormError(error.message || uiText.technicians.createError);
@@ -3981,8 +4618,18 @@ export default function DashboardPage() {
 
     // Refresh the roster after insert so the new technician appears immediately.
     await fetchTechnicians(supabase, activeCompanyId);
-    setTechnicianForm(initialTechnicianFormState);
-    setSelectedTechnicianId(null);
+    setSelectedTechnicianId(savedTechnician?.id || selectedTechnicianId || null);
+    setTechnicianDrawerMode("edit");
+    setTechnicianForm({
+      fullName: savedTechnician?.full_name || technicianForm.fullName,
+      phone: savedTechnician?.phone || technicianForm.phone,
+      address: savedTechnician?.address || technicianForm.address,
+      notes: savedTechnician?.notes || technicianForm.notes,
+      isActive:
+        typeof savedTechnician?.is_active === "boolean"
+          ? savedTechnician.is_active
+          : technicianForm.isActive
+    });
     setTechnicianFormMessage(
       selectedTechnicianId
         ? uiText.technicians.updateSuccess
@@ -5141,7 +5788,7 @@ export default function DashboardPage() {
                 <p>Busca clientes, filtra por tipo y crea nuevos registros rapidamente.</p>
               </div>
               <div className="operations-panel-actions">
-                <button className="button" type="button" onClick={handleOpenClientModal}>
+                <button className="button" type="button" onClick={handleOpenClientDrawerCreate}>
                   + Cliente
                 </button>
               </div>
@@ -5185,7 +5832,7 @@ export default function DashboardPage() {
                 <p>Consulta el roster tecnico y filtra rapidamente por estado.</p>
               </div>
               <div className="operations-panel-actions">
-                <button className="button" type="button">
+                <button className="button" type="button" onClick={handleOpenTechnicianDrawerCreate}>
                   + Tecnico
                 </button>
               </div>
@@ -5203,6 +5850,19 @@ export default function DashboardPage() {
                   <option value="inactive">{uiText.dashboard.technicianStatusInactive}</option>
                 </select>
               </label>
+            </div>
+
+            <div className="operations-panel-section">
+              <div className="technician-roster-summary">
+                <span className="admin-summary-chip admin-summary-chip-success">
+                  <span>Activos</span>
+                  <strong>{activeTechniciansCount}</strong>
+                </span>
+                <span className="admin-summary-chip">
+                  <span>Inactivos</span>
+                  <strong>{inactiveTechniciansCount}</strong>
+                </span>
+              </div>
             </div>
 
             <div className="operations-panel-section">
@@ -5252,6 +5912,7 @@ export default function DashboardPage() {
 
         {activeTopLevelTab === dashboardTabs.calendar ? (
         <section className="calendar-panel">
+          <div className="calendar-panel-top">
           <div className="calendar-panel-header">
             <div className="calendar-panel-row calendar-panel-row-1">
               <div className="calendar-panel-row-left">
@@ -5325,6 +5986,9 @@ export default function DashboardPage() {
           {calendarActionMessage ? (
             <p className="success-message">{calendarActionMessage}</p>
           ) : null}
+          </div>
+
+          <div className="calendar-panel-content">
 
           {calendarError ? (
             <div className="calendar-empty-state">
@@ -5446,6 +6110,7 @@ export default function DashboardPage() {
               formatServiceDate={formatServiceDate}
             />
           ) : null}
+          </div>
         </section>
         ) : null}
 
@@ -5597,20 +6262,59 @@ export default function DashboardPage() {
                     <th>{uiText.technicians.headers.fullName}</th>
                     <th>{uiText.technicians.headers.phone}</th>
                     <th>{uiText.technicians.headers.status}</th>
+                    <th>Carga hoy</th>
+                    <th>{uiText.clients.headers.actions}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTechnicians.map((technician) => (
-                    <tr key={technician.id}>
-                      <td>{technician.full_name}</td>
-                      <td>{technician.phone || "-"}</td>
-                      <td>
-                        {technician.is_active
-                          ? uiText.technicians.active
-                          : uiText.technicians.inactive}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredTechnicians.map((technician) => {
+                    const technicianWorkload =
+                      technicianWorkloadByName.get(technician.full_name) || null;
+                    const scheduledToday = technicianWorkload?.scheduledToday || 0;
+                    const overdueAssigned = technicianWorkload?.overdueAssigned || 0;
+
+                    return (
+                      <tr
+                        key={technician.id}
+                        className={
+                          technician.id === selectedTechnicianId && technicianDrawerMode
+                            ? "workspace-table-row-action workspace-table-row-selected"
+                            : "workspace-table-row-action"
+                        }
+                        onClick={() => handleOpenTechnicianDrawerEdit(technician)}
+                      >
+                        <td>{technician.full_name}</td>
+                        <td>{technician.phone || "-"}</td>
+                        <td>
+                          {technician.is_active
+                            ? uiText.technicians.active
+                            : uiText.technicians.inactive}
+                        </td>
+                        <td>
+                          <div className="technician-workload-cell">
+                            <strong>{scheduledToday} servicios hoy</strong>
+                            {overdueAssigned > 0 ? (
+                              <span>{overdueAssigned} pendientes asignados</span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="clients-row-actions">
+                            <button
+                              type="button"
+                              className="clients-row-action-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleViewTechnicianInCalendar(technician);
+                              }}
+                            >
+                              Ver en calendario
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -5643,11 +6347,24 @@ export default function DashboardPage() {
         <aside className="detail-sidebar">
           <div className="detail-sidebar-header">
             <div>
-              <h2>{uiText.dashboard.detailTitle}</h2>
+              <span className="detail-sidebar-kicker">
+                {rightPanelMode === rightPanelModes.create
+                  ? uiText.serviceOrder.title
+                  : uiText.dashboard.detailTitle}
+              </span>
+              <h2>
+                {selectedOrder && rightPanelMode !== rightPanelModes.create
+                  ? getClientDisplayName(selectedOrder.clients)
+                  : uiText.dashboard.detailTitle}
+              </h2>
               <p>
                 {rightPanelMode === rightPanelModes.create
                   ? uiText.serviceOrder.description
-                  : uiText.dashboard.detailDescription}
+                  : selectedOrder
+                    ? `${getBranchDisplayName(selectedOrder.branches)} · ${formatServiceDate(
+                        selectedOrder.service_date
+                      )} · ${formatDisplayTime(selectedOrder.service_time)}`
+                    : uiText.dashboard.detailDescription}
               </p>
             </div>
             {selectedOrder ? (
@@ -5758,140 +6475,249 @@ export default function DashboardPage() {
               </div>
             ) : rightPanelMode === rightPanelModes.edit ? (
               <form className="detail-panel" onSubmit={handleUpdateServiceOrder}>
-                <div className="detail-edit-grid">
-                  <label className="workspace-input-group">
-                    <span>{uiText.serviceOrder.fields.client}</span>
-                    <select
-                      name="clientId"
-                      value={detailFormState.clientId}
-                      onChange={handleDetailFormChange}
-                      disabled={isSavingDetail || isClientsLoading}
-                      required
-                    >
-                      <option value="">
-                        {isClientsLoading
-                          ? uiText.serviceOrder.placeholders.clientLoading
-                          : uiText.serviceOrder.placeholders.client}
-                      </option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Resumen</h4>
+                  </div>
 
-                  {isResidentialDetailClient ? (
-                    <div className="detail-row workspace-field-wide">
-                      <span>{uiText.serviceOrder.fields.branch}</span>
-                      <strong>
-                        {preferredDetailResidentialBranch
-                          ? getBranchDisplayName(preferredDetailResidentialBranch)
-                          : uiText.dashboard.branchEmpty}
-                      </strong>
-                    </div>
-                  ) : (
-                    <label className="workspace-input-group">
-                      <span>{uiText.serviceOrder.fields.branch}</span>
+                  <div className="detail-edit-grid detail-edit-grid-2">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.client}</span>
                       <select
-                        name="branchId"
-                        value={detailFormState.branchId}
+                        name="clientId"
+                        value={detailFormState.clientId}
                         onChange={handleDetailFormChange}
-                        disabled={
-                          isSavingDetail || isBranchesLoading || !detailFormState.clientId
-                        }
+                        disabled={isSavingDetail || isClientsLoading}
                         required
                       >
                         <option value="">
-                          {isBranchesLoading
-                            ? uiText.serviceOrder.placeholders.branchLoading
-                            : uiText.serviceOrder.placeholders.branch}
+                          {isClientsLoading
+                            ? uiText.serviceOrder.placeholders.clientLoading
+                            : uiText.serviceOrder.placeholders.client}
                         </option>
-                        {detailAvailableBranches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>
-                            {getBranchDisplayName(branch)}
+                        {clients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.displayName}
                           </option>
                         ))}
                       </select>
                     </label>
-                  )}
 
-                  <label className="workspace-input-group">
-                    <span>{uiText.dashboard.detailFields.technicianName}</span>
-                    <select
-                      name="technicianName"
-                      value={detailFormState.technicianName}
-                      onChange={handleDetailFormChange}
-                      disabled={isSavingDetail || isTechniciansLoading}
-                      required
-                    >
-                      <option value="">
-                        {isTechniciansLoading
-                          ? uiText.serviceOrder.placeholders.technicianLoading
-                          : uiText.serviceOrder.placeholders.technician}
-                      </option>
-                      {activeTechnicians.map((technician) => (
-                        <option key={technician.id} value={technician.full_name}>
-                          {technician.full_name}
+                    {isResidentialDetailClient ? (
+                      <div className="detail-static-field workspace-field-wide">
+                        <span>{uiText.serviceOrder.fields.branch}</span>
+                        <strong>
+                          {preferredDetailResidentialBranch
+                            ? getBranchDisplayName(preferredDetailResidentialBranch)
+                            : uiText.dashboard.branchEmpty}
+                        </strong>
+                      </div>
+                    ) : (
+                      <label className="workspace-input-group workspace-field-wide">
+                        <span>{uiText.serviceOrder.fields.branch}</span>
+                        <select
+                          name="branchId"
+                          value={detailFormState.branchId}
+                          onChange={handleDetailFormChange}
+                          disabled={
+                            isSavingDetail || isBranchesLoading || !detailFormState.clientId
+                          }
+                          required
+                        >
+                          <option value="">
+                            {isBranchesLoading
+                              ? uiText.serviceOrder.placeholders.branchLoading
+                              : uiText.serviceOrder.placeholders.branch}
+                          </option>
+                          {detailAvailableBranches.map((branch) => (
+                            <option key={branch.id} value={branch.id}>
+                              {getBranchDisplayName(branch)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Programacion</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.dashboard.detailFields.technicianName}</span>
+                      <select
+                        name="technicianName"
+                        value={detailFormState.technicianName}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail || isTechniciansLoading}
+                        required
+                      >
+                        <option value="">
+                          {isTechniciansLoading
+                            ? uiText.serviceOrder.placeholders.technicianLoading
+                            : uiText.serviceOrder.placeholders.technician}
                         </option>
-                      ))}
-                    </select>
-                  </label>
+                        {activeTechnicians.map((technician) => (
+                          <option key={technician.id} value={technician.full_name}>
+                            {technician.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                  <label className="workspace-input-group">
-                    <span>{uiText.dashboard.detailFields.serviceDate}</span>
-                    <input
-                      ref={detailDateInputRef}
-                      name="serviceDate"
-                      type="date"
-                      value={detailFormState.serviceDate}
-                      onChange={handleDetailFormChange}
-                      disabled={isSavingDetail}
-                      required
-                    />
-                  </label>
+                    <div className="detail-edit-grid detail-edit-grid-2">
+                      <label className="workspace-input-group">
+                        <span>{uiText.dashboard.detailFields.serviceDate}</span>
+                        <input
+                          ref={detailDateInputRef}
+                          name="serviceDate"
+                          type="date"
+                          value={detailFormState.serviceDate}
+                          onChange={handleDetailFormChange}
+                          disabled={isSavingDetail}
+                          required
+                        />
+                      </label>
 
-                  <label className="workspace-input-group">
-                    <span>{uiText.dashboard.detailFields.serviceTime}</span>
-                    <select
-                      name="serviceTime"
-                      value={detailFormState.serviceTime}
-                      onChange={handleDetailFormChange}
-                      disabled={isSavingDetail}
-                      required
-                    >
-                      {serviceTimeOptions.map((timeOption) => (
-                        <option key={timeOption.value} value={timeOption.value}>
-                          {timeOption.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      <label className="workspace-input-group">
+                        <span>{uiText.dashboard.detailFields.serviceTime}</span>
+                        <select
+                          name="serviceTime"
+                          value={detailFormState.serviceTime}
+                          onChange={handleDetailFormChange}
+                          disabled={isSavingDetail}
+                          required
+                        >
+                          {serviceTimeOptions.map((timeOption) => (
+                            <option key={timeOption.value} value={timeOption.value}>
+                              {timeOption.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
 
-                  <label className="workspace-input-group">
-                    <span>{uiText.serviceOrder.fields.duration}</span>
-                    <select
-                      name="durationMinutes"
-                      value={detailFormState.durationMinutes}
-                      onChange={handleDetailFormChange}
-                      disabled={isSavingDetail}
-                      required
-                    >
-                      {durationOptions.map((durationOption) => (
-                        <option key={durationOption} value={durationOption}>
-                          {durationOption} min
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.duration}</span>
+                      <select
+                        name="durationMinutes"
+                        value={detailFormState.durationMinutes}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                        required
+                      >
+                        {durationOptions.map((durationOption) => (
+                          <option key={durationOption} value={durationOption}>
+                            {durationOption} min
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Estado</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.status}</span>
+                      <SegmentedControl
+                        name="status"
+                        value={detailFormState.status}
+                        onChange={handleDetailFormChange}
+                        options={serviceOrderStatusOptions}
+                        disabled={isSavingDetail}
+                      />
+                    </label>
+
+                    {isSelectedServiceOrderOverdue ? (
+                      <div className="detail-overdue-box detail-overdue-box-inline">
+                        <div>
+                          <strong>{uiText.dashboard.overdueLabel}</strong>
+                          <p>{uiText.dashboard.detailOverdueBody}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Recurrencia</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-checkbox workspace-field-wide">
+                      <input
+                        name="isRecurring"
+                        type="checkbox"
+                        checked={detailFormState.isRecurring}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                      />
+                      <span>{uiText.serviceOrder.fields.isRecurring}</span>
+                    </label>
+
+                    {detailFormState.isRecurring ? (
+                      <div className="detail-edit-grid detail-edit-grid-2">
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                          <select
+                            name="recurrenceType"
+                            value={detailFormState.recurrenceType}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                            required
+                          >
+                            <option value="" disabled>
+                              {uiText.serviceOrder.placeholders.recurrenceType}
+                            </option>
+                            <option value="daily">
+                              {uiText.serviceOrder.recurrenceOptions.daily}
+                            </option>
+                            <option value="weekly">
+                              {uiText.serviceOrder.recurrenceOptions.weekly}
+                            </option>
+                            <option value="biweekly">
+                              {uiText.serviceOrder.recurrenceOptions.biweekly}
+                            </option>
+                            <option value="monthly">
+                              {uiText.serviceOrder.recurrenceOptions.monthly}
+                            </option>
+                          </select>
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                          <input
+                            name="recurrenceEndDate"
+                            type="date"
+                            value={detailFormState.recurrenceEndDate}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <p className="detail-section-empty-copy">
+                        Este servicio no tiene una recurrencia activa.
+                      </p>
+                    )}
+                  </div>
+                </section>
 
                 <div className="workspace-form-messages">
                   {detailFormError ? <p className="error">{detailFormError}</p> : null}
                   {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
                 </div>
 
-                <div className="detail-edit-actions">
+                <div className="workspace-form-footer detail-panel-footer detail-panel-footer-edit">
                   <button
                     className="button button-secondary"
                     type="button"
@@ -5921,86 +6747,184 @@ export default function DashboardPage() {
               </form>
             ) : (
               <div className="detail-summary">
-                {isSelectedServiceOrderOverdue ? (
-                  <div className="detail-overdue-box">
-                    <div>
-                      <strong>{uiText.dashboard.overdueLabel}</strong>
-                      <p>{uiText.dashboard.detailOverdueBody}</p>
+                <section className="drawer-section detail-section-card detail-identity-card">
+                  <div className="detail-identity-copy">
+                    <span className="detail-sidebar-kicker">Resumen</span>
+                    <strong>{getClientDisplayName(selectedOrder.clients)}</strong>
+                    <p>{getBranchDisplayName(selectedOrder.branches)}</p>
+                  </div>
+                  <div className="detail-identity-meta">
+                    <span>{getTechnicianDisplayName(selectedOrder.technician_name)}</span>
+                    <span>
+                      {formatServiceDate(selectedOrder.service_date)} ·{" "}
+                      {formatDisplayTime(selectedOrder.service_time)}
+                    </span>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Resumen</h4>
+                  </div>
+
+                  <div className="detail-section-grid">
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.clientName}</span>
+                      <strong>{getClientDisplayName(selectedOrder.clients)}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.branchName}</span>
+                      <strong>{getBranchDisplayName(selectedOrder.branches)}</strong>
+                      <p className="detail-subcopy">{getBranchSummary(selectedOrder.branches)}</p>
+                    </div>
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.createdAt}</span>
+                      <strong>{formatCreatedAt(selectedOrder.created_at)}</strong>
                     </div>
                   </div>
-                ) : null}
+                </section>
 
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.clientName}</span>
-                  <strong>{getClientDisplayName(selectedOrder.clients)}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.branchName}</span>
-                  <strong>{getBranchDisplayName(selectedOrder.branches)}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.technicianName}</span>
-                  <strong>{getTechnicianDisplayName(selectedOrder.technician_name)}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.serviceDate}</span>
-                  <strong>
-                    {formatServiceDate(selectedOrder.service_date)} ·{" "}
-                    {formatDisplayTime(selectedOrder.service_time)}
-                  </strong>
-                </div>
-                <div className="detail-row">
-                  <span>{uiText.serviceOrder.fields.duration}</span>
-                  <strong>{resolveDurationMinutes(selectedOrder.duration_minutes)} min</strong>
-                </div>
-                <div className="detail-row detail-row-notes">
-                  <span>{uiText.serviceOrder.fields.notes}</span>
-                  <strong>{selectedOrder.notes || uiText.technicianDashboard.fallbacks.notes}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.createdAt}</span>
-                  <strong>{formatCreatedAt(selectedOrder.created_at)}</strong>
-                </div>
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Programacion</h4>
+                  </div>
+
+                  <div className="detail-section-grid detail-section-grid-2">
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.technicianName}</span>
+                      <strong>{getTechnicianDisplayName(selectedOrder.technician_name)}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.serviceDate}</span>
+                      <strong>{formatServiceDate(selectedOrder.service_date)}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{uiText.dashboard.detailFields.serviceTime}</span>
+                      <strong>{formatDisplayTime(selectedOrder.service_time)}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>{uiText.serviceOrder.fields.duration}</span>
+                      <strong>{resolveDurationMinutes(selectedOrder.duration_minutes)} min</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Estado</h4>
+                  </div>
+
+                  <div className="detail-section-grid">
+                    <div className="detail-status-summary">
+                      <span className="detail-status-badge">
+                        {getStatusLabel(selectedOrder.status)}
+                      </span>
+                    </div>
+
+                    {isSelectedServiceOrderOverdue ? (
+                      <div className="detail-overdue-box">
+                        <div>
+                          <strong>{uiText.dashboard.overdueLabel}</strong>
+                          <p>{uiText.dashboard.detailOverdueBody}</p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Recurrencia</h4>
+                  </div>
+
+                  <div className="detail-section-grid">
+                    <div className="detail-row">
+                      <span>{uiText.serviceOrder.fields.isRecurring}</span>
+                      <strong>{selectedOrder.is_recurring ? "Activa" : "No configurada"}</strong>
+                    </div>
+
+                    {selectedOrder.is_recurring ? (
+                      <div className="detail-section-grid detail-section-grid-2">
+                        <div className="detail-row">
+                          <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                          <strong>
+                            {uiText.serviceOrder.recurrenceOptions[
+                              normalizeRecurrenceType(selectedOrder.recurrence_type)
+                            ]}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                          <strong>
+                            {selectedOrder.recurrence_end_date
+                              ? formatServiceDate(selectedOrder.recurrence_end_date)
+                              : "Sin fecha limite"}
+                          </strong>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="detail-section-empty-copy">
+                        Este servicio se gestiona como una visita unica.
+                      </p>
+                    )}
+                  </div>
+                </section>
+
+                {selectedOrder.notes ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <h4 className="drawer-section-title">Observaciones</h4>
+                    </div>
+
+                    <div className="detail-section-grid">
+                      <div className="detail-row detail-row-notes">
+                        <strong>{selectedOrder.notes}</strong>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
 
                 <div className="workspace-form-messages">
                   {detailFormError ? <p className="error">{detailFormError}</p> : null}
                   {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
                 </div>
 
-                {isConfirmingDeleteServiceOrder ? (
-                  <div className="detail-delete-confirmation">
-                    <p>{uiText.dashboard.detailDeleteConfirmTitle}</p>
-                    <div className="detail-delete-actions">
-                      <button
-                        className="button button-danger"
-                        type="button"
-                        onClick={handleDeleteServiceOrder}
-                        disabled={isDeletingServiceOrder}
-                      >
-                        {isDeletingServiceOrder
-                          ? uiText.common.loadingDashboard
-                          : uiText.dashboard.detailDeleteConfirm}
-                      </button>
-                      <button
-                        className="button button-secondary"
-                        type="button"
-                        onClick={() => setIsConfirmingDeleteServiceOrder(false)}
-                        disabled={isDeletingServiceOrder}
-                      >
-                        {uiText.dashboard.detailDeleteCancel}
-                      </button>
+                <div className="detail-panel-footer detail-panel-footer-detail">
+                  {isConfirmingDeleteServiceOrder ? (
+                    <div className="detail-delete-confirmation">
+                      <p>{uiText.dashboard.detailDeleteConfirmTitle}</p>
+                      <div className="detail-delete-actions">
+                        <button
+                          className="button button-danger"
+                          type="button"
+                          onClick={handleDeleteServiceOrder}
+                          disabled={isDeletingServiceOrder}
+                        >
+                          {isDeletingServiceOrder
+                            ? uiText.common.loadingDashboard
+                            : uiText.dashboard.detailDeleteConfirm}
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => setIsConfirmingDeleteServiceOrder(false)}
+                          disabled={isDeletingServiceOrder}
+                        >
+                          {uiText.dashboard.detailDeleteCancel}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <button
-                    className="button button-danger button-danger-secondary"
-                    type="button"
-                    onClick={() => setIsConfirmingDeleteServiceOrder(true)}
-                    disabled={isSavingDetail || isDeletingServiceOrder}
-                  >
-                    {uiText.dashboard.detailDelete}
-                  </button>
-                )}
+                  ) : (
+                    <button
+                      className="button button-danger button-danger-secondary"
+                      type="button"
+                      onClick={() => setIsConfirmingDeleteServiceOrder(true)}
+                      disabled={isSavingDetail || isDeletingServiceOrder}
+                    >
+                      {uiText.dashboard.detailDelete}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -6326,60 +7250,762 @@ export default function DashboardPage() {
 
             <div className="entity-drawer-body">
               {activeEntityType === "client" ? (
-                <div className="entity-drawer-section">
-                  <div className="detail-row">
-                    <span>Cliente</span>
-                    <strong>{activeClient?.displayName || "-"}</strong>
+                <>
+                  <div className="entity-drawer-tabs">
+                    <button
+                      type="button"
+                      className={
+                        activeClientDrawerTab === clientDrawerTabs.client
+                          ? "entity-drawer-tab entity-drawer-tab-active"
+                          : "entity-drawer-tab"
+                      }
+                      onClick={() => setActiveClientDrawerTab(clientDrawerTabs.client)}
+                    >
+                      Cliente
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        activeClientDrawerTab === clientDrawerTabs.contacts
+                          ? "entity-drawer-tab entity-drawer-tab-active"
+                          : "entity-drawer-tab"
+                      }
+                      onClick={() => setActiveClientDrawerTab(clientDrawerTabs.contacts)}
+                      disabled={!activeDrawerClientId}
+                    >
+                      Contactos
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        activeClientDrawerTab === clientDrawerTabs.branches
+                          ? "entity-drawer-tab entity-drawer-tab-active"
+                          : "entity-drawer-tab"
+                      }
+                      onClick={() => setActiveClientDrawerTab(clientDrawerTabs.branches)}
+                      disabled={!activeDrawerClientId}
+                    >
+                      Sucursales
+                    </button>
                   </div>
-                  <div className="detail-row">
-                    <span>Tipo</span>
-                    <strong>
-                      {activeClient ? getClientTypeLabel(activeClient.client_type) : "-"}
-                    </strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>Telefono</span>
-                    <strong>{activeClient?.main_phone || "-"}</strong>
-                  </div>
-                  <div className="detail-row">
-                    <span>Email</span>
-                    <strong>{activeClient?.main_email || "-"}</strong>
-                  </div>
-                </div>
+
+                  {activeClientDrawerTab === clientDrawerTabs.client ? (
+                    <form className="workspace-form entity-drawer-form" onSubmit={handleSaveClientFromDrawer}>
+                      <div className="entity-drawer-section drawer-section">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">General</h4>
+                        </div>
+                        <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                          <label className="workspace-input-group workspace-field-wide">
+                            <span>Nombre del cliente</span>
+                            <input
+                              name="name"
+                              type="text"
+                              value={clientDrawerForm.name}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                              required
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.clientType}</span>
+                            <select
+                              name="clientType"
+                              value={clientDrawerForm.clientType}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                              required
+                            >
+                              <option value="residential">{uiText.clients.typeOptions.residential}</option>
+                              <option value="commercial">{uiText.clients.typeOptions.commercial}</option>
+                            </select>
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.tradeName}</span>
+                            <input
+                              name="tradeName"
+                              type="text"
+                              value={clientDrawerForm.tradeName}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="entity-drawer-section drawer-section">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">Contacto principal</h4>
+                        </div>
+                        <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.mainPhone}</span>
+                            <input
+                              name="mainPhone"
+                              type="tel"
+                              value={clientDrawerForm.mainPhone}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.mainEmail}</span>
+                            <input
+                              name="mainEmail"
+                              type="email"
+                              value={clientDrawerForm.mainEmail}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group workspace-field-wide">
+                            <span>{uiText.clients.fields.mainContact}</span>
+                            <input
+                              name="mainContact"
+                              type="text"
+                              value={clientDrawerForm.mainContact}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="entity-drawer-section drawer-section">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">Datos administrativos</h4>
+                        </div>
+                        <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.businessName}</span>
+                            <input
+                              name="businessName"
+                              type="text"
+                              value={clientDrawerForm.businessName}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>{uiText.clients.fields.taxId}</span>
+                            <input
+                              name="taxId"
+                              type="text"
+                              value={clientDrawerForm.taxId}
+                              onChange={handleClientDrawerFormChange}
+                              disabled={isSavingClientDrawer}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {!activeDrawerClientId ? (
+                        <p className="empty-hint">
+                          Guarda el cliente primero para agregar contactos y sucursales.
+                        </p>
+                      ) : null}
+
+                      <div className="workspace-form-footer entity-drawer-footer">
+                        <div className="workspace-form-messages">
+                          {clientDrawerError ? <p className="error">{clientDrawerError}</p> : null}
+                          {clientDrawerMessage ? (
+                            <p className="success-message">{clientDrawerMessage}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="workspace-actions">
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            onClick={handleCloseClientsDrawer}
+                            disabled={isSavingClientDrawer}
+                          >
+                            {uiText.common.cancel}
+                          </button>
+                          <button
+                            className="button"
+                            type="submit"
+                            disabled={isSavingClientDrawer || !isClientDrawerDirty}
+                          >
+                            {isSavingClientDrawer
+                              ? uiText.clients.saving
+                              : activeMode === "edit"
+                                ? uiText.clients.update
+                                : uiText.clients.save}
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  ) : null}
+
+                  {activeClientDrawerTab === clientDrawerTabs.contacts ? (
+                    <div className="entity-drawer-section drawer-section">
+                      {!activeDrawerClientId ? (
+                        <p className="empty-hint">
+                          Guarda el cliente primero para agregar contactos.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="entity-drawer-section-header">
+                            <h4>Contactos del cliente</h4>
+                            <button
+                              type="button"
+                              className="button button-secondary"
+                              onClick={resetContactDrawerEditor}
+                            >
+                              + Contacto
+                            </button>
+                          </div>
+
+                          {isContactsLoading ? (
+                            <p className="detail-subcopy">Cargando contactos...</p>
+                          ) : activeClientContacts.length === 0 ? (
+                            <p className="detail-subcopy">
+                              Todavia no hay contactos estructurados para este cliente.
+                            </p>
+                          ) : (
+                            <div className="entity-drawer-list">
+                              {activeClientContacts.map((contact) => (
+                                <button
+                                  key={contact.id}
+                                  type="button"
+                                  className={
+                                    activeContactId === contact.id
+                                      ? "entity-drawer-list-item drawer-card-row drawer-card-button drawer-card-button-active"
+                                      : "entity-drawer-list-item drawer-card-row drawer-card-button"
+                                  }
+                                  onClick={() => handleEditContactFromDrawer(contact)}
+                                >
+                                  <div className="drawer-card-row-heading">
+                                    <strong>{contact.full_name}</strong>
+                                    {contact.is_primary ? (
+                                      <span className="drawer-card-badge">Principal</span>
+                                    ) : null}
+                                  </div>
+                                  {contact.role ? <span>{contact.role}</span> : null}
+                                  {contact.phone ? <span>{contact.phone}</span> : null}
+                                  {contact.email ? <span>{contact.email}</span> : null}
+                                  {!contact.role && !contact.phone && !contact.email ? (
+                                    <span>Sin datos complementarios</span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <form className="workspace-form entity-drawer-subform" onSubmit={handleSaveContactFromDrawer}>
+                            <div className="entity-drawer-subform-header">
+                              <strong>
+                                {activeEditingContact
+                                  ? `Editando contacto: ${activeEditingContact.full_name}`
+                                  : "Nuevo contacto"}
+                              </strong>
+                              {activeEditingContact ? (
+                                <button
+                                  type="button"
+                                  className="button button-secondary"
+                                  onClick={resetContactDrawerEditor}
+                                >
+                                  Cancelar edicion
+                                </button>
+                              ) : null}
+                            </div>
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>Nombre completo</span>
+                                <input
+                                  name="fullName"
+                                  type="text"
+                                  value={contactDrawerForm.fullName}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                  required
+                                />
+                              </label>
+                              <label className="workspace-input-group">
+                                <span>Telefono</span>
+                                <input
+                                  name="phone"
+                                  type="text"
+                                  value={contactDrawerForm.phone}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                />
+                              </label>
+                              <label className="workspace-input-group">
+                                <span>Email</span>
+                                <input
+                                  name="email"
+                                  type="email"
+                                  value={contactDrawerForm.email}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                />
+                              </label>
+                              <label className="workspace-input-group">
+                                <span>Rol</span>
+                                <input
+                                  name="role"
+                                  type="text"
+                                  value={contactDrawerForm.role}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                />
+                              </label>
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>Notas</span>
+                                <textarea
+                                  name="notes"
+                                  value={contactDrawerForm.notes}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                  rows={3}
+                                />
+                              </label>
+                              <label className="workspace-checkbox workspace-field-wide">
+                                <input
+                                  name="isPrimary"
+                                  type="checkbox"
+                                  checked={contactDrawerForm.isPrimary}
+                                  onChange={handleContactDrawerFormChange}
+                                  disabled={isSavingContactDrawer}
+                                />
+                                <span>Marcar como contacto principal</span>
+                              </label>
+                            </div>
+
+                            <div className="workspace-form-footer entity-drawer-footer entity-drawer-footer-inline">
+                              <div className="workspace-form-messages">
+                                {contactsError ? <p className="error">{contactsError}</p> : null}
+                                {contactDrawerError ? <p className="error">{contactDrawerError}</p> : null}
+                                {contactsMessage ? <p className="success-message">{contactsMessage}</p> : null}
+                              </div>
+                              <div className="workspace-actions">
+                                <button
+                                  className="button"
+                                  type="submit"
+                                  disabled={isSavingContactDrawer || !isContactDrawerDirty}
+                                >
+                                  {isSavingContactDrawer
+                                    ? "Guardando..."
+                                    : activeEditingContact
+                                      ? "Guardar cambios"
+                                      : "Guardar contacto"}
+                                </button>
+                              </div>
+                            </div>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {activeClientDrawerTab === clientDrawerTabs.branches ? (
+                    <div className="entity-drawer-section drawer-section">
+                      {!activeDrawerClientId ? (
+                        <p className="empty-hint">
+                          Guarda el cliente primero para agregar sucursales.
+                        </p>
+                      ) : (
+                        <>
+                          <div className="entity-drawer-section-header">
+                            <h4>Sucursales del cliente</h4>
+                            <button
+                              type="button"
+                              className="button button-secondary"
+                              onClick={resetBranchDrawerEditor}
+                            >
+                              + Sucursal
+                            </button>
+                          </div>
+
+                          {branchesByClientId[activeDrawerClientId]?.length ? (
+                            <div className="entity-drawer-list">
+                              {branchesByClientId[activeDrawerClientId].map((branch) => (
+                                <button
+                                  key={branch.id}
+                                  type="button"
+                                  className={
+                                    activeBranchFormId === branch.id
+                                      ? "entity-drawer-list-item drawer-card-row drawer-card-button drawer-card-button-active"
+                                      : "entity-drawer-list-item drawer-card-row drawer-card-button"
+                                  }
+                                  onClick={() => handleEditBranchFromDrawer(branch)}
+                                >
+                                  <div className="drawer-card-row-heading">
+                                    <strong>{branch.name}</strong>
+                                  </div>
+                                  {branch.address ? <span>{branch.address}</span> : null}
+                                  {branch.phone ? <span>Telefono: {branch.phone}</span> : null}
+                                  {branch.contact ? <span>Contacto: {branch.contact}</span> : null}
+                                  {!branch.address && !branch.phone && !branch.contact ? (
+                                    <span>Sin datos operativos</span>
+                                  ) : null}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="detail-subcopy">{uiText.clients.branchesEmptyState}</p>
+                          )}
+
+                          <form className="workspace-form entity-drawer-subform" onSubmit={handleSaveBranchFromDrawer}>
+                            <div className="entity-drawer-subform-header">
+                              <strong>
+                                {activeEditingBranch
+                                  ? `Editando sucursal: ${activeEditingBranch.name}`
+                                  : "Nueva sucursal"}
+                              </strong>
+                              {activeEditingBranch ? (
+                                <button
+                                  type="button"
+                                  className="button button-secondary"
+                                  onClick={resetBranchDrawerEditor}
+                                >
+                                  Cancelar edicion
+                                </button>
+                              ) : null}
+                            </div>
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.branchFields.name}</span>
+                                <input
+                                  name="name"
+                                  type="text"
+                                  value={drawerBranchForm.name}
+                                  onChange={handleDrawerBranchFormChange}
+                                  disabled={isSavingDrawerBranch}
+                                  required
+                                />
+                              </label>
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.branchFields.phone}</span>
+                                <input
+                                  name="phone"
+                                  type="text"
+                                  value={drawerBranchForm.phone}
+                                  onChange={handleDrawerBranchFormChange}
+                                  disabled={isSavingDrawerBranch}
+                                />
+                              </label>
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.branchFields.contact}</span>
+                                <input
+                                  name="contact"
+                                  type="text"
+                                  value={drawerBranchForm.contact}
+                                  onChange={handleDrawerBranchFormChange}
+                                  disabled={isSavingDrawerBranch}
+                                />
+                              </label>
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>{uiText.clients.branchFields.address}</span>
+                                <textarea
+                                  name="address"
+                                  value={drawerBranchForm.address}
+                                  onChange={handleDrawerBranchFormChange}
+                                  disabled={isSavingDrawerBranch}
+                                  rows={3}
+                                  required
+                                />
+                              </label>
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>{uiText.clients.branchFields.notes}</span>
+                                <textarea
+                                  name="notes"
+                                  value={drawerBranchForm.notes}
+                                  onChange={handleDrawerBranchFormChange}
+                                  disabled={isSavingDrawerBranch}
+                                  rows={3}
+                                />
+                              </label>
+                            </div>
+                            <div className="workspace-form-footer entity-drawer-footer entity-drawer-footer-inline">
+                              <div className="workspace-form-messages">
+                                {drawerBranchError ? <p className="error">{drawerBranchError}</p> : null}
+                                {drawerBranchMessage ? (
+                                  <p className="success-message">{drawerBranchMessage}</p>
+                                ) : null}
+                              </div>
+                              <div className="workspace-actions">
+                                <button
+                                  className="button"
+                                  type="submit"
+                                  disabled={isSavingDrawerBranch || !isBranchDrawerDirty}
+                                >
+                                  {isSavingDrawerBranch
+                                    ? uiText.clients.branchSaving
+                                    : activeEditingBranch
+                                      ? uiText.clients.branchUpdate
+                                      : uiText.clients.branchSave}
+                                </button>
+                              </div>
+                            </div>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </>
               ) : null}
 
-              {activeEntityType === "branch" && activeMode === "create" ? (
-                <div className="entity-drawer-section">
-                  <div className="detail-row">
-                    <span>Cliente padre</span>
-                    <strong>{activeClient?.displayName || "-"}</strong>
+              {activeEntityType === "branch" ? (
+                <form className="workspace-form entity-drawer-form" onSubmit={handleSaveBranchFromDrawer}>
+                  <div className="entity-drawer-section drawer-section">
+                    <div className="detail-row">
+                      <span>Cliente padre</span>
+                      <strong>{activeClient?.displayName || "-"}</strong>
+                    </div>
                   </div>
-                  <p className="detail-subcopy">
-                    Creando sucursal para: {activeClient?.displayName || "cliente seleccionado"}.
-                  </p>
-                </div>
-              ) : null}
 
-              {activeEntityType === "branch" && activeMode === "edit" ? (
-                <div className="entity-drawer-section">
-                  <div className="detail-row">
-                    <span>Sucursal</span>
-                    <strong>{activeBranch?.name || "-"}</strong>
+                  <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.name}</span>
+                      <input
+                        name="name"
+                        type="text"
+                        value={drawerBranchForm.name}
+                        onChange={handleDrawerBranchFormChange}
+                        disabled={isSavingDrawerBranch}
+                        required
+                      />
+                    </label>
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.phone}</span>
+                      <input
+                        name="phone"
+                        type="text"
+                        value={drawerBranchForm.phone}
+                        onChange={handleDrawerBranchFormChange}
+                        disabled={isSavingDrawerBranch}
+                      />
+                    </label>
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.branchFields.contact}</span>
+                      <input
+                        name="contact"
+                        type="text"
+                        value={drawerBranchForm.contact}
+                        onChange={handleDrawerBranchFormChange}
+                        disabled={isSavingDrawerBranch}
+                      />
+                    </label>
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.clients.branchFields.address}</span>
+                      <textarea
+                        name="address"
+                        value={drawerBranchForm.address}
+                        onChange={handleDrawerBranchFormChange}
+                        disabled={isSavingDrawerBranch}
+                        rows={3}
+                        required
+                      />
+                    </label>
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.clients.branchFields.notes}</span>
+                      <textarea
+                        name="notes"
+                        value={drawerBranchForm.notes}
+                        onChange={handleDrawerBranchFormChange}
+                        disabled={isSavingDrawerBranch}
+                        rows={3}
+                      />
+                    </label>
                   </div>
-                  <div className="detail-row">
-                    <span>Direccion</span>
-                    <strong>{activeBranch?.address || "-"}</strong>
+
+                  <div className="workspace-form-footer entity-drawer-footer">
+                    <div className="workspace-form-messages">
+                      {drawerBranchError ? <p className="error">{drawerBranchError}</p> : null}
+                      {drawerBranchMessage ? (
+                        <p className="success-message">{drawerBranchMessage}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="workspace-actions">
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={handleCloseClientsDrawer}
+                        disabled={isSavingDrawerBranch}
+                      >
+                        {uiText.common.cancel}
+                      </button>
+                      <button
+                        className="button"
+                        type="submit"
+                        disabled={isSavingDrawerBranch || !isBranchDrawerDirty}
+                      >
+                        {isSavingDrawerBranch
+                          ? uiText.clients.branchSaving
+                          : activeMode === "edit"
+                            ? uiText.clients.branchUpdate
+                            : uiText.clients.branchSave}
+                      </button>
+                    </div>
                   </div>
-                  <div className="detail-row">
-                    <span>Telefono</span>
-                    <strong>{activeBranch?.phone || "-"}</strong>
+                </form>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {activeTopLevelTab === dashboardTabs.technicians && technicianDrawerMode ? (
+        <div
+          className="entity-drawer-backdrop"
+          role="presentation"
+          onClick={handleCloseTechnicianDrawer}
+        >
+          <aside
+            className="entity-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="technician-drawer-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="entity-drawer-header">
+              <div>
+                <h3 id="technician-drawer-title">
+                  {technicianDrawerMode === "edit"
+                    ? uiText.technicians.formEditTitle
+                    : uiText.technicians.formCreateTitle}
+                </h3>
+                <p>Administra el perfil operativo del tecnico sin salir del panel.</p>
+              </div>
+              <button
+                type="button"
+                className="entity-drawer-close"
+                onClick={handleCloseTechnicianDrawer}
+                aria-label="Cerrar panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="entity-drawer-body">
+              <form className="workspace-form entity-drawer-form" onSubmit={handleCreateTechnician}>
+                <div className="entity-drawer-section drawer-section">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">General</h4>
                   </div>
-                  <div className="detail-row">
-                    <span>Cliente</span>
-                    <strong>{activeClient?.displayName || "-"}</strong>
+                  <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.technicians.fields.fullName}</span>
+                      <input
+                        name="fullName"
+                        type="text"
+                        value={technicianForm.fullName}
+                        onChange={handleTechnicianFormChange}
+                        placeholder={uiText.technicians.placeholders.fullName}
+                        disabled={isSavingTechnician}
+                        required
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Estado</span>
+                      <select
+                        name="isActive"
+                        value={technicianForm.isActive ? "active" : "inactive"}
+                        onChange={(event) =>
+                          handleTechnicianFormChange({
+                            target: {
+                              name: "isActive",
+                              type: "checkbox",
+                              checked: event.target.value === "active"
+                            }
+                          })
+                        }
+                        disabled={isSavingTechnician}
+                      >
+                        <option value="active">{uiText.technicians.active}</option>
+                        <option value="inactive">{uiText.technicians.inactive}</option>
+                      </select>
+                    </label>
                   </div>
                 </div>
-              ) : null}
+
+                <div className="entity-drawer-section drawer-section">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Contacto</h4>
+                  </div>
+                  <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.technicians.fields.phone}</span>
+                      <input
+                        name="phone"
+                        type="text"
+                        value={technicianForm.phone}
+                        onChange={handleTechnicianFormChange}
+                        placeholder={uiText.technicians.placeholders.phone}
+                        disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="entity-drawer-section drawer-section">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Ubicacion y notas</h4>
+                  </div>
+                  <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.technicians.fields.address}</span>
+                      <textarea
+                        name="address"
+                        value={technicianForm.address}
+                        onChange={handleTechnicianFormChange}
+                        placeholder={uiText.technicians.placeholders.address}
+                        disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.technicians.fields.notes}</span>
+                      <textarea
+                        name="notes"
+                        value={technicianForm.notes}
+                        onChange={handleTechnicianFormChange}
+                        placeholder={uiText.technicians.placeholders.notes}
+                        disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
+                        rows={4}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="workspace-form-footer entity-drawer-footer">
+                  <div className="workspace-form-messages">
+                    {technicianFormError ? <p className="error">{technicianFormError}</p> : null}
+                    {technicianFormMessage ? (
+                      <p className="success-message">{technicianFormMessage}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="workspace-actions">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={handleCloseTechnicianDrawer}
+                      disabled={isSavingTechnician}
+                    >
+                      {uiText.common.cancel}
+                    </button>
+                    <button className="button" type="submit" disabled={isSavingTechnician}>
+                      {isSavingTechnician
+                        ? uiText.technicians.saving
+                        : technicianDrawerMode === "edit"
+                          ? uiText.technicians.update
+                          : uiText.technicians.save}
+                    </button>
+                  </div>
+                </div>
+              </form>
             </div>
           </aside>
         </div>
