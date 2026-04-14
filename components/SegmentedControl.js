@@ -5,7 +5,8 @@ export default function SegmentedControl({
   value,
   onChange,
   name,
-  disabled = false
+  disabled = false,
+  className = ""
 }) {
   const normalizedOptions = Array.isArray(options) ? options : [];
   const hasCurrentValue = normalizedOptions.some((option) => option.value === value);
@@ -17,7 +18,9 @@ export default function SegmentedControl({
 
   return (
     <div
-      className={`segmented-control${disabled ? " segmented-control-disabled" : ""}`}
+      className={`segmented-control${disabled ? " segmented-control-disabled" : ""}${
+        className ? ` ${className}` : ""
+      }`}
       role="radiogroup"
       aria-disabled={disabled}
     >

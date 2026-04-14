@@ -64,6 +64,7 @@ const initialFormState = {
   recurrenceType: "weekly",
   recurrenceEndDate: "",
   status: "scheduled",
+  serviceInstructions: "",
   notes: ""
 };
 
@@ -96,7 +97,8 @@ const initialDetailFormState = {
   isRecurring: false,
   recurrenceType: "weekly",
   recurrenceEndDate: "",
-  status: "scheduled"
+  status: "scheduled",
+  serviceInstructions: ""
 };
 
 const initialBranchFormState = {
@@ -155,6 +157,22 @@ const initialContactDrawerForm = {
   isPrimary: false
 };
 
+const initialCompanySettingsForm = {
+  name: "",
+  businessName: "",
+  taxId: "",
+  mainPhone: "",
+  mainEmail: "",
+  mainContact: "",
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  country: "",
+  logoUrl: ""
+};
+
 
 const technicianColorPalette = [
   { background: "#e9f2ff", border: "#bfd6ff", accent: "#1d4ed8", text: "#163b75" },
@@ -190,6 +208,38 @@ const rightPanelModes = {
   edit: "edit",
   create: "create"
 };
+
+const serviceOrderSelectQuery = `
+  id,
+  technician_name,
+  service_date,
+  service_time,
+  status,
+  duration_minutes,
+  is_recurring,
+  recurrence_type,
+  recurrence_interval,
+  recurrence_end_date,
+  recurrence_group_id,
+  parent_service_order_id,
+  created_at,
+  service_instructions,
+  client_id,
+  branch_id,
+  clients (
+    name,
+    client_type,
+    business_name,
+    trade_name
+  ),
+  branches (
+    name,
+    address,
+    phone,
+    contact,
+    notes
+  )
+`;
 
 function getOperationalRange(anchorDate) {
   const normalizedAnchorDate = startOfDay(anchorDate || new Date());
@@ -656,7 +706,33 @@ function buildStructuredAddress({
   return [primaryLine, localityLine, reference].filter(Boolean).join(" | ");
 }
 
-function EventCard({ event, view, onSelect, isSelected }) {
+function buildCompanySettingsFormState(company) {
+  return {
+    name: company?.name || "",
+    businessName: company?.business_name || "",
+    taxId: company?.tax_id || "",
+    mainPhone: company?.main_phone || "",
+    mainEmail: company?.main_email || "",
+    mainContact: company?.main_contact || "",
+    addressLine1: company?.address_line_1 || "",
+    addressLine2: company?.address_line_2 || "",
+    city: company?.city || "",
+    state: company?.state || "",
+    postalCode: company?.postal_code || "",
+    country: company?.country || "",
+    logoUrl: company?.logo_url || ""
+  };
+}
+
+function EventCard({
+  event,
+  view,
+  onSelect,
+  isSelected,
+  onComplete
+}) {
+  const isCompleted = event.status === "completed";
+
   if (view === "month") {
     return (
       <div
@@ -683,7 +759,7 @@ function EventCard({ event, view, onSelect, isSelected }) {
     <div
       className={`calendar-event calendar-event-week${
         isSelected ? " calendar-event-selected" : ""
-      }`}
+      }${isCompleted ? " calendar-event-completed" : ""}`}
       title={event.tooltipText}
       data-service-order-id={event.id}
       onClick={() => {
@@ -691,6 +767,32 @@ function EventCard({ event, view, onSelect, isSelected }) {
         onSelect?.(event);
       }}
       >
+      <div className="calendar-event-quick-actions" aria-hidden={!isSelected}>
+        <button
+          type="button"
+          className={
+            isCompleted
+              ? "calendar-event-quick-action calendar-event-quick-action-completed"
+              : "calendar-event-quick-action"
+          }
+          aria-label={isCompleted ? "Marcar como programado" : "Completar servicio"}
+          title={isCompleted ? "Marcar como programado" : "Completar servicio"}
+          onMouseDown={(nativeEvent) => {
+            nativeEvent.stopPropagation();
+          }}
+          onClick={(nativeEvent) => {
+            nativeEvent.preventDefault();
+            nativeEvent.stopPropagation();
+            console.log("[Service Order Status Debug] event quick icon clicked:", {
+              serviceOrderId: event.id,
+              eventStatus: event.status
+            });
+            onComplete?.(event);
+          }}
+        >
+          <span aria-hidden="true">✓</span>
+        </button>
+      </div>
       <div className="calendar-event-week-accent" />
       <div className="calendar-event-week-copy">
         <strong className="calendar-event-week-line-primary">
@@ -890,21 +992,35 @@ function WorkspacePanel({
   onTechnicianNew,
   onTechnicianSubTabChange,
   onTechnicianFormChange,
-  onTechnicianSubmit
+  onTechnicianSubmit,
+  isQuickCreate = false,
+  clientSelectRef = null,
+  onCancelOrder = null
 }) {
   if (activeTab === uiText.tabs.newServiceOrder) {
     return (
       <div className="workspace-section">
-        <div className="workspace-copy">
+        <div className={isQuickCreate ? "workspace-copy workspace-copy-compact" : "workspace-copy"}>
           <h3>{uiText.serviceOrder.title}</h3>
-          <p>{uiText.serviceOrder.description}</p>
+          <p>
+            {isQuickCreate
+              ? "Completa lo esencial y programa el servicio rapidamente. Si aplica, configura la recurrencia desde la misma vista."
+              : uiText.serviceOrder.description}
+          </p>
         </div>
 
         <form className="workspace-form" onSubmit={onSubmit}>
-          <div className="workspace-grid">
-            <label className="workspace-input-group">
+          <div className={isQuickCreate ? "workspace-section workspace-section-tight" : undefined}>
+            <div className="drawer-section detail-section-card workspace-quick-create-card">
+              <div className="entity-drawer-section-header">
+                <h4 className="drawer-section-title">Datos esenciales</h4>
+              </div>
+
+              <div className="workspace-grid workspace-grid-quick-create">
+                <label className="workspace-input-group workspace-field-wide">
               <span>{uiText.serviceOrder.fields.client}</span>
               <select
+                ref={clientSelectRef}
                 name="clientId"
                 value={formState.clientId}
                 onChange={onFormChange}
@@ -924,30 +1040,8 @@ function WorkspacePanel({
               </select>
             </label>
 
-            <label className="workspace-input-group">
-              <span>{uiText.serviceOrder.fields.technician}</span>
-              <select
-                name="technicianName"
-                value={formState.technicianName}
-                onChange={onFormChange}
-                disabled={isSavingOrder || isTechniciansLoading}
-                required
-              >
-                <option value="">
-                  {isTechniciansLoading
-                    ? uiText.serviceOrder.placeholders.technicianLoading
-                    : uiText.serviceOrder.placeholders.technician}
-                </option>
-                {activeTechnicians.map((technician) => (
-                  <option key={technician.id} value={technician.full_name}>
-                    {technician.full_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {isResidentialFormClient ? (
-              <div className="detail-row workspace-field-wide">
+                {isResidentialFormClient ? (
+                  <div className="detail-row workspace-field-wide workspace-quick-static-field">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <strong>
                   {preferredResidentialBranch
@@ -963,7 +1057,7 @@ function WorkspacePanel({
                 </small>
               </div>
             ) : (
-              <label className="workspace-input-group">
+                  <label className="workspace-input-group workspace-field-wide">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <select
                   name="branchId"
@@ -988,7 +1082,29 @@ function WorkspacePanel({
               </label>
             )}
 
-            <label className="workspace-input-group">
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.serviceOrder.fields.technician}</span>
+                  <select
+                    name="technicianName"
+                    value={formState.technicianName}
+                    onChange={onFormChange}
+                    disabled={isSavingOrder || isTechniciansLoading}
+                    required
+                  >
+                    <option value="">
+                      {isTechniciansLoading
+                        ? uiText.serviceOrder.placeholders.technicianLoading
+                        : uiText.serviceOrder.placeholders.technician}
+                    </option>
+                    {activeTechnicians.map((technician) => (
+                      <option key={technician.id} value={technician.full_name}>
+                        {technician.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="workspace-input-group">
               <span>{uiText.serviceOrder.fields.serviceDate}</span>
               <input
                 name="serviceDate"
@@ -1000,7 +1116,7 @@ function WorkspacePanel({
               />
             </label>
 
-            <label className="workspace-input-group">
+                <label className="workspace-input-group">
               <span>{uiText.serviceOrder.fields.serviceTime}</span>
               <select
                 name="serviceTime"
@@ -1020,7 +1136,7 @@ function WorkspacePanel({
               </select>
             </label>
 
-            <label className="workspace-input-group">
+                <label className="workspace-input-group">
               <span>{uiText.serviceOrder.fields.duration}</span>
               <select
                 name="durationMinutes"
@@ -1039,82 +1155,101 @@ function WorkspacePanel({
                 ))}
               </select>
             </label>
+              </div>
+            </div>
 
-            <label className="workspace-checkbox workspace-field-wide">
-              <input
-                name="isRecurring"
-                type="checkbox"
-                checked={formState.isRecurring}
-                onChange={onFormChange}
-                disabled={isSavingOrder}
-              />
-              <span>{uiText.serviceOrder.fields.isRecurring}</span>
-            </label>
+            <div className="drawer-section detail-section-card workspace-quick-create-card">
+              <div className="entity-drawer-section-header">
+                <h4 className="drawer-section-title">Programacion</h4>
+              </div>
 
-            {formState.isRecurring ? (
-              <>
-                <label className="workspace-input-group">
-                  <span>{uiText.serviceOrder.fields.recurrenceType}</span>
-                  <select
-                    name="recurrenceType"
-                    value={formState.recurrenceType}
-                    onChange={onFormChange}
-                    disabled={isSavingOrder}
-                    required
-                  >
-                    <option value="" disabled>
-                      {uiText.serviceOrder.placeholders.recurrenceType}
-                    </option>
-                    <option value="daily">
-                      {uiText.serviceOrder.recurrenceOptions.daily}
-                    </option>
-                    <option value="weekly">
-                      {uiText.serviceOrder.recurrenceOptions.weekly}
-                    </option>
-                    <option value="biweekly">
-                      {uiText.serviceOrder.recurrenceOptions.biweekly}
-                    </option>
-                    <option value="monthly">
-                      {uiText.serviceOrder.recurrenceOptions.monthly}
-                    </option>
-                  </select>
-                </label>
-
-                <label className="workspace-input-group">
-                  <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+              <div className="workspace-grid">
+                <label className="workspace-checkbox workspace-field-wide workspace-checkbox-compact">
                   <input
-                    name="recurrenceEndDate"
-                    type="date"
-                    value={formState.recurrenceEndDate}
+                    name="isRecurring"
+                    type="checkbox"
+                    checked={formState.isRecurring}
                     onChange={onFormChange}
                     disabled={isSavingOrder}
                   />
+                  <span>{uiText.serviceOrder.fields.isRecurring}</span>
                 </label>
-              </>
-            ) : null}
 
-            <label className="workspace-input-group">
-              <span>{uiText.serviceOrder.fields.status}</span>
-              <SegmentedControl
-                name="status"
-                value={formState.status}
-                onChange={onFormChange}
-                options={serviceOrderStatusOptions}
-                disabled={isSavingOrder}
-              />
-            </label>
+                {formState.isRecurring ? (
+                  <>
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.recurrenceType}</span>
+                      <select
+                        name="recurrenceType"
+                        value={formState.recurrenceType}
+                        onChange={onFormChange}
+                        disabled={isSavingOrder}
+                        required
+                      >
+                        <option value="" disabled>
+                          {uiText.serviceOrder.placeholders.recurrenceType}
+                        </option>
+                        <option value="daily">
+                          {uiText.serviceOrder.recurrenceOptions.daily}
+                        </option>
+                        <option value="weekly">
+                          {uiText.serviceOrder.recurrenceOptions.weekly}
+                        </option>
+                        <option value="biweekly">
+                          {uiText.serviceOrder.recurrenceOptions.biweekly}
+                        </option>
+                        <option value="monthly">
+                          {uiText.serviceOrder.recurrenceOptions.monthly}
+                        </option>
+                      </select>
+                    </label>
 
-            <label className="workspace-input-group workspace-field-wide">
-              <span>{uiText.serviceOrder.fields.notes}</span>
-              <textarea
-                name="notes"
-                value={formState.notes}
-                onChange={onFormChange}
-                placeholder={uiText.serviceOrder.placeholders.notes}
-                disabled={isSavingOrder}
-                rows={5}
-              />
-            </label>
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
+                      <input
+                        name="recurrenceEndDate"
+                        type="date"
+                        value={formState.recurrenceEndDate}
+                        onChange={onFormChange}
+                        disabled={isSavingOrder}
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="drawer-section detail-section-card workspace-quick-create-card">
+              <div className="entity-drawer-section-header">
+                <h4 className="drawer-section-title">Informacion adicional</h4>
+              </div>
+
+              <div className="workspace-grid">
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.serviceOrder.fields.serviceInstructions}</span>
+                  <textarea
+                    name="serviceInstructions"
+                    value={formState.serviceInstructions}
+                    onChange={onFormChange}
+                    placeholder={uiText.serviceOrder.placeholders.serviceInstructions}
+                    disabled={isSavingOrder}
+                    rows={4}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>{uiText.serviceOrder.fields.notes}</span>
+                  <textarea
+                    name="notes"
+                    value={formState.notes}
+                    onChange={onFormChange}
+                    placeholder={uiText.serviceOrder.placeholders.notes}
+                    disabled={isSavingOrder}
+                    rows={4}
+                  />
+                </label>
+              </div>
+            </div>
           </div>
 
           <div className="workspace-form-footer">
@@ -1142,23 +1277,35 @@ function WorkspacePanel({
               {formError ? <p className="error">{formError}</p> : null}
               {formMessage ? <p className="success-message">{formMessage}</p> : null}
             </div>
+            <div className={isQuickCreate ? "workspace-actions workspace-actions-split" : "workspace-actions"}>
+              {isQuickCreate && onCancelOrder ? (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={onCancelOrder}
+                  disabled={isSavingOrder}
+                >
+                  {uiText.common.cancel}
+                </button>
+              ) : null}
 
-            <button
-              className="button"
-              type="submit"
-              disabled={
-                isSavingOrder ||
-                isClientsLoading ||
-                isTechniciansLoading ||
-                clients.length === 0 ||
-                (!isResidentialFormClient && !formState.branchId) ||
-                (isResidentialFormClient && !preferredResidentialBranch) ||
-                activeTechnicians.length === 0 ||
-                !formState.technicianName
-              }
-            >
-              {isSavingOrder ? uiText.serviceOrder.saving : uiText.serviceOrder.save}
-            </button>
+              <button
+                className={isSavingOrder ? "button is-loading" : "button"}
+                type="submit"
+                disabled={
+                  isSavingOrder ||
+                  isClientsLoading ||
+                  isTechniciansLoading ||
+                  clients.length === 0 ||
+                  (!isResidentialFormClient && !formState.branchId) ||
+                  (isResidentialFormClient && !preferredResidentialBranch) ||
+                  activeTechnicians.length === 0 ||
+                  !formState.technicianName
+                }
+              >
+                {isSavingOrder ? uiText.serviceOrder.saving : uiText.serviceOrder.save}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -1863,6 +2010,11 @@ export default function DashboardPage() {
   const [activeTopLevelTab, setActiveTopLevelTab] = useState(dashboardTabs.calendar);
   const [activeAdminView, setActiveAdminView] = useState(adminViewTabs.calendar);
   const [selectedCalendarTechnician, setSelectedCalendarTechnician] = useState("all");
+  const [activeCompany, setActiveCompany] = useState(null);
+  const [companySettingsForm, setCompanySettingsForm] = useState(initialCompanySettingsForm);
+  const [companySettingsError, setCompanySettingsError] = useState("");
+  const [companySettingsMessage, setCompanySettingsMessage] = useState("");
+  const [isSavingCompanySettings, setIsSavingCompanySettings] = useState(false);
   const [draggedBacklogServiceOrder, setDraggedBacklogServiceOrder] = useState(null);
   const [serviceListClientSearch, setServiceListClientSearch] = useState("");
   const [serviceListTechnician, setServiceListTechnician] = useState("all");
@@ -1926,6 +2078,7 @@ export default function DashboardPage() {
   const [isBranchesLoading, setIsBranchesLoading] = useState(false);
   const [isSavingBranch, setIsSavingBranch] = useState(false);
   const [formState, setFormState] = useState(initialFormState);
+  const [lastUsedTechnicianName, setLastUsedTechnicianName] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSavingOrder, setIsSavingOrder] = useState(false);
@@ -1948,6 +2101,7 @@ export default function DashboardPage() {
   const [isConfirmingDeleteServiceOrder, setIsConfirmingDeleteServiceOrder] = useState(false);
   const [isDeletingServiceOrder, setIsDeletingServiceOrder] = useState(false);
   const detailDateInputRef = useRef(null);
+  const createServiceOrderClientSelectRef = useRef(null);
   const draggedBacklogServiceOrderRef = useRef(null);
   const externalDragCleanupTimeoutRef = useRef(null);
   const calendarPointerStateRef = useRef({
@@ -1972,6 +2126,17 @@ export default function DashboardPage() {
     serviceOrders.find((serviceOrder) => serviceOrder.id === selectedServiceOrderId) ||
     selectedServiceOrderSnapshot ||
     null;
+  const isEditingServiceOrder =
+    activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.edit;
+  const isCreateServiceOrderMode =
+    activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.create;
+  const isFocusedServiceOrderPanel = isCreateServiceOrderMode || isEditingServiceOrder;
+  const createServiceOrderContext =
+    isCreateServiceOrderMode && formState.serviceDate
+      ? `${formatServiceDate(formState.serviceDate)} · ${formatDisplayTime(
+          formState.serviceTime || "9:00 AM"
+        )}`
+      : "";
   const activeCompanyId = userProfile?.company_id || null;
   const normalizedProfileRole = String(userProfile?.role || "")
     .trim()
@@ -2235,6 +2400,42 @@ export default function DashboardPage() {
         : activeEntityType === "branch" && activeMode === "edit"
             ? "Editar sucursal"
             : "";
+  const activeDrawerSubtitle =
+    activeEntityType === "client" && activeMode === "edit"
+      ? "Actualiza la informacion comercial y operativa del cliente sin salir del modulo."
+      : activeEntityType === "client" && activeMode === "create"
+        ? "Crea el cliente primero y despues agrega contactos o sucursales en el mismo panel."
+        : activeEntityType === "branch" && activeMode === "create"
+          ? "Registra una nueva sucursal para dejar lista la ubicacion operativa del cliente."
+          : activeEntityType === "branch" && activeMode === "edit"
+            ? "Ajusta la informacion operativa de esta sucursal sin perder el contexto del cliente."
+            : "";
+  const serviceOrderPanelKicker =
+    rightPanelMode === rightPanelModes.create
+      ? "Orden de servicio"
+      : rightPanelMode === rightPanelModes.edit
+        ? "Orden de servicio"
+        : selectedServiceOrder
+          ? "Orden de servicio"
+          : uiText.dashboard.detailTitle;
+  const serviceOrderPanelTitle =
+    rightPanelMode === rightPanelModes.create
+      ? uiText.serviceOrder.title
+      : rightPanelMode === rightPanelModes.edit
+        ? "Editar orden de servicio"
+        : selectedServiceOrder
+          ? getClientDisplayName(selectedServiceOrder.clients)
+          : uiText.dashboard.detailTitle;
+  const serviceOrderPanelSubtitle =
+    rightPanelMode === rightPanelModes.create
+      ? "Completa los datos para programar un nuevo servicio."
+      : rightPanelMode === rightPanelModes.edit
+        ? "Ajusta programacion, estado y recurrencia sin salir del calendario."
+        : selectedServiceOrder
+          ? `${getBranchDisplayName(selectedServiceOrder.branches)} · ${formatServiceDate(
+              selectedServiceOrder.service_date
+            )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
+          : uiText.dashboard.detailDescription;
   const isClientDrawerDirty =
     activeMode === "create"
       ? Boolean(clientDrawerForm.name.trim())
@@ -2318,6 +2519,23 @@ export default function DashboardPage() {
       ).length,
     [serviceOrders]
   );
+  const activeCompanyLogoUrl = activeCompany?.logo_url?.trim() || "/logo.svg";
+  const isCompanySettingsDirty =
+    JSON.stringify({
+      name: companySettingsForm.name.trim(),
+      businessName: companySettingsForm.businessName.trim(),
+      taxId: companySettingsForm.taxId.trim(),
+      mainPhone: companySettingsForm.mainPhone.trim(),
+      mainEmail: companySettingsForm.mainEmail.trim(),
+      mainContact: companySettingsForm.mainContact.trim(),
+      addressLine1: companySettingsForm.addressLine1.trim(),
+      addressLine2: companySettingsForm.addressLine2.trim(),
+      city: companySettingsForm.city.trim(),
+      state: companySettingsForm.state.trim(),
+      postalCode: companySettingsForm.postalCode.trim(),
+      country: companySettingsForm.country.trim(),
+      logoUrl: companySettingsForm.logoUrl.trim()
+    }) !== JSON.stringify(buildCompanySettingsFormState(activeCompany));
 
   const fetchUserProfile = async (supabase, userId) => {
     const { data, error } = await supabase
@@ -2343,6 +2561,48 @@ export default function DashboardPage() {
     return data;
   };
 
+  const fetchActiveCompany = async (supabase, companyId) => {
+    if (!companyId) {
+      setActiveCompany(null);
+      setCompanySettingsForm(initialCompanySettingsForm);
+      setCompanySettingsError("");
+      setCompanySettingsMessage("");
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("companies")
+      .select(
+        [
+          "id",
+          "name",
+          "business_name",
+          "tax_id",
+          "main_phone",
+          "main_email",
+          "main_contact",
+          "address_line_1",
+          "address_line_2",
+          "city",
+          "state",
+          "postal_code",
+          "country",
+          "logo_url"
+        ].join(", ")
+      )
+      .eq("id", companyId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    setActiveCompany(data || null);
+    setCompanySettingsForm(buildCompanySettingsFormState(data));
+    setCompanySettingsError("");
+    return data;
+  };
+
   const fetchServiceOrders = async (supabase, companyId) => {
     if (!companyId) {
       setServiceOrders([]);
@@ -2361,38 +2621,7 @@ export default function DashboardPage() {
     // calendar event can show the customer's name without extra requests.
     const { data: serviceOrders, error } = await supabase
       .from("service_orders")
-      .select(
-        `
-          id,
-          technician_name,
-          service_date,
-          service_time,
-          status,
-          duration_minutes,
-          is_recurring,
-          recurrence_type,
-          recurrence_interval,
-          recurrence_end_date,
-          recurrence_group_id,
-          parent_service_order_id,
-          created_at,
-          client_id,
-          branch_id,
-          clients (
-            name,
-            client_type,
-            business_name,
-            trade_name
-          ),
-          branches (
-            name,
-            address,
-            phone,
-            contact,
-            notes
-          )
-        `
-      )
+      .select(serviceOrderSelectQuery)
       .eq("company_id", companyId)
       .order("service_date", { ascending: true })
       .order("service_time", { ascending: true });
@@ -2454,39 +2683,7 @@ export default function DashboardPage() {
 
     let query = supabase
       .from("service_orders")
-      .select(
-        `
-          id,
-          technician_name,
-          service_date,
-          service_time,
-          status,
-          duration_minutes,
-          is_recurring,
-          recurrence_type,
-          recurrence_interval,
-          recurrence_end_date,
-          recurrence_group_id,
-          parent_service_order_id,
-          created_at,
-          notes,
-          client_id,
-          branch_id,
-          clients (
-            name,
-            client_type,
-            business_name,
-            trade_name
-          ),
-          branches (
-            name,
-            address,
-            phone,
-            contact,
-            notes
-          )
-        `
-      )
+      .select(serviceOrderSelectQuery)
       .eq("company_id", companyId)
       .eq("service_date", getTodayDateString())
       .eq("technician_name", technicianName)
@@ -2497,38 +2694,7 @@ export default function DashboardPage() {
     if (error) {
       const fallbackQuery = await supabase
         .from("service_orders")
-        .select(
-          `
-            id,
-            technician_name,
-            service_date,
-            service_time,
-            status,
-            duration_minutes,
-            is_recurring,
-            recurrence_type,
-            recurrence_interval,
-            recurrence_end_date,
-            recurrence_group_id,
-            parent_service_order_id,
-            created_at,
-            client_id,
-            branch_id,
-            clients (
-              name,
-              client_type,
-              business_name,
-              trade_name
-            ),
-            branches (
-              name,
-              address,
-              phone,
-              contact,
-              notes
-            )
-          `
-        )
+        .select(serviceOrderSelectQuery)
         .eq("company_id", companyId)
         .eq("service_date", getTodayDateString())
         .eq("technician_name", technicianName)
@@ -2760,6 +2926,48 @@ export default function DashboardPage() {
     });
   };
 
+  const replaceServiceOrderRecord = (nextServiceOrder) => {
+    if (!nextServiceOrder?.id) {
+      return;
+    }
+
+    setServiceOrders((currentServiceOrders) => {
+      let didReplace = false;
+      const nextServiceOrders = currentServiceOrders.map((serviceOrder) => {
+        if (serviceOrder.id !== nextServiceOrder.id) {
+          return serviceOrder;
+        }
+
+        didReplace = true;
+        return {
+          ...serviceOrder,
+          ...nextServiceOrder
+        };
+      });
+
+      if (!didReplace) {
+        return currentServiceOrders;
+      }
+
+      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
+      setSelectedServiceOrderSnapshot((currentSnapshot) =>
+        currentSnapshot?.id === nextServiceOrder.id
+          ? {
+              ...currentSnapshot,
+              ...nextServiceOrder
+            }
+          : currentSnapshot
+      );
+
+      console.log("[Service Order Status Debug] replaceServiceOrderRecord:", {
+        serviceOrderId: nextServiceOrder.id,
+        status: nextServiceOrder.status
+      });
+
+      return nextServiceOrders;
+    });
+  };
+
   const appendLocalServiceOrder = (serviceOrder, { selectOnInsert = false } = {}) => {
     if (!serviceOrder?.id) {
       return;
@@ -2859,6 +3067,7 @@ export default function DashboardPage() {
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
       status: orderState.status,
       created_at: new Date().toISOString(),
+      service_instructions: orderState.serviceInstructions || "",
       notes: orderState.notes || "",
       clients: resolvedClient,
       branches: resolvedBranch,
@@ -2966,6 +3175,7 @@ export default function DashboardPage() {
     serviceTime,
     durationMinutes,
     status,
+    serviceInstructions = undefined,
     clientId = undefined,
     recurrenceState = null,
     existingOrder = null,
@@ -3004,6 +3214,11 @@ export default function DashboardPage() {
 
     console.log("[Backlog DnD Debug] updateServiceOrderSchedule normalized input:", {
       serviceOrderId,
+      currentStatus:
+        existingOrder?.status ||
+        serviceOrders.find((serviceOrder) => serviceOrder.id === serviceOrderId)?.status ||
+        null,
+      nextStatus: status,
       technicianBefore: existingOrder?.technician_name || technicianName,
       technicianAfter: technicianName,
       serviceDate,
@@ -3024,6 +3239,10 @@ export default function DashboardPage() {
       duration_minutes: resolveDurationMinutes(durationMinutes),
       status
     };
+
+    if (serviceInstructions !== undefined) {
+      persistencePayload.service_instructions = serviceInstructions;
+    }
 
     if (recurrenceState) {
       Object.assign(persistencePayload, buildRecurrencePayload(recurrenceState, existingOrder));
@@ -3064,11 +3283,13 @@ export default function DashboardPage() {
       payload: persistencePayload
     });
 
-    const { error: updateError } = await supabase
+    const { data: updatedServiceOrder, error: updateError } = await supabase
       .from("service_orders")
       .update(persistencePayload)
+      .select(serviceOrderSelectQuery)
       .eq("id", serviceOrderId)
-      .eq("company_id", activeCompanyId);
+      .eq("company_id", activeCompanyId)
+      .single();
 
     if (updateError) {
       if (currentOrder) {
@@ -3078,6 +3299,7 @@ export default function DashboardPage() {
           service_time: currentOrder.service_time,
           duration_minutes: currentOrder.duration_minutes,
           status: currentOrder.status,
+          service_instructions: currentOrder.service_instructions || "",
           branch_id: currentOrder.branch_id ?? null,
           client_id: currentOrder.client_id ?? null,
           clients: currentOrder.clients || null,
@@ -3094,13 +3316,25 @@ export default function DashboardPage() {
     }
 
     console.log("[Backlog DnD Debug] updateServiceOrderSchedule Supabase success:", {
-      serviceOrderId
+      serviceOrderId,
+      returnedStatus: updatedServiceOrder?.status || null
     });
 
-    console.log("[Backlog DnD Debug] updateServiceOrderSchedule success:", {
+    if (updatedServiceOrder) {
+      replaceServiceOrderRecord(updatedServiceOrder);
+    }
+
+    console.log("[Service Order Status Debug] updateServiceOrderSchedule success:", {
       serviceOrderId,
-      payload: optimisticPatch
+      optimisticStatus: optimisticPatch.status,
+      snapshotStatus:
+        selectedServiceOrderSnapshot?.id === serviceOrderId
+          ? selectedServiceOrderSnapshot?.status || null
+          : null,
+      persistedStatus: updatedServiceOrder?.status || null
     });
+
+    return updatedServiceOrder || null;
   };
 
   const getCalendarEventStyle = (event) => ({
@@ -3409,6 +3643,23 @@ export default function DashboardPage() {
   useEffect(() => {
     const supabase = getSupabaseClient();
 
+    if (!supabase || !activeCompanyId) {
+      setActiveCompany(null);
+      setCompanySettingsForm(initialCompanySettingsForm);
+      setCompanySettingsError("");
+      setCompanySettingsMessage("");
+      return;
+    }
+
+    fetchActiveCompany(supabase, activeCompanyId).catch(() => {
+      setActiveCompany(null);
+      setCompanySettingsError(uiText.dashboard.companySettingsLoadError);
+    });
+  }, [activeCompanyId]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+
     if (!supabase || !activeCompanyId || isTechnicianUser) {
       setServiceOrders([]);
       setCalendarEvents([]);
@@ -3636,6 +3887,7 @@ export default function DashboardPage() {
       serviceDate: selectedServiceOrder.service_date || "",
       serviceTime: selectedServiceOrder.service_time || "9:00 AM",
       durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
+      serviceInstructions: selectedServiceOrder.service_instructions || "",
       ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
     });
@@ -3737,6 +3989,43 @@ export default function DashboardPage() {
       branchId: resolvedBranch.id
     }));
   }, [isResidentialFormClient, preferredResidentialBranch, selectedFormClient]);
+
+  useEffect(() => {
+    if (
+      !formState.clientId ||
+      isResidentialFormClient ||
+      isBranchesLoading ||
+      formState.branchId ||
+      availableBranches.length !== 1
+    ) {
+      return;
+    }
+
+    setFormState((currentState) => ({
+      ...currentState,
+      branchId: availableBranches[0].id
+    }));
+  }, [
+    availableBranches,
+    formState.branchId,
+    formState.clientId,
+    isBranchesLoading,
+    isResidentialFormClient
+  ]);
+
+  useEffect(() => {
+    if (!isCreateServiceOrderMode) {
+      return;
+    }
+
+    const clientSelect = createServiceOrderClientSelectRef.current;
+
+    if (clientSelect && !formState.clientId) {
+      requestAnimationFrame(() => {
+        clientSelect.focus();
+      });
+    }
+  }, [formState.clientId, isCreateServiceOrderMode]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -4108,6 +4397,7 @@ export default function DashboardPage() {
       setSaving: setIsSavingOrder,
       resetState: () => setFormState(initialFormState),
       onSuccess: () => {
+        setLastUsedTechnicianName(formState.technicianName.trim());
         setRightPanelMode(rightPanelModes.detail);
       }
     });
@@ -4115,6 +4405,27 @@ export default function DashboardPage() {
 
   const handleOpenQuickCreate = (slotInfo) => {
     const slotStart = slotInfo?.start instanceof Date ? slotInfo.start : new Date();
+    const preferredTechnicianName =
+      selectedCalendarTechnician !== "all"
+        ? selectedCalendarTechnician
+        : lastUsedTechnicianName;
+    const nextServiceDate = getServiceDateFromCalendarSlot(slotStart);
+    const nextServiceTime = getServiceTimeFromCalendarSlot(
+      slotStart,
+      calendarView,
+      serviceTimeOptions
+    );
+
+    if (rightPanelMode === rightPanelModes.create) {
+      setFormError("");
+      setFormMessage("");
+      setFormState((currentState) => ({
+        ...currentState,
+        serviceDate: nextServiceDate,
+        serviceTime: nextServiceTime
+      }));
+      return;
+    }
 
     setSelectedServiceOrderId(null);
     setSelectedServiceOrderSnapshot(null);
@@ -4122,12 +4433,9 @@ export default function DashboardPage() {
     setFormMessage("");
     setFormState({
       ...initialFormState,
-      serviceDate: getServiceDateFromCalendarSlot(slotStart),
-      serviceTime: getServiceTimeFromCalendarSlot(
-        slotStart,
-        calendarView,
-        serviceTimeOptions
-      )
+      technicianName: preferredTechnicianName,
+      serviceDate: nextServiceDate,
+      serviceTime: nextServiceTime
     });
     setRightPanelMode(rightPanelModes.create);
   };
@@ -4137,6 +4445,23 @@ export default function DashboardPage() {
     setFormError("");
     setFormMessage("");
     setRightPanelMode(selectedServiceOrder ? rightPanelModes.detail : rightPanelModes.empty);
+  };
+
+  const handleCloseServiceOrderPanel = () => {
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setFormError("");
+    setFormMessage("");
+    setIsConfirmingDeleteServiceOrder(false);
+
+    if (rightPanelMode === rightPanelModes.create) {
+      handleCloseQuickCreate();
+      return;
+    }
+
+    setSelectedServiceOrderId(null);
+    setSelectedServiceOrderSnapshot(null);
+    setRightPanelMode(rightPanelModes.empty);
   };
 
   const handleOpenClientModal = () => {
@@ -4196,6 +4521,96 @@ export default function DashboardPage() {
     }));
   };
 
+  const handleCompanySettingsFormChange = (event) => {
+    const { name, value } = event.target;
+    setCompanySettingsError("");
+    setCompanySettingsMessage("");
+    setCompanySettingsForm((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleResetCompanySettingsForm = () => {
+    setCompanySettingsForm(buildCompanySettingsFormState(activeCompany));
+    setCompanySettingsError("");
+    setCompanySettingsMessage("");
+  };
+
+  const handleSaveCompanySettings = async (event) => {
+    event.preventDefault();
+
+    if (!activeCompanyId) {
+      setCompanySettingsError(uiText.dashboard.profileLoadError);
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setCompanySettingsError(uiText.clients.configError);
+      return;
+    }
+
+    setCompanySettingsError("");
+    setCompanySettingsMessage("");
+    setIsSavingCompanySettings(true);
+
+    try {
+      const payload = {
+        name: companySettingsForm.name.trim(),
+        business_name: companySettingsForm.businessName.trim() || null,
+        tax_id: companySettingsForm.taxId.trim() || null,
+        main_phone: companySettingsForm.mainPhone.trim() || null,
+        main_email: companySettingsForm.mainEmail.trim() || null,
+        main_contact: companySettingsForm.mainContact.trim() || null,
+        address_line_1: companySettingsForm.addressLine1.trim() || null,
+        address_line_2: companySettingsForm.addressLine2.trim() || null,
+        city: companySettingsForm.city.trim() || null,
+        state: companySettingsForm.state.trim() || null,
+        postal_code: companySettingsForm.postalCode.trim() || null,
+        country: companySettingsForm.country.trim() || null,
+        logo_url: companySettingsForm.logoUrl.trim() || null
+      };
+
+      const { data, error } = await supabase
+        .from("companies")
+        .update(payload)
+        .eq("id", activeCompanyId)
+        .select(
+          [
+            "id",
+            "name",
+            "business_name",
+            "tax_id",
+            "main_phone",
+            "main_email",
+            "main_contact",
+            "address_line_1",
+            "address_line_2",
+            "city",
+            "state",
+            "postal_code",
+            "country",
+            "logo_url"
+          ].join(", ")
+        )
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      setActiveCompany(data || { id: activeCompanyId, ...payload });
+      setCompanySettingsForm(buildCompanySettingsFormState(data || { id: activeCompanyId, ...payload }));
+      setCompanySettingsMessage(uiText.dashboard.companySettingsSaveSuccess);
+    } catch (error) {
+      setCompanySettingsError(error.message || uiText.dashboard.companySettingsSaveError);
+    } finally {
+      setIsSavingCompanySettings(false);
+    }
+  };
+
   const handleSaveClientFromDrawer = async (event) => {
     event.preventDefault();
     setClientDrawerError("");
@@ -4233,9 +4648,9 @@ export default function DashboardPage() {
       );
     } catch (error) {
       setClientDrawerError(error.message || uiText.clients.createError);
+    } finally {
+      setIsSavingClientDrawer(false);
     }
-
-    setIsSavingClientDrawer(false);
   };
 
   const handleSaveContactFromDrawer = async (event) => {
@@ -4780,20 +5195,45 @@ export default function DashboardPage() {
     setIsSavingDetail(true);
 
     try {
-      await updateServiceOrderSchedule({
+      const nextStatus = detailFormState.status;
+      console.log("[Service Order Status Debug] edit save requested:", {
+        serviceOrderId: selectedServiceOrderId,
+        currentStatus: selectedServiceOrder?.status || null,
+        nextStatus
+      });
+
+      const updatedServiceOrder = await updateServiceOrderSchedule({
         serviceOrderId: selectedServiceOrderId,
         clientId: detailFormState.clientId,
         technicianName: detailFormState.technicianName.trim(),
         serviceDate: detailFormState.serviceDate,
         serviceTime: detailFormState.serviceTime.trim(),
         durationMinutes: detailFormState.durationMinutes,
-        status: detailFormState.status,
+        status: nextStatus,
+        serviceInstructions: detailFormState.serviceInstructions.trim(),
         recurrenceState: detailFormState,
         existingOrder: selectedServiceOrder,
         branchId: isResidentialDetailClient
           ? preferredDetailResidentialBranch?.id || selectedServiceOrder?.branch_id || null
           : detailFormState.branchId || selectedServiceOrder?.branch_id || null,
         excludeOrderId: selectedServiceOrderId
+      });
+      setDetailFormState((currentState) => ({
+        ...currentState,
+        status: updatedServiceOrder?.status || nextStatus
+      }));
+      setSelectedServiceOrderSnapshot((currentSnapshot) =>
+        currentSnapshot?.id === selectedServiceOrderId
+          ? {
+              ...currentSnapshot,
+              ...updatedServiceOrder,
+              status: updatedServiceOrder?.status || nextStatus
+            }
+          : currentSnapshot
+      );
+      console.log("[Service Order Status Debug] edit save completed:", {
+        serviceOrderId: selectedServiceOrderId,
+        returnedStatus: updatedServiceOrder?.status || null
       });
       setDetailFormMessage(uiText.dashboard.detailSuccess);
       setRightPanelMode(rightPanelModes.detail);
@@ -5153,6 +5593,57 @@ export default function DashboardPage() {
     setIsSavingDetail(false);
   };
 
+  const handleQuickCompleteServiceOrder = async (event) => {
+    if (!event?.id) {
+      return;
+    }
+
+    const currentOrder =
+      serviceOrders.find((serviceOrder) => serviceOrder.id === event.id) || null;
+    const currentStatus = currentOrder?.status || event.status || "scheduled";
+    const nextStatus = currentStatus === "completed" ? "scheduled" : "completed";
+
+    console.log("[Service Order Status Debug] quick toggle requested:", {
+      serviceOrderId: event.id,
+      currentStatus,
+      nextStatus
+    });
+
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+
+    try {
+      const updatedServiceOrder = await updateServiceOrderSchedule({
+        serviceOrderId: event.id,
+        technicianName: event.technician || event.technicianDisplayName,
+        serviceDate: event.serviceDate,
+        serviceTime: event.serviceTime,
+        durationMinutes: event.durationMinutes,
+        status: nextStatus,
+        existingOrder: currentOrder,
+        branchId: event.branchId || null,
+        clientId: event.clientId || undefined,
+        excludeOrderId: event.id,
+        skipConflictCheck: nextStatus !== "scheduled"
+      });
+      if (selectedServiceOrderId === event.id) {
+        setDetailFormState((currentState) => ({
+          ...currentState,
+          status: updatedServiceOrder?.status || nextStatus
+        }));
+      }
+      console.log("[Service Order Status Debug] quick toggle completed:", {
+        serviceOrderId: event.id,
+        returnedStatus: updatedServiceOrder?.status || null
+      });
+      setCalendarActionMessage(
+        nextStatus === "completed" ? "Servicio completado" : "Servicio reactivado"
+      );
+    } catch (error) {
+      setCalendarActionError(error.message || uiText.technicianDashboard.completionError);
+    }
+  };
+
   const handleStartReschedule = () => {
     setRightPanelMode(rightPanelModes.edit);
     setTimeout(() => {
@@ -5485,73 +5976,81 @@ export default function DashboardPage() {
 
   return (
     <main className="admin-dashboard">
-      <header className="admin-header">
-        <div className="admin-header-brand">
+      <header className="admin-app-bar">
+        <div className="admin-app-bar-brand">
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <img
-              src="/logo.svg"
-              alt="Biz2Rise"
+              src={activeCompanyLogoUrl}
+              alt={activeCompany?.name || "Biz2Rise"}
               style={{ height: "26px", width: "auto" }}
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = "/logo.svg";
+              }}
             />
-            <span>{uiText.common.appName}</span>
+            <span>{activeCompany?.name || uiText.common.appName}</span>
           </div>
         </div>
 
-        <div className="admin-summary-bar" aria-label="Resumen operativo">
-          <span className="admin-summary-chip">
-            <span>Hoy</span>
-            <strong>{todayOrdersCount}</strong>
-          </span>
-          <span className="admin-summary-chip admin-summary-chip-warning">
-            <span>Pendientes</span>
-            <strong>{pendingOrders.length}</strong>
-          </span>
-          <span className="admin-summary-chip admin-summary-chip-success">
-            <span>Completados</span>
-            <strong>{completedTodayCount}</strong>
-          </span>
+        <div className="admin-app-bar-center">
+          <div className="admin-primary-tabs" role="tablist" aria-label="Secciones principales">
+            {Object.entries(dashboardTabs).map(([key, value]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={activeTopLevelTab === value}
+                className={
+                  activeTopLevelTab === value
+                    ? "admin-primary-tab admin-primary-tab-active"
+                    : "admin-primary-tab"
+                }
+                onClick={() => setActiveTopLevelTab(value)}
+              >
+                {uiText.dashboard.topTabs[key]}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="admin-header-actions">
-          <div className="admin-user">
-            <span className="admin-user-label">{uiText.common.loggedInAs}</span>
-            <strong>{userProfile?.full_name || userEmail}</strong>
+        <div className="admin-app-bar-actions">
+          <div className="admin-summary-bar" aria-label="Resumen operativo">
+            <span className="admin-summary-chip">
+              <span>Hoy</span>
+              <strong>{todayOrdersCount}</strong>
+            </span>
+            <span className="admin-summary-chip admin-summary-chip-warning">
+              <span>Pendientes</span>
+              <strong>{pendingOrders.length}</strong>
+            </span>
+            <span className="admin-summary-chip admin-summary-chip-success">
+              <span>Completados</span>
+              <strong>{completedTodayCount}</strong>
+            </span>
           </div>
 
-          <button
-            className="button"
-            type="button"
-            onClick={handleLogout}
-            disabled={isSigningOut}
-          >
-            {isSigningOut ? uiText.common.loggingOut : uiText.common.logout}
-          </button>
+          <div className="admin-header-actions">
+            <div className="admin-user">
+              <span className="admin-user-label">{uiText.common.loggedInAs}</span>
+              <strong>{userProfile?.full_name || userEmail}</strong>
+            </div>
+
+            <button
+              className="button"
+              type="button"
+              onClick={handleLogout}
+              disabled={isSigningOut}
+            >
+              {isSigningOut ? uiText.common.loggingOut : uiText.common.logout}
+            </button>
+          </div>
         </div>
       </header>
-
-      <div className="admin-primary-tabs" role="tablist" aria-label="Secciones principales">
-        {Object.entries(dashboardTabs).map(([key, value]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={activeTopLevelTab === value}
-            className={
-              activeTopLevelTab === value
-                ? "admin-primary-tab admin-primary-tab-active"
-                : "admin-primary-tab"
-            }
-            onClick={() => setActiveTopLevelTab(value)}
-          >
-            {uiText.dashboard.topTabs[key]}
-          </button>
-        ))}
-      </div>
 
       <section
         className={
           activeTopLevelTab === dashboardTabs.calendar
-            ? "admin-content"
+            ? `admin-content${isFocusedServiceOrderPanel ? " admin-content-service-create" : ""}`
             : "admin-content admin-content-two-column"
         }
       >
@@ -5677,59 +6176,35 @@ export default function DashboardPage() {
           </div>
 
           {activeAdminView === adminViewTabs.calendar ? (
-            <>
-              <div className="operations-panel-section">
-                <label className="calendar-filter control-group-body context-panel-filter">
-                  <span className="control-group-label">{uiText.dashboard.calendarFilterLabel}</span>
-                  <select
-                    value={selectedTechnician}
-                    onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
-                  >
-                    <option value="all">{uiText.dashboard.calendarFilterAll}</option>
-                    {technicianLegendItems.map((item) => (
-                      <option key={item.key} value={item.technicianName}>
-                        {item.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <button
-                  type="button"
-                  className={
-                    showOnlyOverdue
-                      ? "operations-indicator operations-indicator-active"
-                      : "operations-indicator"
-                  }
-                  onClick={toggleOverdueFilter}
+            <div className="operations-panel-section">
+              <label className="calendar-filter control-group-body context-panel-filter">
+                <span className="control-group-label">{uiText.dashboard.calendarFilterLabel}</span>
+                <select
+                  value={selectedTechnician}
+                  onChange={(event) => setSelectedCalendarTechnician(event.target.value)}
                 >
-                  <span>{uiText.dashboard.overdueCounterLabel}:</span>
-                  <strong>{overdueCount}</strong>
-                </button>
-              </div>
+                  <option value="all">{uiText.dashboard.calendarFilterAll}</option>
+                  {technicianLegendItems.map((item) => (
+                    <option key={item.key} value={item.technicianName}>
+                      {item.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-              {technicianLegendItems.length > 0 ? (
-                <div
-                  className="calendar-legend calendar-legend-panel operations-panel-section"
-                  aria-label={uiText.dashboard.calendarLegendTitle}
-                >
-                  <span className="calendar-legend-title control-group-label">
-                    {uiText.dashboard.calendarLegendTitle}
-                  </span>
-                  <div className="calendar-legend-items control-group-body">
-                    {technicianLegendItems.map((item) => (
-                      <span key={item.key} className="calendar-legend-item">
-                        <span
-                          className="calendar-legend-dot"
-                          style={{ backgroundColor: item.color.accent }}
-                        />
-                        <span>{item.displayName}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </>
+              <button
+                type="button"
+                className={
+                  showOnlyOverdue
+                    ? "operations-indicator operations-indicator-active"
+                    : "operations-indicator"
+                }
+                onClick={toggleOverdueFilter}
+              >
+                <span>{uiText.dashboard.overdueCounterLabel}:</span>
+                <strong>{overdueCount}</strong>
+              </button>
+            </div>
           ) : (
             <div className="operations-panel-section">
               <label className="calendar-filter control-group-body context-panel-filter">
@@ -5956,11 +6431,31 @@ export default function DashboardPage() {
 
             <div className="calendar-panel-row calendar-panel-row-2">
               <div className="calendar-panel-row-left">
-                <p className="calendar-panel-subtitle">
-                  {activeAdminView === adminViewTabs.calendar
-                    ? uiText.dashboard.calendarSubtitle
-                    : uiText.serviceList.subtitle}
-                </p>
+                {activeAdminView === adminViewTabs.calendar ? (
+                  technicianLegendItems.length > 0 ? (
+                    <div
+                      className="calendar-legend calendar-legend-header"
+                      aria-label={uiText.dashboard.calendarLegendTitle}
+                    >
+                      <span className="calendar-legend-title control-group-label">
+                        {uiText.dashboard.calendarLegendTitle}
+                      </span>
+                      <div className="calendar-legend-items control-group-body">
+                        {technicianLegendItems.map((item) => (
+                          <span key={item.key} className="calendar-legend-item">
+                            <span
+                              className="calendar-legend-dot"
+                              style={{ backgroundColor: item.color.accent }}
+                            />
+                            <span>{item.displayName}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null
+                ) : (
+                  <p className="calendar-panel-subtitle">{uiText.serviceList.subtitle}</p>
+                )}
               </div>
               <div className="calendar-panel-row-right" />
             </div>
@@ -6084,6 +6579,7 @@ export default function DashboardPage() {
                         view={calendarView}
                         onSelect={handleSelectServiceOrder}
                         isSelected={eventProps.event?.id === selectedServiceOrderId}
+                        onComplete={handleQuickCompleteServiceOrder}
                       />
                     ),
                     eventWrapper: (wrapperProps) => (
@@ -6336,37 +6832,269 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="calendar-empty-state admin-settings-placeholder">
-              <h3>{uiText.dashboard.settingsPanelTitle}</h3>
-              <p>{uiText.dashboard.settingsPanelBody}</p>
-            </div>
+            <form className="workspace-form settings-company-panel" onSubmit={handleSaveCompanySettings}>
+              <section className="drawer-section settings-company-section">
+                <div className="entity-drawer-section-header">
+                  <div>
+                    <h4 className="drawer-section-title">{uiText.dashboard.settingsNav.company}</h4>
+                    <p className="settings-company-help">
+                      {uiText.dashboard.companySettingsHelp}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="settings-company-brand-preview">
+                  <img
+                    src={activeCompanyLogoUrl}
+                    alt={activeCompany?.name || "Biz2Rise"}
+                    className="settings-company-logo-preview"
+                    onError={(event) => {
+                      event.currentTarget.onerror = null;
+                      event.currentTarget.src = "/logo.svg";
+                    }}
+                  />
+                  <div className="settings-company-brand-copy">
+                    <strong>{activeCompany?.name || uiText.common.appName}</strong>
+                    <span>{activeCompany?.logo_url || "/logo.svg"}</span>
+                  </div>
+                </div>
+
+                <div className="workspace-grid settings-company-grid">
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.dashboard.companySettingsFields.name}</span>
+                    <input
+                      name="name"
+                      type="text"
+                      value={companySettingsForm.name}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                      required
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.businessName}</span>
+                    <input
+                      name="businessName"
+                      type="text"
+                      value={companySettingsForm.businessName}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.taxId}</span>
+                    <input
+                      name="taxId"
+                      type="text"
+                      value={companySettingsForm.taxId}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.dashboard.companySettingsFields.logoUrl}</span>
+                    <input
+                      name="logoUrl"
+                      type="url"
+                      value={companySettingsForm.logoUrl}
+                      onChange={handleCompanySettingsFormChange}
+                      placeholder="https://..."
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="drawer-section settings-company-section">
+                <div className="entity-drawer-section-header">
+                  <div>
+                    <h4 className="drawer-section-title">Contacto</h4>
+                  </div>
+                </div>
+
+                <div className="workspace-grid settings-company-grid settings-company-grid-two-column">
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.mainPhone}</span>
+                    <input
+                      name="mainPhone"
+                      type="text"
+                      value={companySettingsForm.mainPhone}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.mainEmail}</span>
+                    <input
+                      name="mainEmail"
+                      type="email"
+                      value={companySettingsForm.mainEmail}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.dashboard.companySettingsFields.mainContact}</span>
+                    <input
+                      name="mainContact"
+                      type="text"
+                      value={companySettingsForm.mainContact}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="drawer-section settings-company-section">
+                <div className="entity-drawer-section-header">
+                  <div>
+                    <h4 className="drawer-section-title">Direccion</h4>
+                  </div>
+                </div>
+
+                <div className="workspace-grid settings-company-grid settings-company-grid-two-column">
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.dashboard.companySettingsFields.addressLine1}</span>
+                    <input
+                      name="addressLine1"
+                      type="text"
+                      value={companySettingsForm.addressLine1}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.dashboard.companySettingsFields.addressLine2}</span>
+                    <input
+                      name="addressLine2"
+                      type="text"
+                      value={companySettingsForm.addressLine2}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.city}</span>
+                    <input
+                      name="city"
+                      type="text"
+                      value={companySettingsForm.city}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.state}</span>
+                    <input
+                      name="state"
+                      type="text"
+                      value={companySettingsForm.state}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.postalCode}</span>
+                    <input
+                      name="postalCode"
+                      type="text"
+                      value={companySettingsForm.postalCode}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+
+                  <label className="workspace-input-group">
+                    <span>{uiText.dashboard.companySettingsFields.country}</span>
+                    <input
+                      name="country"
+                      type="text"
+                      value={companySettingsForm.country}
+                      onChange={handleCompanySettingsFormChange}
+                      disabled={isSavingCompanySettings}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <div className="workspace-form-footer settings-company-footer">
+                <div className="workspace-form-messages">
+                  {companySettingsError ? <p className="error">{companySettingsError}</p> : null}
+                  {companySettingsMessage ? (
+                    <p className="success-message">{companySettingsMessage}</p>
+                  ) : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleResetCompanySettingsForm}
+                    disabled={isSavingCompanySettings || !isCompanySettingsDirty}
+                  >
+                    {uiText.common.cancel}
+                  </button>
+                  <button
+                    className={isSavingCompanySettings ? "button is-loading" : "button"}
+                    type="submit"
+                    disabled={isSavingCompanySettings || !isCompanySettingsDirty}
+                  >
+                    {isSavingCompanySettings
+                      ? uiText.dashboard.companySettingsSaving
+                      : uiText.dashboard.companySettingsSave}
+                  </button>
+                </div>
+              </div>
+            </form>
           </section>
         ) : null}
 
         {activeTopLevelTab === dashboardTabs.calendar ? (
-        <aside className="detail-sidebar">
-          <div className="detail-sidebar-header">
-            <div>
+        <aside
+          className={
+            isFocusedServiceOrderPanel
+              ? "detail-sidebar detail-sidebar-create-mode"
+              : "detail-sidebar"
+          }
+        >
+          <div
+            className={
+              isFocusedServiceOrderPanel
+                ? "detail-sidebar-header detail-sidebar-header-create"
+                : "detail-sidebar-header"
+            }
+          >
+            <div className="detail-sidebar-header-copy">
               <span className="detail-sidebar-kicker">
-                {rightPanelMode === rightPanelModes.create
-                  ? uiText.serviceOrder.title
-                  : uiText.dashboard.detailTitle}
+                {serviceOrderPanelKicker}
               </span>
-              <h2>
-                {selectedOrder && rightPanelMode !== rightPanelModes.create
-                  ? getClientDisplayName(selectedOrder.clients)
-                  : uiText.dashboard.detailTitle}
-              </h2>
-              <p>
-                {rightPanelMode === rightPanelModes.create
-                  ? uiText.serviceOrder.description
-                  : selectedOrder
-                    ? `${getBranchDisplayName(selectedOrder.branches)} · ${formatServiceDate(
-                        selectedOrder.service_date
-                      )} · ${formatDisplayTime(selectedOrder.service_time)}`
-                    : uiText.dashboard.detailDescription}
-              </p>
+              <h2>{serviceOrderPanelTitle}</h2>
+              <p>{serviceOrderPanelSubtitle}</p>
+              {isCreateServiceOrderMode && createServiceOrderContext ? (
+                <div className="detail-create-context" aria-live="polite">
+                  <span className="detail-create-context-label">Horario seleccionado</span>
+                  <strong>{createServiceOrderContext}</strong>
+                </div>
+              ) : null}
             </div>
+            <button
+              type="button"
+              className="entity-drawer-close"
+              onClick={handleCloseServiceOrderPanel}
+              aria-label="Cerrar panel"
+            >
+              ×
+            </button>
             {selectedOrder ? (
               <div className="detail-action-bar">
                 <button
@@ -6392,16 +7120,6 @@ export default function DashboardPage() {
                   disabled={isSavingDetail || isDeletingServiceOrder}
                 >
                   Editar
-                </button>
-              </div>
-            ) : rightPanelMode === rightPanelModes.create ? (
-              <div className="detail-action-bar">
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={handleCloseQuickCreate}
-                >
-                  Cancelar
                 </button>
               </div>
             ) : null}
@@ -6468,6 +7186,9 @@ export default function DashboardPage() {
                 onTechnicianSubTabChange={setTechnicianSubTab}
                 onTechnicianFormChange={handleTechnicianFormChange}
                 onTechnicianSubmit={handleCreateTechnician}
+                isQuickCreate={isCreateServiceOrderMode}
+                clientSelectRef={createServiceOrderClientSelectRef}
+                onCancelOrder={handleCloseQuickCreate}
               />
             ) : !selectedOrder ? (
               <div className="detail-empty-state">
@@ -6616,16 +7337,8 @@ export default function DashboardPage() {
                         ))}
                       </select>
                     </label>
-                  </div>
-                </section>
 
-                <section className="drawer-section detail-section-card">
-                  <div className="entity-drawer-section-header">
-                    <h4 className="drawer-section-title">Estado</h4>
-                  </div>
-
-                  <div className="detail-edit-grid">
-                    <label className="workspace-input-group workspace-field-wide">
+                    <label className="workspace-input-group workspace-field-wide detail-status-field">
                       <span>{uiText.serviceOrder.fields.status}</span>
                       <SegmentedControl
                         name="status"
@@ -6633,6 +7346,7 @@ export default function DashboardPage() {
                         onChange={handleDetailFormChange}
                         options={serviceOrderStatusOptions}
                         disabled={isSavingDetail}
+                        className="segmented-control-compact"
                       />
                     </label>
 
@@ -6644,6 +7358,26 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Instrucciones de servicio</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.serviceInstructions}</span>
+                      <textarea
+                        name="serviceInstructions"
+                        value={detailFormState.serviceInstructions}
+                        onChange={handleDetailFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.serviceInstructions}
+                        disabled={isSavingDetail}
+                        rows={4}
+                      />
+                    </label>
                   </div>
                 </section>
 
@@ -6727,7 +7461,7 @@ export default function DashboardPage() {
                     Cancelar
                   </button>
                   <button
-                    className="button"
+                    className={isSavingDetail ? "button is-loading" : "button"}
                     type="submit"
                     disabled={
                       isSavingDetail ||
@@ -6808,6 +7542,20 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </section>
+
+                {selectedOrder.service_instructions ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <h4 className="drawer-section-title">Instrucciones de servicio</h4>
+                    </div>
+
+                    <div className="detail-section-grid">
+                      <div className="detail-row detail-row-notes">
+                        <strong>{selectedOrder.service_instructions}</strong>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
 
                 <section className="drawer-section detail-section-card">
                   <div className="entity-drawer-section-header">
@@ -6931,6 +7679,11 @@ export default function DashboardPage() {
         </aside>
         ) : null}
       </section>
+
+      <footer className="admin-footer">
+        <img src="/logo.svg" alt="Biz2Rise" className="admin-footer-logo" />
+        <span>© 2026 Biz2Rise. All rights reserved.</span>
+      </footer>
 
       {isClientModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={handleCloseClientModal}>
@@ -7234,9 +7987,12 @@ export default function DashboardPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="entity-drawer-header">
-              <div>
+              <div className="entity-drawer-header-copy">
+                <span className="entity-drawer-kicker">
+                  {activeEntityType === "client" ? "Clientes" : "Sucursales"}
+                </span>
                 <h3 id="entity-drawer-title">{activeDrawerTitle}</h3>
-                <p>Panel lateral reutilizable para clientes y sucursales.</p>
+                <p>{activeDrawerSubtitle}</p>
               </div>
               <button
                 type="button"
@@ -7428,7 +8184,7 @@ export default function DashboardPage() {
                             {uiText.common.cancel}
                           </button>
                           <button
-                            className="button"
+                            className={isSavingClientDrawer ? "button is-loading" : "button"}
                             type="submit"
                             disabled={isSavingClientDrawer || !isClientDrawerDirty}
                           >
@@ -7587,7 +8343,7 @@ export default function DashboardPage() {
                               </div>
                               <div className="workspace-actions">
                                 <button
-                                  className="button"
+                                  className={isSavingContactDrawer ? "button is-loading" : "button"}
                                   type="submit"
                                   disabled={isSavingContactDrawer || !isContactDrawerDirty}
                                 >
@@ -7733,7 +8489,7 @@ export default function DashboardPage() {
                               </div>
                               <div className="workspace-actions">
                                 <button
-                                  className="button"
+                                  className={isSavingDrawerBranch ? "button is-loading" : "button"}
                                   type="submit"
                                   disabled={isSavingDrawerBranch || !isBranchDrawerDirty}
                                 >
@@ -7835,7 +8591,7 @@ export default function DashboardPage() {
                         {uiText.common.cancel}
                       </button>
                       <button
-                        className="button"
+                        className={isSavingDrawerBranch ? "button is-loading" : "button"}
                         type="submit"
                         disabled={isSavingDrawerBranch || !isBranchDrawerDirty}
                       >
@@ -7868,13 +8624,18 @@ export default function DashboardPage() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="entity-drawer-header">
-              <div>
+              <div className="entity-drawer-header-copy">
+                <span className="entity-drawer-kicker">Tecnicos</span>
                 <h3 id="technician-drawer-title">
                   {technicianDrawerMode === "edit"
                     ? uiText.technicians.formEditTitle
                     : uiText.technicians.formCreateTitle}
                 </h3>
-                <p>Administra el perfil operativo del tecnico sin salir del panel.</p>
+                <p>
+                  {technicianDrawerMode === "edit"
+                    ? "Actualiza disponibilidad, contacto y notas operativas del tecnico."
+                    : "Registra un tecnico nuevo sin salir del roster operativo."}
+                </p>
               </div>
               <button
                 type="button"
@@ -7996,7 +8757,11 @@ export default function DashboardPage() {
                     >
                       {uiText.common.cancel}
                     </button>
-                    <button className="button" type="submit" disabled={isSavingTechnician}>
+                    <button
+                      className={isSavingTechnician ? "button is-loading" : "button"}
+                      type="submit"
+                      disabled={isSavingTechnician}
+                    >
                       {isSavingTechnician
                         ? uiText.technicians.saving
                         : technicianDrawerMode === "edit"
