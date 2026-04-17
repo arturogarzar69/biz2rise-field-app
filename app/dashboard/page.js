@@ -98,7 +98,8 @@ const initialDetailFormState = {
   recurrenceType: "weekly",
   recurrenceEndDate: "",
   status: "scheduled",
-  serviceInstructions: ""
+  serviceInstructions: "",
+  serviceReport: ""
 };
 
 const initialBranchFormState = {
@@ -224,6 +225,8 @@ const serviceOrderSelectQuery = `
   parent_service_order_id,
   created_at,
   service_instructions,
+  service_report,
+  completed_at,
   client_id,
   branch_id,
   clients (
@@ -660,6 +663,20 @@ function formatCreatedAt(createdAt) {
   }
 
   return format(parsedDate, "d MMM yyyy", { locale: es });
+}
+
+function formatCompletedAt(completedAt) {
+  if (!completedAt) {
+    return "N/A";
+  }
+
+  const parsedDate = new Date(completedAt);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "N/A";
+  }
+
+  return format(parsedDate, "d MMM yyyy, h:mm a", { locale: es });
 }
 
 function getTodayDateString() {
@@ -2945,7 +2962,7 @@ export default function DashboardPage() {
 
     setServiceOrders((currentServiceOrders) => {
       let didReplace = false;
-      const nextServiceOrders = currentServiceOrders.map((serviceOrder) => {
+      const replacedServiceOrders = currentServiceOrders.map((serviceOrder) => {
         if (serviceOrder.id !== nextServiceOrder.id) {
           return serviceOrder;
         }
@@ -2957,9 +2974,16 @@ export default function DashboardPage() {
         };
       });
 
-      if (!didReplace) {
-        return currentServiceOrders;
-      }
+      const nextServiceOrders = (
+        didReplace
+          ? replacedServiceOrders
+          : [...currentServiceOrders, nextServiceOrder]
+      ).sort((left, right) => {
+        const leftStart = parseServiceOrderStart(left.service_date, left.service_time);
+        const rightStart = parseServiceOrderStart(right.service_date, right.service_time);
+
+        return leftStart.getTime() - rightStart.getTime();
+      });
 
       setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
       setSelectedServiceOrderSnapshot((currentSnapshot) =>
@@ -2969,39 +2993,27 @@ export default function DashboardPage() {
               ...nextServiceOrder
             }
           : currentSnapshot
+            ? currentSnapshot
+            : null
       );
 
       console.log("[Service Order Status Debug] replaceServiceOrderRecord:", {
         serviceOrderId: nextServiceOrder.id,
-        status: nextServiceOrder.status
+        status: nextServiceOrder.status,
+        didReplace
       });
 
       return nextServiceOrders;
     });
   };
 
-  const appendLocalServiceOrder = (serviceOrder, { selectOnInsert = false } = {}) => {
+  const selectServiceOrderRecord = (serviceOrder) => {
     if (!serviceOrder?.id) {
       return;
     }
 
-    setServiceOrders((currentServiceOrders) => {
-      const nextServiceOrders = [...currentServiceOrders, serviceOrder].sort((left, right) => {
-        const leftStart = parseServiceOrderStart(left.service_date, left.service_time);
-        const rightStart = parseServiceOrderStart(right.service_date, right.service_time);
-
-        return leftStart.getTime() - rightStart.getTime();
-      });
-
-      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
-
-      if (selectOnInsert) {
-        setSelectedServiceOrderId(serviceOrder.id);
-        setSelectedServiceOrderSnapshot(serviceOrder);
-      }
-
-      return nextServiceOrders;
-    });
+    setSelectedServiceOrderId(serviceOrder.id);
+    setSelectedServiceOrderSnapshot(serviceOrder);
   };
 
   const resolveServiceOrderBranchId = (selectedClient, selectedBranchId, branchesForClient) => {
@@ -3058,18 +3070,16 @@ export default function DashboardPage() {
       return;
     }
 
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setError(uiText.serviceOrder.configError);
+      return;
+    }
+
     setSaving(true);
 
-    const resolvedClient =
-      clients.find((client) => client.id === orderState.clientId) || selectedClient || null;
-    const resolvedBranch =
-      branchesForClient.find((branch) => branch.id === resolvedBranchId) || null;
-
-    const nextServiceOrder = {
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `local-${Date.now()}`,
+    const payload = {
       company_id: activeCompanyId,
       client_id: orderState.clientId,
       branch_id: resolvedBranchId,
@@ -3077,20 +3087,36 @@ export default function DashboardPage() {
       service_date: orderState.serviceDate,
       service_time: orderState.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
-      status: orderState.status,
-      created_at: new Date().toISOString(),
+      status: orderState.status || "scheduled",
       service_instructions: orderState.serviceInstructions || "",
-      notes: orderState.notes || "",
-      clients: resolvedClient,
-      branches: resolvedBranch,
       ...buildRecurrencePayload(orderState)
     };
 
-    appendLocalServiceOrder(nextServiceOrder, { selectOnInsert: true });
-    setSuccess(uiText.serviceOrder.success);
-    resetState();
-    onSuccess?.(nextServiceOrder);
-    setSaving(false);
+    try {
+      const { data: createdServiceOrder, error: insertError } = await supabase
+        .from("service_orders")
+        .insert(payload)
+        .select(serviceOrderSelectQuery)
+        .single();
+
+      if (insertError) {
+        console.error("[Service Order Create Error] Failed to insert service order:", {
+          payload,
+          error: insertError
+        });
+        throw new Error(insertError.message || uiText.serviceOrder.createError);
+      }
+
+      replaceServiceOrderRecord(createdServiceOrder);
+      selectServiceOrderRecord(createdServiceOrder);
+      setSuccess(uiText.serviceOrder.success);
+      resetState();
+      onSuccess?.(createdServiceOrder);
+    } catch (error) {
+      setError(error.message || uiText.serviceOrder.createError);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const checkTechnicianScheduleConflict = async ({
@@ -3188,6 +3214,7 @@ export default function DashboardPage() {
     durationMinutes,
     status,
     serviceInstructions = undefined,
+    serviceReport = undefined,
     clientId = undefined,
     recurrenceState = null,
     existingOrder = null,
@@ -3256,6 +3283,16 @@ export default function DashboardPage() {
       persistencePayload.service_instructions = serviceInstructions;
     }
 
+    if (serviceReport !== undefined) {
+      persistencePayload.service_report = serviceReport;
+    }
+
+    if (status === "completed") {
+      persistencePayload.completed_at = currentOrder?.completed_at || new Date().toISOString();
+    } else {
+      persistencePayload.completed_at = null;
+    }
+
     if (recurrenceState) {
       Object.assign(persistencePayload, buildRecurrencePayload(recurrenceState, existingOrder));
     }
@@ -3312,6 +3349,8 @@ export default function DashboardPage() {
           duration_minutes: currentOrder.duration_minutes,
           status: currentOrder.status,
           service_instructions: currentOrder.service_instructions || "",
+          service_report: currentOrder.service_report || "",
+          completed_at: currentOrder.completed_at || null,
           branch_id: currentOrder.branch_id ?? null,
           client_id: currentOrder.client_id ?? null,
           clients: currentOrder.clients || null,
@@ -3900,6 +3939,7 @@ export default function DashboardPage() {
       serviceTime: selectedServiceOrder.service_time || "9:00 AM",
       durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
       serviceInstructions: selectedServiceOrder.service_instructions || "",
+      serviceReport: selectedServiceOrder.service_report || "",
       ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
     });
@@ -4427,7 +4467,7 @@ export default function DashboardPage() {
         .from("service_orders")
         .select("*", { count: "exact", head: true })
         .eq("company_id", activeCompanyId)
-        .eq("technician", activeTechnician?.full_name || "");
+        .eq("technician_name", activeTechnician?.full_name || "");
 
       if (relatedOrdersError) {
         throw relatedOrdersError;
@@ -4474,7 +4514,7 @@ export default function DashboardPage() {
         .from("service_orders")
         .select("*", { count: "exact", head: true })
         .eq("company_id", activeCompanyId)
-        .eq("technician", activeTechnician?.full_name || "");
+        .eq("technician_name", activeTechnician?.full_name || "");
 
       if (relatedOrdersError) {
         throw relatedOrdersError;
@@ -5691,6 +5731,7 @@ export default function DashboardPage() {
         durationMinutes: detailFormState.durationMinutes,
         status: nextStatus,
         serviceInstructions: detailFormState.serviceInstructions.trim(),
+        serviceReport: detailFormState.serviceReport.trim(),
         recurrenceState: detailFormState,
         existingOrder: selectedServiceOrder,
         branchId: isResidentialDetailClient
@@ -5700,7 +5741,8 @@ export default function DashboardPage() {
       });
       setDetailFormState((currentState) => ({
         ...currentState,
-        status: updatedServiceOrder?.status || nextStatus
+        status: updatedServiceOrder?.status || nextStatus,
+        serviceReport: updatedServiceOrder?.service_report || currentState.serviceReport
       }));
       setSelectedServiceOrderSnapshot((currentSnapshot) =>
         currentSnapshot?.id === selectedServiceOrderId
@@ -6055,6 +6097,7 @@ export default function DashboardPage() {
         serviceTime: selectedServiceOrder.service_time,
         durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
         status: "completed",
+        serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || "",
         existingOrder: selectedServiceOrder,
         branchId: selectedServiceOrder.branch_id || null,
         excludeOrderId: selectedServiceOrder.id,
@@ -6080,7 +6123,13 @@ export default function DashboardPage() {
 
     const currentOrder =
       serviceOrders.find((serviceOrder) => serviceOrder.id === event.id) || null;
-    const currentStatus = currentOrder?.status || event.status || "scheduled";
+
+    if (!currentOrder) {
+      setCalendarActionError(uiText.dashboard.detailError);
+      return;
+    }
+
+    const currentStatus = currentOrder.status || "scheduled";
     const nextStatus = currentStatus === "completed" ? "scheduled" : "completed";
 
     console.log("[Service Order Status Debug] quick toggle requested:", {
@@ -6094,26 +6143,26 @@ export default function DashboardPage() {
 
     try {
       const updatedServiceOrder = await updateServiceOrderSchedule({
-        serviceOrderId: event.id,
-        technicianName: event.technician || event.technicianDisplayName,
-        serviceDate: event.serviceDate,
-        serviceTime: event.serviceTime,
-        durationMinutes: event.durationMinutes,
+        serviceOrderId: currentOrder.id,
+        technicianName: currentOrder.technician_name,
+        serviceDate: currentOrder.service_date,
+        serviceTime: currentOrder.service_time,
+        durationMinutes: currentOrder.duration_minutes,
         status: nextStatus,
         existingOrder: currentOrder,
-        branchId: event.branchId || null,
-        clientId: event.clientId || undefined,
-        excludeOrderId: event.id,
+        branchId: currentOrder.branch_id ?? null,
+        clientId: currentOrder.client_id ?? undefined,
+        excludeOrderId: currentOrder.id,
         skipConflictCheck: nextStatus !== "scheduled"
       });
-      if (selectedServiceOrderId === event.id) {
+      if (selectedServiceOrderId === currentOrder.id) {
         setDetailFormState((currentState) => ({
           ...currentState,
           status: updatedServiceOrder?.status || nextStatus
         }));
       }
       console.log("[Service Order Status Debug] quick toggle completed:", {
-        serviceOrderId: event.id,
+        serviceOrderId: currentOrder.id,
         returnedStatus: updatedServiceOrder?.status || null
       });
       setCalendarActionMessage(
@@ -6158,9 +6207,12 @@ export default function DashboardPage() {
     setTechnicianActionMessage("");
     setIsCompletingTechnicianOrder(true);
 
-    const { error } = await supabase
+      const { error } = await supabase
       .from("service_orders")
-      .update({ status: "completed" })
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString()
+      })
       .eq("id", selectedTechnicianOrderId)
       .eq("company_id", activeCompanyId);
 
@@ -7891,6 +7943,29 @@ export default function DashboardPage() {
 
                 <section className="drawer-section detail-section-card">
                   <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Reporte del servicio</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.serviceReport}</span>
+                      <textarea
+                        name="serviceReport"
+                        value={detailFormState.serviceReport}
+                        onChange={handleDetailFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.serviceReport}
+                        disabled={isSavingDetail}
+                        rows={5}
+                      />
+                      <small className="detail-subcopy">
+                        Describe brevemente lo que se hizo, observaciones o hallazgos relevantes.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
                     <h4 className="drawer-section-title">Recurrencia</h4>
                   </div>
 
@@ -8060,6 +8135,27 @@ export default function DashboardPage() {
                     <div className="detail-section-grid">
                       <div className="detail-row detail-row-notes">
                         <strong>{selectedOrder.service_instructions}</strong>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
+                {selectedOrder.status === "completed" && selectedOrder.service_report ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <h4 className="drawer-section-title">Reporte del servicio</h4>
+                    </div>
+
+                    <div className="detail-section-grid">
+                      {selectedOrder.completed_at ? (
+                        <div className="detail-row">
+                          <span>Completado el</span>
+                          <strong>{formatCompletedAt(selectedOrder.completed_at)}</strong>
+                        </div>
+                      ) : null}
+
+                      <div className="detail-row detail-row-notes">
+                        <strong>{selectedOrder.service_report}</strong>
                       </div>
                     </div>
                   </section>
