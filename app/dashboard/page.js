@@ -34,7 +34,12 @@ import {
   updateContactRecord
 } from "../../lib/contactRecords";
 import { getSupabaseClient } from "../../lib/supabaseClient";
-import { formatDisplayTime, getStatusLabel, uiText } from "../../lib/uiText";
+import {
+  formatDisplayTime,
+  getExecutionStatusLabel,
+  getStatusLabel,
+  uiText
+} from "../../lib/uiText";
 
 const locales = {
   es
@@ -216,6 +221,7 @@ const serviceOrderSelectQuery = `
   service_date,
   service_time,
   status,
+  execution_status,
   duration_minutes,
   is_recurring,
   recurrence_type,
@@ -226,6 +232,7 @@ const serviceOrderSelectQuery = `
   created_at,
   service_instructions,
   service_report,
+  started_at,
   completed_at,
   client_id,
   branch_id,
@@ -243,6 +250,8 @@ const serviceOrderSelectQuery = `
     notes
   )
 `;
+
+const defaultExecutionStatus = "pending";
 
 function getOperationalRange(anchorDate) {
   const normalizedAnchorDate = startOfDay(anchorDate || new Date());
@@ -1021,7 +1030,7 @@ function WorkspacePanel({
           <h3>{uiText.serviceOrder.title}</h3>
           <p>
             {isQuickCreate
-              ? "Completa lo esencial y programa el servicio rapidamente. Si aplica, configura la recurrencia desde la misma vista."
+              ? "Completa lo esencial y programa el servicio rapidamente. Si aplica, marca la recurrencia desde esta vista; por ahora solo se guarda la configuracion y no se generan visitas futuras automaticamente."
               : uiText.serviceOrder.description}
           </p>
         </div>
@@ -1030,11 +1039,11 @@ function WorkspacePanel({
           <div className={isQuickCreate ? "workspace-section workspace-section-tight" : undefined}>
             <div className="drawer-section detail-section-card workspace-quick-create-card">
               <div className="entity-drawer-section-header">
-                <h4 className="drawer-section-title">Datos esenciales</h4>
+                <h4 className="drawer-section-title">Programacion</h4>
               </div>
 
-              <div className="workspace-grid workspace-grid-quick-create">
-                <label className="workspace-input-group workspace-field-wide">
+              <div className="workspace-grid service-order-grid">
+                <label className="workspace-input-group">
               <span>{uiText.serviceOrder.fields.client}</span>
               <select
                 ref={clientSelectRef}
@@ -1058,7 +1067,7 @@ function WorkspacePanel({
             </label>
 
                 {isResidentialFormClient ? (
-                  <div className="detail-row workspace-field-wide workspace-quick-static-field">
+                  <div className="detail-row workspace-quick-static-field">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <strong>
                   {preferredResidentialBranch
@@ -1074,7 +1083,7 @@ function WorkspacePanel({
                 </small>
               </div>
             ) : (
-                  <label className="workspace-input-group workspace-field-wide">
+                  <label className="workspace-input-group">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <select
                   name="branchId"
@@ -1099,7 +1108,7 @@ function WorkspacePanel({
               </label>
             )}
 
-                <label className="workspace-input-group workspace-field-wide">
+                <label className="workspace-input-group">
                   <span>{uiText.serviceOrder.fields.technician}</span>
                   <select
                     name="technicianName"
@@ -1117,7 +1126,7 @@ function WorkspacePanel({
                       <option key={technician.id} value={technician.full_name}>
                         {technician.full_name}
                       </option>
-                    ))}
+                ))}
                   </select>
                 </label>
 
@@ -1172,25 +1181,32 @@ function WorkspacePanel({
                 ))}
               </select>
             </label>
-              </div>
-            </div>
 
-            <div className="drawer-section detail-section-card workspace-quick-create-card">
-              <div className="entity-drawer-section-header">
-                <h4 className="drawer-section-title">Programacion</h4>
-              </div>
-
-              <div className="workspace-grid">
-                <label className="workspace-checkbox workspace-field-wide workspace-checkbox-compact">
-                  <input
-                    name="isRecurring"
-                    type="checkbox"
-                    checked={formState.isRecurring}
-                    onChange={onFormChange}
-                    disabled={isSavingOrder}
-                  />
-                  <span>{uiText.serviceOrder.fields.isRecurring}</span>
-                </label>
+                <div className="workspace-field-wide service-order-inline-row">
+                  <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
+                    <input
+                      name="isRecurring"
+                      type="checkbox"
+                      checked={formState.isRecurring}
+                      onChange={onFormChange}
+                      disabled={isSavingOrder}
+                    />
+                    <span>{uiText.serviceOrder.fields.isRecurring}</span>
+                  </label>
+                  <div className="service-order-inline-meta">
+                    <strong>
+                      {formState.isRecurring
+                        ? uiText.serviceOrder.recurrenceOptions[formState.recurrenceType] ||
+                          uiText.serviceOrder.fields.isRecurring
+                        : "Visita unica"}
+                    </strong>
+                    <small className="detail-subcopy">
+                      {formState.isRecurring
+                        ? "Guarda la configuracion recurrente para este servicio. Las siguientes visitas aun no se crean automaticamente."
+                        : "Activalo solo si este servicio debe repetirse. Por ahora no genera visitas futuras automaticamente."}
+                    </small>
+                  </div>
+                </div>
 
                 {formState.isRecurring ? (
                   <>
@@ -1238,7 +1254,7 @@ function WorkspacePanel({
 
             <div className="drawer-section detail-section-card workspace-quick-create-card">
               <div className="entity-drawer-section-header">
-                <h4 className="drawer-section-title">Informacion adicional</h4>
+                <h4 className="drawer-section-title">Contexto del servicio</h4>
               </div>
 
               <div className="workspace-grid">
@@ -1254,7 +1270,7 @@ function WorkspacePanel({
                   />
                 </label>
 
-                <label className="workspace-input-group workspace-field-wide">
+                <label className="workspace-input-group workspace-field-wide service-order-secondary-textarea">
                   <span>{uiText.serviceOrder.fields.notes}</span>
                   <textarea
                     name="notes"
@@ -1262,7 +1278,7 @@ function WorkspacePanel({
                     onChange={onFormChange}
                     placeholder={uiText.serviceOrder.placeholders.notes}
                     disabled={isSavingOrder}
-                    rows={4}
+                    rows={3}
                   />
                 </label>
               </div>
@@ -2142,6 +2158,8 @@ export default function DashboardPage() {
   const [technicianOrdersError, setTechnicianOrdersError] = useState("");
   const [technicianActionMessage, setTechnicianActionMessage] = useState("");
   const [technicianActionError, setTechnicianActionError] = useState("");
+  const [technicianReportDraft, setTechnicianReportDraft] = useState("");
+  const [isStartingTechnicianOrder, setIsStartingTechnicianOrder] = useState(false);
   const [isCompletingTechnicianOrder, setIsCompletingTechnicianOrder] = useState(false);
   const activeTechnicians = technicians.filter((technician) => technician.is_active);
   const availableBranches = branchesByClientId[formState.clientId] || [];
@@ -2156,7 +2174,16 @@ export default function DashboardPage() {
     activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.edit;
   const isCreateServiceOrderMode =
     activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.create;
+  const isServiceOrderDetailMode =
+    activeTopLevelTab === dashboardTabs.calendar &&
+    rightPanelMode === rightPanelModes.detail &&
+    Boolean(selectedServiceOrder);
   const isFocusedServiceOrderPanel = isCreateServiceOrderMode || isEditingServiceOrder;
+  const serviceOrderPanelStage = isFocusedServiceOrderPanel
+    ? "operational"
+    : isServiceOrderDetailMode
+      ? "detail"
+      : "idle";
   const createServiceOrderContext =
     isCreateServiceOrderMode && formState.serviceDate
       ? `${formatServiceDate(formState.serviceDate)} · ${formatDisplayTime(
@@ -2460,7 +2487,7 @@ export default function DashboardPage() {
     rightPanelMode === rightPanelModes.create
       ? "Completa los datos para programar un nuevo servicio."
       : rightPanelMode === rightPanelModes.edit
-        ? "Ajusta programacion, estado y recurrencia sin salir del calendario."
+        ? "Ajusta programacion, estado y la configuracion de recurrencia sin salir del calendario. Las visitas futuras aun no se generan automaticamente."
         : selectedServiceOrder
           ? `${getBranchDisplayName(selectedServiceOrder.branches)} · ${formatServiceDate(
               selectedServiceOrder.service_date
@@ -2918,6 +2945,23 @@ export default function DashboardPage() {
     setIsTechniciansLoading(false);
   };
 
+  const syncTechnicianOrders = (updater) => {
+    setTechnicianOrders((currentTechnicianOrders) => {
+      const nextTechnicianOrders = updater(currentTechnicianOrders);
+
+      if (nextTechnicianOrders === currentTechnicianOrders) {
+        return currentTechnicianOrders;
+      }
+
+      return [...nextTechnicianOrders].sort((left, right) => {
+        const leftStart = parseServiceOrderStart(left.service_date, left.service_time);
+        const rightStart = parseServiceOrderStart(right.service_date, right.service_time);
+
+        return leftStart.getTime() - rightStart.getTime();
+      });
+    });
+  };
+
   const applyOptimisticServiceOrderPatch = (serviceOrderId, patch) => {
     if (!serviceOrderId) {
       return;
@@ -2950,6 +2994,22 @@ export default function DashboardPage() {
             }
           : currentSnapshot
       );
+      syncTechnicianOrders((currentTechnicianOrders) => {
+        let didUpdate = false;
+        const nextTechnicianOrders = currentTechnicianOrders.map((serviceOrder) => {
+          if (serviceOrder.id !== serviceOrderId) {
+            return serviceOrder;
+          }
+
+          didUpdate = true;
+          return {
+            ...serviceOrder,
+            ...patch
+          };
+        });
+
+        return didUpdate ? nextTechnicianOrders : currentTechnicianOrders;
+      });
 
       return nextServiceOrders;
     });
@@ -2996,6 +3056,29 @@ export default function DashboardPage() {
             ? currentSnapshot
             : null
       );
+      syncTechnicianOrders((currentTechnicianOrders) => {
+        let didReplace = false;
+        const replacedTechnicianOrders = currentTechnicianOrders.map((serviceOrder) => {
+          if (serviceOrder.id !== nextServiceOrder.id) {
+            return serviceOrder;
+          }
+
+          didReplace = true;
+          return {
+            ...serviceOrder,
+            ...nextServiceOrder
+          };
+        });
+
+        if (didReplace) {
+          return replacedTechnicianOrders;
+        }
+
+        return nextServiceOrder.service_date === getTodayDateString() &&
+          nextServiceOrder.technician_name === userProfile?.full_name
+          ? [...currentTechnicianOrders, nextServiceOrder]
+          : currentTechnicianOrders;
+      });
 
       console.log("[Service Order Status Debug] replaceServiceOrderRecord:", {
         serviceOrderId: nextServiceOrder.id,
@@ -3088,6 +3171,7 @@ export default function DashboardPage() {
       service_time: orderState.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
       status: orderState.status || "scheduled",
+      execution_status: defaultExecutionStatus,
       service_instructions: orderState.serviceInstructions || "",
       ...buildRecurrencePayload(orderState)
     };
@@ -3215,6 +3299,9 @@ export default function DashboardPage() {
     status,
     serviceInstructions = undefined,
     serviceReport = undefined,
+    executionStatus = undefined,
+    startedAt = undefined,
+    completedAt = undefined,
     clientId = undefined,
     recurrenceState = null,
     existingOrder = null,
@@ -3287,9 +3374,27 @@ export default function DashboardPage() {
       persistencePayload.service_report = serviceReport;
     }
 
-    if (status === "completed") {
+    if (executionStatus !== undefined) {
+      persistencePayload.execution_status = executionStatus;
+    } else if (status === "completed") {
+      persistencePayload.execution_status = "completed";
+    } else if (currentOrder?.status === "completed" && status !== "completed") {
+      persistencePayload.execution_status = defaultExecutionStatus;
+    }
+
+    if (startedAt !== undefined) {
+      persistencePayload.started_at = startedAt;
+    } else if (status === "completed" && currentOrder?.started_at) {
+      persistencePayload.started_at = currentOrder.started_at;
+    } else if (currentOrder?.status === "completed" && status !== "completed") {
+      persistencePayload.started_at = null;
+    }
+
+    if (completedAt !== undefined) {
+      persistencePayload.completed_at = completedAt;
+    } else if (status === "completed") {
       persistencePayload.completed_at = currentOrder?.completed_at || new Date().toISOString();
-    } else {
+    } else if (currentOrder?.status === "completed" && status !== "completed") {
       persistencePayload.completed_at = null;
     }
 
@@ -3348,8 +3453,10 @@ export default function DashboardPage() {
           service_time: currentOrder.service_time,
           duration_minutes: currentOrder.duration_minutes,
           status: currentOrder.status,
+          execution_status: currentOrder.execution_status || defaultExecutionStatus,
           service_instructions: currentOrder.service_instructions || "",
           service_report: currentOrder.service_report || "",
+          started_at: currentOrder.started_at || null,
           completed_at: currentOrder.completed_at || null,
           branch_id: currentOrder.branch_id ?? null,
           client_id: currentOrder.client_id ?? null,
@@ -6180,26 +6287,76 @@ export default function DashboardPage() {
     }, 0);
   };
 
+  const getExecutionStatusValue = (serviceOrder) => {
+    if (!serviceOrder) {
+      return defaultExecutionStatus;
+    }
+
+    if (serviceOrder.execution_status) {
+      return serviceOrder.execution_status;
+    }
+
+    return serviceOrder.status === "completed" ? "completed" : defaultExecutionStatus;
+  };
+
+  const canStartTechnicianService = (serviceOrder) =>
+    Boolean(
+      serviceOrder &&
+      serviceOrder.service_date === getTodayDateString() &&
+      serviceOrder.status !== "completed" &&
+      getExecutionStatusValue(serviceOrder) !== "completed"
+    );
+
+  const canCompleteTechnicianService = (serviceOrder) =>
+    Boolean(
+      serviceOrder &&
+      serviceOrder.service_date === getTodayDateString() &&
+      getExecutionStatusValue(serviceOrder) !== "completed"
+    );
+
   const handleSelectTechnicianOrder = (serviceOrder) => {
     setSelectedTechnicianOrderId(serviceOrder?.id || null);
     setTechnicianActionMessage("");
     setTechnicianActionError("");
   };
 
+  const handleStartTechnicianOrder = async () => {
+    if (!selectedTechnicianOrder) {
+      return;
+    }
+
+    setTechnicianActionError("");
+    setTechnicianActionMessage("");
+    setIsStartingTechnicianOrder(true);
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: selectedTechnicianOrder.id,
+        technicianName: selectedTechnicianOrder.technician_name,
+        serviceDate: selectedTechnicianOrder.service_date,
+        serviceTime: selectedTechnicianOrder.service_time,
+        durationMinutes: selectedTechnicianOrder.duration_minutes,
+        status: selectedTechnicianOrder.status,
+        executionStatus: "in_progress",
+        startedAt: selectedTechnicianOrder.started_at || new Date().toISOString(),
+        completedAt: selectedTechnicianOrder.completed_at || null,
+        existingOrder: selectedTechnicianOrder,
+        branchId: selectedTechnicianOrder.branch_id ?? null,
+        clientId: selectedTechnicianOrder.client_id ?? undefined,
+        excludeOrderId: selectedTechnicianOrder.id,
+        skipConflictCheck: true
+      });
+
+      setTechnicianActionMessage(uiText.technicianDashboard.startSuccess);
+    } catch (error) {
+      setTechnicianActionError(error.message || uiText.technicianDashboard.startError);
+    } finally {
+      setIsStartingTechnicianOrder(false);
+    }
+  };
+
   const handleCompleteTechnicianOrder = async () => {
-    if (!selectedTechnicianOrderId) {
-      return;
-    }
-
-    const supabase = getSupabaseClient();
-
-    if (!supabase) {
-      setTechnicianActionError(uiText.serviceOrder.configError);
-      return;
-    }
-
-    if (!activeCompanyId || !userProfile?.full_name) {
-      setTechnicianActionError(uiText.dashboard.profileLoadError);
+    if (!selectedTechnicianOrder) {
       return;
     }
 
@@ -6207,29 +6364,41 @@ export default function DashboardPage() {
     setTechnicianActionMessage("");
     setIsCompletingTechnicianOrder(true);
 
-      const { error } = await supabase
-      .from("service_orders")
-      .update({
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: selectedTechnicianOrder.id,
+        technicianName: selectedTechnicianOrder.technician_name,
+        serviceDate: selectedTechnicianOrder.service_date,
+        serviceTime: selectedTechnicianOrder.service_time,
+        durationMinutes: selectedTechnicianOrder.duration_minutes,
         status: "completed",
-        completed_at: new Date().toISOString()
-      })
-      .eq("id", selectedTechnicianOrderId)
-      .eq("company_id", activeCompanyId);
+        executionStatus: "completed",
+        startedAt: selectedTechnicianOrder.started_at || new Date().toISOString(),
+        completedAt: selectedTechnicianOrder.completed_at || new Date().toISOString(),
+        serviceReport:
+          technicianReportDraft.trim() || selectedTechnicianOrder.service_report || "",
+        existingOrder: selectedTechnicianOrder,
+        branchId: selectedTechnicianOrder.branch_id ?? null,
+        clientId: selectedTechnicianOrder.client_id ?? undefined,
+        excludeOrderId: selectedTechnicianOrder.id,
+        skipConflictCheck: true
+      });
 
-    if (error) {
+      setTechnicianActionMessage(uiText.technicianDashboard.completionSuccess);
+    } catch (error) {
       setTechnicianActionError(error.message || uiText.technicianDashboard.completionError);
+    } finally {
       setIsCompletingTechnicianOrder(false);
-      return;
     }
-
-    await fetchTechnicianOrders(supabase, activeCompanyId, userProfile.full_name);
-    setTechnicianActionMessage(uiText.technicianDashboard.completionSuccess);
-    setIsCompletingTechnicianOrder(false);
   };
 
   useEffect(() => {
     console.log("[Service Order Debug] Selected service order:", selectedServiceOrder);
   }, [selectedServiceOrder]);
+
+  useEffect(() => {
+    setTechnicianReportDraft(selectedTechnicianOrder?.service_report || "");
+  }, [selectedTechnicianOrder?.id, selectedTechnicianOrder?.service_report]);
 
   if (isLoading || !isProfileResolved) {
     return (
@@ -6327,6 +6496,7 @@ export default function DashboardPage() {
                   const branch = serviceOrder.branches;
                   const branchName = getBranchDisplayName(branch);
                   const isSelected = serviceOrder.id === selectedTechnicianOrderId;
+                  const executionStatus = getExecutionStatusValue(serviceOrder);
 
                   return (
                     <article
@@ -6340,9 +6510,16 @@ export default function DashboardPage() {
                       <div className="technician-service-card-copy">
                         <div className="technician-service-card-header">
                           <h3>{getClientDisplayName(serviceOrder.clients)}</h3>
-                          <span className="technician-status-badge">
-                            {getStatusLabel(serviceOrder.status)}
-                          </span>
+                          <div className="technician-service-card-badges">
+                            <span
+                              className={`technician-status-badge technician-execution-badge technician-execution-badge-${executionStatus}`}
+                            >
+                              {getExecutionStatusLabel(executionStatus)}
+                            </span>
+                            <span className="technician-status-badge">
+                              {getStatusLabel(serviceOrder.status)}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="technician-service-card-grid">
@@ -6378,15 +6555,16 @@ export default function DashboardPage() {
                           </div>
 
                           <div className="detail-row">
-                            <span>{uiText.technicianDashboard.fields.status}</span>
-                            <strong>{getStatusLabel(serviceOrder.status)}</strong>
+                            <span>{uiText.technicianDashboard.fields.executionStatus}</span>
+                            <strong>{getExecutionStatusLabel(executionStatus)}</strong>
                           </div>
                         </div>
 
                         <div className="detail-row">
-                          <span>{uiText.technicianDashboard.fields.notes}</span>
+                          <span>{uiText.technicianDashboard.fields.instructions}</span>
                           <strong>
-                            {serviceOrder.notes || uiText.technicianDashboard.fallbacks.notes}
+                            {serviceOrder.service_instructions ||
+                              uiText.technicianDashboard.fallbacks.instructions}
                           </strong>
                         </div>
                       </div>
@@ -6470,11 +6648,49 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="detail-row">
-                  <span>{uiText.technicianDashboard.fields.notes}</span>
+                  <span>{uiText.technicianDashboard.fields.executionStatus}</span>
                   <strong>
-                    {selectedTechnicianOrder.notes || uiText.technicianDashboard.fallbacks.notes}
+                    {getExecutionStatusLabel(getExecutionStatusValue(selectedTechnicianOrder))}
                   </strong>
                 </div>
+
+                {selectedTechnicianOrder.started_at ? (
+                  <div className="detail-row">
+                    <span>{uiText.technicianDashboard.fields.startedAt}</span>
+                    <strong>{formatCompletedAt(selectedTechnicianOrder.started_at)}</strong>
+                  </div>
+                ) : null}
+
+                {selectedTechnicianOrder.completed_at ? (
+                  <div className="detail-row">
+                    <span>{uiText.technicianDashboard.fields.completedAt}</span>
+                    <strong>{formatCompletedAt(selectedTechnicianOrder.completed_at)}</strong>
+                  </div>
+                ) : null}
+
+                <div className="detail-row">
+                  <span>{uiText.technicianDashboard.fields.instructions}</span>
+                  <strong>
+                    {selectedTechnicianOrder.service_instructions ||
+                      uiText.technicianDashboard.fallbacks.instructions}
+                  </strong>
+                </div>
+
+                <label className="workspace-input-group">
+                  <span>{uiText.technicianDashboard.fields.report}</span>
+                  <textarea
+                    value={technicianReportDraft}
+                    onChange={(event) => setTechnicianReportDraft(event.target.value)}
+                    placeholder={uiText.serviceOrder.placeholders.serviceReport}
+                    rows={4}
+                    disabled={
+                      isStartingTechnicianOrder ||
+                      isCompletingTechnicianOrder ||
+                      getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                    }
+                  />
+                  <small className="detail-subcopy">{uiText.technicianDashboard.helpers.report}</small>
+                </label>
 
                 <div className="workspace-form-messages">
                   {technicianActionError ? (
@@ -6485,19 +6701,36 @@ export default function DashboardPage() {
                   ) : null}
                 </div>
 
-                <button
-                  className="button detail-save-button"
-                  type="button"
-                  onClick={handleCompleteTechnicianOrder}
-                  disabled={
-                    isCompletingTechnicianOrder ||
-                    selectedTechnicianOrder.status === "completed"
-                  }
-                >
-                  {isCompletingTechnicianOrder
-                    ? uiText.technicianDashboard.actions.completing
-                    : uiText.technicianDashboard.actions.complete}
-                </button>
+                <div className="workspace-actions workspace-actions-split">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleStartTechnicianOrder}
+                    disabled={
+                      isStartingTechnicianOrder ||
+                      isCompletingTechnicianOrder ||
+                      !canStartTechnicianService(selectedTechnicianOrder)
+                    }
+                  >
+                    {isStartingTechnicianOrder
+                      ? uiText.technicianDashboard.actions.starting
+                      : uiText.technicianDashboard.actions.start}
+                  </button>
+                  <button
+                    className="button detail-save-button"
+                    type="button"
+                    onClick={handleCompleteTechnicianOrder}
+                    disabled={
+                      isCompletingTechnicianOrder ||
+                      isStartingTechnicianOrder ||
+                      !canCompleteTechnicianService(selectedTechnicianOrder)
+                    }
+                  >
+                    {isCompletingTechnicianOrder
+                      ? uiText.technicianDashboard.actions.completing
+                      : uiText.technicianDashboard.actions.complete}
+                  </button>
+                </div>
               </div>
             )}
           </aside>
@@ -6582,7 +6815,11 @@ export default function DashboardPage() {
       <section
         className={
           activeTopLevelTab === dashboardTabs.calendar
-            ? `admin-content${isFocusedServiceOrderPanel ? " admin-content-service-create" : ""}`
+            ? serviceOrderPanelStage === "operational"
+              ? "admin-content admin-content-operational-edit"
+              : serviceOrderPanelStage === "detail"
+                ? "admin-content admin-content-operational-detail"
+                : "admin-content admin-content-two-column"
             : "admin-content admin-content-two-column"
         }
       >
@@ -7622,69 +7859,75 @@ export default function DashboardPage() {
         {activeTopLevelTab === dashboardTabs.calendar ? (
         <aside
           className={
-            isFocusedServiceOrderPanel
+            serviceOrderPanelStage === "idle"
+              ? "detail-sidebar detail-sidebar-idle"
+              : isFocusedServiceOrderPanel
               ? "detail-sidebar detail-sidebar-create-mode"
               : "detail-sidebar"
           }
+          aria-hidden={serviceOrderPanelStage === "idle"}
         >
-          <div
-            className={
-              isFocusedServiceOrderPanel
-                ? "detail-sidebar-header detail-sidebar-header-create"
-                : "detail-sidebar-header"
-            }
-          >
-            <div className="detail-sidebar-header-copy">
-              <span className="detail-sidebar-kicker">
-                {serviceOrderPanelKicker}
-              </span>
-              <h2>{serviceOrderPanelTitle}</h2>
-              <p>{serviceOrderPanelSubtitle}</p>
-              {isCreateServiceOrderMode && createServiceOrderContext ? (
-                <div className="detail-create-context" aria-live="polite">
-                  <span className="detail-create-context-label">Horario seleccionado</span>
-                  <strong>{createServiceOrderContext}</strong>
+          {serviceOrderPanelStage !== "idle" ? (
+            <div
+              className={
+                isFocusedServiceOrderPanel
+                  ? "detail-sidebar-header detail-sidebar-header-create"
+                  : "detail-sidebar-header"
+              }
+            >
+              <div className="detail-sidebar-header-copy">
+                <span className="detail-sidebar-kicker">
+                  {serviceOrderPanelKicker}
+                </span>
+                <h2>{serviceOrderPanelTitle}</h2>
+                <p>{serviceOrderPanelSubtitle}</p>
+                {isCreateServiceOrderMode && createServiceOrderContext ? (
+                  <div className="detail-create-context" aria-live="polite">
+                    <span className="detail-create-context-label">Horario seleccionado</span>
+                    <strong>{createServiceOrderContext}</strong>
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="entity-drawer-close"
+                onClick={handleCloseServiceOrderPanel}
+                aria-label="Cerrar panel"
+              >
+                ×
+              </button>
+              {selectedOrder ? (
+                <div className="detail-action-bar">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleCompleteSelectedServiceOrder}
+                    disabled={isSavingDetail || isDeletingServiceOrder}
+                  >
+                    Completar
+                  </button>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleStartReschedule}
+                    disabled={isSavingDetail || isDeletingServiceOrder}
+                  >
+                    {uiText.dashboard.detailReschedule}
+                  </button>
+                  <button
+                    className="button"
+                    type="button"
+                    onClick={() => setRightPanelMode(rightPanelModes.edit)}
+                    disabled={isSavingDetail || isDeletingServiceOrder}
+                  >
+                    Editar
+                  </button>
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="entity-drawer-close"
-              onClick={handleCloseServiceOrderPanel}
-              aria-label="Cerrar panel"
-            >
-              ×
-            </button>
-            {selectedOrder ? (
-              <div className="detail-action-bar">
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={handleCompleteSelectedServiceOrder}
-                  disabled={isSavingDetail || isDeletingServiceOrder}
-                >
-                  Completar
-                </button>
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={handleStartReschedule}
-                  disabled={isSavingDetail || isDeletingServiceOrder}
-                >
-                  {uiText.dashboard.detailReschedule}
-                </button>
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => setRightPanelMode(rightPanelModes.edit)}
-                  disabled={isSavingDetail || isDeletingServiceOrder}
-                >
-                  Editar
-                </button>
-              </div>
-            ) : null}
-          </div>
+          ) : null}
 
+          {serviceOrderPanelStage !== "idle" ? (
           <div className="detail-sidebar-body">
             {rightPanelMode === rightPanelModes.create ? (
               <WorkspacePanel
@@ -7758,11 +8001,11 @@ export default function DashboardPage() {
               <form className="detail-panel" onSubmit={handleUpdateServiceOrder}>
                 <section className="drawer-section detail-section-card">
                   <div className="entity-drawer-section-header">
-                    <h4 className="drawer-section-title">Resumen</h4>
+                    <h4 className="drawer-section-title">Asignacion y agenda</h4>
                   </div>
 
                   <div className="detail-edit-grid detail-edit-grid-2">
-                    <label className="workspace-input-group workspace-field-wide">
+                    <label className="workspace-input-group">
                       <span>{uiText.serviceOrder.fields.client}</span>
                       <select
                         name="clientId"
@@ -7785,7 +8028,7 @@ export default function DashboardPage() {
                     </label>
 
                     {isResidentialDetailClient ? (
-                      <div className="detail-static-field workspace-field-wide">
+                      <div className="detail-static-field">
                         <span>{uiText.serviceOrder.fields.branch}</span>
                         <strong>
                           {preferredDetailResidentialBranch
@@ -7794,7 +8037,7 @@ export default function DashboardPage() {
                         </strong>
                       </div>
                     ) : (
-                      <label className="workspace-input-group workspace-field-wide">
+                      <label className="workspace-input-group">
                         <span>{uiText.serviceOrder.fields.branch}</span>
                         <select
                           name="branchId"
@@ -7818,16 +8061,8 @@ export default function DashboardPage() {
                         </select>
                       </label>
                     )}
-                  </div>
-                </section>
 
-                <section className="drawer-section detail-section-card">
-                  <div className="entity-drawer-section-header">
-                    <h4 className="drawer-section-title">Programacion</h4>
-                  </div>
-
-                  <div className="detail-edit-grid">
-                    <label className="workspace-input-group workspace-field-wide">
+                    <label className="workspace-input-group">
                       <span>{uiText.dashboard.detailFields.technicianName}</span>
                       <select
                         name="technicianName"
@@ -7849,39 +8084,49 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
-                    <div className="detail-edit-grid detail-edit-grid-2">
-                      <label className="workspace-input-group">
-                        <span>{uiText.dashboard.detailFields.serviceDate}</span>
-                        <input
-                          ref={detailDateInputRef}
-                          name="serviceDate"
-                          type="date"
-                          value={detailFormState.serviceDate}
-                          onChange={handleDetailFormChange}
-                          disabled={isSavingDetail}
-                          required
-                        />
-                      </label>
+                    <label className="workspace-input-group detail-status-field">
+                      <span>{uiText.serviceOrder.fields.status}</span>
+                      <SegmentedControl
+                        name="status"
+                        value={detailFormState.status}
+                        onChange={handleDetailFormChange}
+                        options={serviceOrderStatusOptions}
+                        disabled={isSavingDetail}
+                        className="segmented-control-compact"
+                      />
+                    </label>
 
-                      <label className="workspace-input-group">
-                        <span>{uiText.dashboard.detailFields.serviceTime}</span>
-                        <select
-                          name="serviceTime"
-                          value={detailFormState.serviceTime}
-                          onChange={handleDetailFormChange}
-                          disabled={isSavingDetail}
-                          required
-                        >
-                          {serviceTimeOptions.map((timeOption) => (
-                            <option key={timeOption.value} value={timeOption.value}>
-                              {timeOption.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                    <label className="workspace-input-group">
+                      <span>{uiText.dashboard.detailFields.serviceDate}</span>
+                      <input
+                        ref={detailDateInputRef}
+                        name="serviceDate"
+                        type="date"
+                        value={detailFormState.serviceDate}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                        required
+                      />
+                    </label>
 
-                    <label className="workspace-input-group workspace-field-wide">
+                    <label className="workspace-input-group">
+                      <span>{uiText.dashboard.detailFields.serviceTime}</span>
+                      <select
+                        name="serviceTime"
+                        value={detailFormState.serviceTime}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                        required
+                      >
+                        {serviceTimeOptions.map((timeOption) => (
+                          <option key={timeOption.value} value={timeOption.value}>
+                            {timeOption.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="workspace-input-group">
                       <span>{uiText.serviceOrder.fields.duration}</span>
                       <select
                         name="durationMinutes"
@@ -7898,20 +8143,8 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
-                    <label className="workspace-input-group workspace-field-wide detail-status-field">
-                      <span>{uiText.serviceOrder.fields.status}</span>
-                      <SegmentedControl
-                        name="status"
-                        value={detailFormState.status}
-                        onChange={handleDetailFormChange}
-                        options={serviceOrderStatusOptions}
-                        disabled={isSavingDetail}
-                        className="segmented-control-compact"
-                      />
-                    </label>
-
                     {isSelectedServiceOrderOverdue ? (
-                      <div className="detail-overdue-box detail-overdue-box-inline">
+                      <div className="detail-overdue-box detail-overdue-box-inline service-order-inline-alert">
                         <div>
                           <strong>{uiText.dashboard.overdueLabel}</strong>
                           <p>{uiText.dashboard.detailOverdueBody}</p>
@@ -7923,7 +8156,7 @@ export default function DashboardPage() {
 
                 <section className="drawer-section detail-section-card">
                   <div className="entity-drawer-section-header">
-                    <h4 className="drawer-section-title">Instrucciones de servicio</h4>
+                    <h4 className="drawer-section-title">Ejecucion</h4>
                   </div>
 
                   <div className="detail-edit-grid">
@@ -7938,15 +8171,7 @@ export default function DashboardPage() {
                         rows={4}
                       />
                     </label>
-                  </div>
-                </section>
 
-                <section className="drawer-section detail-section-card">
-                  <div className="entity-drawer-section-header">
-                    <h4 className="drawer-section-title">Reporte del servicio</h4>
-                  </div>
-
-                  <div className="detail-edit-grid">
                     <label className="workspace-input-group workspace-field-wide">
                       <span>{uiText.serviceOrder.fields.serviceReport}</span>
                       <textarea
@@ -7961,6 +8186,17 @@ export default function DashboardPage() {
                         Describe brevemente lo que se hizo, observaciones o hallazgos relevantes.
                       </small>
                     </label>
+
+                    {selectedOrder.completed_at ? (
+                      <div className="service-order-inline-row workspace-field-wide">
+                        <div className="service-order-inline-meta">
+                          <strong>Servicio completado</strong>
+                          <small className="detail-subcopy">
+                            {formatCompletedAt(selectedOrder.completed_at)}
+                          </small>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
 
@@ -7970,16 +8206,31 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="detail-edit-grid">
-                    <label className="workspace-checkbox workspace-field-wide">
-                      <input
-                        name="isRecurring"
-                        type="checkbox"
-                        checked={detailFormState.isRecurring}
-                        onChange={handleDetailFormChange}
-                        disabled={isSavingDetail}
-                      />
-                      <span>{uiText.serviceOrder.fields.isRecurring}</span>
-                    </label>
+                    <div className="service-order-inline-row workspace-field-wide">
+                      <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
+                        <input
+                          name="isRecurring"
+                          type="checkbox"
+                          checked={detailFormState.isRecurring}
+                          onChange={handleDetailFormChange}
+                          disabled={isSavingDetail}
+                        />
+                        <span>{uiText.serviceOrder.fields.isRecurring}</span>
+                      </label>
+                      <div className="service-order-inline-meta">
+                        <strong>
+                          {detailFormState.isRecurring
+                            ? uiText.serviceOrder.recurrenceOptions[detailFormState.recurrenceType] ||
+                              uiText.serviceOrder.fields.isRecurring
+                            : "Visita unica"}
+                        </strong>
+                        <small className="detail-subcopy">
+                          {detailFormState.isRecurring
+                            ? "Ajusta la configuracion recurrente si aplica. Las visitas futuras aun no se crean automaticamente."
+                            : "Activalo solo si la visita debe repetirse. Por ahora no genera visitas futuras automaticamente."}
+                        </small>
+                      </div>
+                    </div>
 
                     {detailFormState.isRecurring ? (
                       <div className="detail-edit-grid detail-edit-grid-2">
@@ -8023,7 +8274,7 @@ export default function DashboardPage() {
                       </div>
                     ) : (
                       <p className="detail-section-empty-copy">
-                        Este servicio no tiene una recurrencia activa.
+                        Este servicio no tiene una configuracion recurrente activa.
                       </p>
                     )}
                   </div>
@@ -8280,6 +8531,7 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+          ) : null}
         </aside>
         ) : null}
       </section>
