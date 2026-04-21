@@ -1135,7 +1135,35 @@ function WorkspacePanel({
               </select>
             </label>
 
-                {isResidentialFormClient ? (
+                <div className="workspace-field-wide service-order-location-type">
+                  <span>{uiText.serviceOrder.fields.locationType}</span>
+                  <div className="service-order-location-options">
+                    <label className="service-order-location-option">
+                      <input
+                        name="locationType"
+                        type="radio"
+                        value="saved"
+                        checked={!formState.isOneOffLocation}
+                        onChange={onFormChange}
+                        disabled={isSavingOrder}
+                      />
+                      <span>{uiText.serviceOrder.fields.savedLocation}</span>
+                    </label>
+                    <label className="service-order-location-option">
+                      <input
+                        name="locationType"
+                        type="radio"
+                        value="one_off"
+                        checked={formState.isOneOffLocation}
+                        onChange={onFormChange}
+                        disabled={isSavingOrder}
+                      />
+                      <span>{uiText.serviceOrder.fields.oneOffLocation}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {!formState.isOneOffLocation && isResidentialFormClient ? (
                   <div className="detail-row workspace-quick-static-field">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <strong>
@@ -1151,7 +1179,7 @@ function WorkspacePanel({
                     : uiText.serviceOrder.residentialBranchMissing}
                 </small>
               </div>
-            ) : (
+            ) : !formState.isOneOffLocation ? (
                   <label className="workspace-input-group">
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <select
@@ -1175,7 +1203,7 @@ function WorkspacePanel({
                   ))}
                 </select>
               </label>
-            )}
+            ) : null}
 
                 <label className="workspace-input-group">
                   <span>{uiText.serviceOrder.fields.technician}</span>
@@ -1250,29 +1278,6 @@ function WorkspacePanel({
                 ))}
               </select>
             </label>
-
-                <div className="workspace-field-wide service-order-inline-row">
-                  <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
-                    <input
-                      name="isOneOffLocation"
-                      type="checkbox"
-                      checked={formState.isOneOffLocation}
-                      onChange={onFormChange}
-                      disabled={isSavingOrder}
-                    />
-                    <span>{uiText.serviceOrder.fields.useOneOffLocation}</span>
-                  </label>
-                  <div className="service-order-inline-meta">
-                    <strong>
-                      {formState.isOneOffLocation
-                        ? "Ubicacion unica de esta visita"
-                        : "Usando ubicacion guardada"}
-                    </strong>
-                    <small className="detail-subcopy">
-                      {uiText.serviceOrder.oneOffLocationDescription}
-                    </small>
-                  </div>
-                </div>
 
                 {formState.isOneOffLocation ? (
                   <>
@@ -4503,21 +4508,23 @@ export default function DashboardPage() {
 
     setFormState((currentState) => ({
       ...currentState,
+      isOneOffLocation:
+        name === "locationType" ? value === "one_off" : currentState.isOneOffLocation,
       branchId: name === "clientId" ? "" : currentState.branchId,
       serviceLocationName:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationName,
       serviceLocationAddress:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationAddress,
       serviceLocationPhone:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationPhone,
       serviceLocationContact:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationContact,
       recurrenceType:
@@ -4526,7 +4533,7 @@ export default function DashboardPage() {
           : currentState.recurrenceType,
       recurrenceEndDate:
         name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
-      [name]: type === "checkbox" ? checked : value
+      ...(name === "locationType" ? {} : { [name]: type === "checkbox" ? checked : value })
     }));
   };
 
@@ -4977,21 +4984,23 @@ export default function DashboardPage() {
 
     setDetailFormState((currentState) => ({
       ...currentState,
+      isOneOffLocation:
+        name === "locationType" ? value === "one_off" : currentState.isOneOffLocation,
       branchId: name === "clientId" ? "" : currentState.branchId,
       serviceLocationName:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationName,
       serviceLocationAddress:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationAddress,
       serviceLocationPhone:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationPhone,
       serviceLocationContact:
-        name === "isOneOffLocation" && checked === false
+        name === "locationType" && value === "saved"
           ? ""
           : currentState.serviceLocationContact,
       recurrenceType:
@@ -5000,7 +5009,7 @@ export default function DashboardPage() {
           : currentState.recurrenceType,
       recurrenceEndDate:
         name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
-      [name]: type === "checkbox" ? checked : value
+      ...(name === "locationType" ? {} : { [name]: type === "checkbox" ? checked : value })
     }));
   };
 
@@ -8387,16 +8396,44 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
-                    {isResidentialDetailClient ? (
+                    <div className="service-order-location-type workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.locationType}</span>
+                      <div className="service-order-location-options">
+                        <label className="service-order-location-option">
+                          <input
+                            name="locationType"
+                            type="radio"
+                            value="saved"
+                            checked={!detailFormState.isOneOffLocation}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                          />
+                          <span>{uiText.serviceOrder.fields.savedLocation}</span>
+                        </label>
+                        <label className="service-order-location-option">
+                          <input
+                            name="locationType"
+                            type="radio"
+                            value="one_off"
+                            checked={detailFormState.isOneOffLocation}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                          />
+                          <span>{uiText.serviceOrder.fields.oneOffLocation}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {!detailFormState.isOneOffLocation && isResidentialDetailClient ? (
                       <div className="detail-static-field">
                         <span>{uiText.serviceOrder.fields.branch}</span>
                         <strong>
                           {preferredDetailResidentialBranch
                             ? getBranchDisplayName(preferredDetailResidentialBranch)
-                            : uiText.dashboard.branchEmpty}
+                          : uiText.dashboard.branchEmpty}
                         </strong>
                       </div>
-                    ) : (
+                    ) : !detailFormState.isOneOffLocation ? (
                       <label className="workspace-input-group">
                         <span>{uiText.serviceOrder.fields.branch}</span>
                         <select
@@ -8420,7 +8457,7 @@ export default function DashboardPage() {
                           ))}
                         </select>
                       </label>
-                    )}
+                    ) : null}
 
                     <label className="workspace-input-group">
                       <span>{uiText.dashboard.detailFields.technicianName}</span>
@@ -8502,29 +8539,6 @@ export default function DashboardPage() {
                         ))}
                       </select>
                     </label>
-
-                    <div className="service-order-inline-row workspace-field-wide">
-                      <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
-                        <input
-                          name="isOneOffLocation"
-                          type="checkbox"
-                          checked={detailFormState.isOneOffLocation}
-                          onChange={handleDetailFormChange}
-                          disabled={isSavingDetail}
-                        />
-                        <span>{uiText.serviceOrder.fields.useOneOffLocation}</span>
-                      </label>
-                      <div className="service-order-inline-meta">
-                        <strong>
-                          {detailFormState.isOneOffLocation
-                            ? "Ubicacion unica de esta visita"
-                            : "Usando ubicacion guardada"}
-                        </strong>
-                        <small className="detail-subcopy">
-                          {uiText.serviceOrder.oneOffLocationDescription}
-                        </small>
-                      </div>
-                    </div>
 
                     {detailFormState.isOneOffLocation ? (
                       <>

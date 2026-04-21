@@ -3315,6 +3315,43 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.service-order-location-type {
+  display: grid;
+  gap: 8px;
+}
+
+.service-order-location-type > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.service-order-location-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.service-order-location-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+  font-weight: 520;
+  cursor: pointer;
+}
+
+.service-order-location-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.service-order-location-option:has(input:checked) {
+  color: var(--text);
+  font-weight: 650;
+}
+
 .service-order-inline-row {
   display: flex;
   align-items: center;
