@@ -12,8 +12,8 @@
   --panel-strong: #ffffff;
   --panel-muted: #f8fafc;
   --surface-app: #f2f5f8;
-  --surface-sidebar: #eef2f6;
-  --surface-workspace: #f7f9fb;
+  --surface-sidebar: #ebf0f5;
+  --surface-workspace: #f7f9fc;
   --surface-panel: #ffffff;
   --border: #dde5ee;
   --border-soft: #edf1f6;
@@ -546,7 +546,7 @@ textarea {
 }
 
 .calendar-panel {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-workspace) 98%, #ffffff 2%) 0%, color-mix(in srgb, var(--surface-workspace) 95%, #ffffff 5%) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-workspace) 96%, #ffffff 4%) 0%, color-mix(in srgb, var(--surface-workspace) 92%, #ffffff 8%) 100%);
   border: 1px solid rgba(221, 229, 238, 0.18);
 }
 
@@ -2061,7 +2061,7 @@ textarea {
   border: 0;
   border-radius: 22px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-panel) 78%, var(--surface-workspace) 22%);
+  background: color-mix(in srgb, var(--surface-panel) 84%, var(--surface-workspace) 16%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
@@ -2630,17 +2630,17 @@ textarea {
 }
 
 .rbc-today {
-  background: rgba(244, 248, 255, 0.32);
+  background: rgba(244, 248, 255, 0.22);
 }
 
 .rbc-event {
-  background: rgba(239, 245, 255, 0.56);
+  background: rgba(238, 245, 255, 0.64);
   border: 0;
-  color: #143463;
+  color: #102f5c;
   border-radius: 16px;
   padding: 0;
   cursor: pointer;
-  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.048);
 }
 
 .rbc-event-content {
@@ -2784,7 +2784,7 @@ textarea {
   font-size: 0.8rem;
   line-height: 1.14;
   letter-spacing: -0.01em;
-  font-weight: 680;
+  font-weight: 700;
 }
 
 .calendar-event-week-line-secondary {
