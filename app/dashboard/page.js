@@ -3768,32 +3768,24 @@ export default function DashboardPage() {
   const getCalendarEventStyle = (event) => ({
     style: {
       background: event?.isOverdue
-        ? "color-mix(in srgb, #fff2ef " +
-          (showOnlyOverdue ? "78%" : "72%") +
-          ", " +
-          (event?.technicianColor?.background || "#edf2f7") +
-          " " +
-          (showOnlyOverdue ? "22%" : "28%") +
+        ? "color-mix(in srgb, #c2410c " +
+          (showOnlyOverdue ? "76%" : "68%") +
+          ", #fff2ef " +
+          (showOnlyOverdue ? "24%" : "32%") +
           ")"
         : "color-mix(in srgb, " +
-          (event?.technicianColor?.background || "#edf2f7") +
-          " 92%, #ffffff 8%)",
-      borderColor: event?.isOverdue
-        ? showOnlyOverdue
-          ? "#e98f7d"
-          : "#f4b6a8"
-        : event?.technicianColor?.border || "#d7e0ea",
-      color: event?.isOverdue
-        ? "#9f2d16"
-        : event?.technicianColor?.text || "#334155",
-      boxShadow: `0 3px 10px ${
+          (event?.technicianColor?.accent || "#64748b") +
+          " 56%, #f8fbff 44%)",
+      borderColor: "transparent",
+      color: event?.isOverdue ? "#fffaf7" : "#f8fbff",
+      boxShadow: `0 2px 5px ${
         (event?.isOverdue
           ? showOnlyOverdue
-            ? "#c2410c26"
+            ? "#c2410c20"
             : "#c2410c18"
-          : (event?.technicianColor?.accent || "#64748b") + "18")
+          : (event?.technicianColor?.accent || "#64748b") + "14")
       }`,
-      borderLeftWidth: "4px"
+      borderWidth: 0
     },
     className: [
       event?.isOverdue ? "calendar-event-overdue" : "",
@@ -7504,8 +7496,19 @@ export default function DashboardPage() {
           </aside>
         ) : null}
 
-        {activeTopLevelTab === dashboardTabs.calendar ? (
-        <section className="calendar-panel">
+        <div
+          className={
+            activeTopLevelTab === dashboardTabs.calendar
+              ? serviceOrderPanelStage === "operational"
+                ? "main-workspace-surface main-workspace-surface-operational-edit"
+                : serviceOrderPanelStage === "detail"
+                  ? "main-workspace-surface main-workspace-surface-operational-detail"
+                  : "main-workspace-surface main-workspace-surface-operational-idle"
+              : "main-workspace-surface main-workspace-surface-two-column"
+          }
+        >
+          {activeTopLevelTab === dashboardTabs.calendar ? (
+          <section className="calendar-panel">
           <div className="calendar-panel-top">
           <div className="calendar-panel-header">
             <div className="calendar-panel-row calendar-panel-row-1">
@@ -7749,10 +7752,10 @@ export default function DashboardPage() {
             />
           ) : null}
           </div>
-        </section>
-        ) : null}
+          </section>
+          ) : null}
 
-        {activeTopLevelTab === dashboardTabs.clients ? (
+          {activeTopLevelTab === dashboardTabs.clients ? (
           <section className="calendar-panel admin-secondary-panel">
             <div className="calendar-panel-header">
               <div className="calendar-panel-row calendar-panel-row-1">
@@ -7890,9 +7893,9 @@ export default function DashboardPage() {
               </div>
             )}
           </section>
-        ) : null}
+          ) : null}
 
-        {activeTopLevelTab === dashboardTabs.technicians ? (
+          {activeTopLevelTab === dashboardTabs.technicians ? (
           <section className="calendar-panel admin-secondary-panel">
             <div className="calendar-panel-header">
               <div className="calendar-panel-row calendar-panel-row-1">
@@ -7981,9 +7984,9 @@ export default function DashboardPage() {
               </table>
             </div>
           </section>
-        ) : null}
+          ) : null}
 
-        {activeTopLevelTab === dashboardTabs.settings ? (
+          {activeTopLevelTab === dashboardTabs.settings ? (
           <section className="calendar-panel admin-secondary-panel">
             <div className="calendar-panel-header">
               <div className="calendar-panel-row calendar-panel-row-1">
@@ -8223,10 +8226,10 @@ export default function DashboardPage() {
               </div>
             </form>
           </section>
-        ) : null}
+          ) : null}
 
-        {activeTopLevelTab === dashboardTabs.calendar ? (
-        <aside
+          {activeTopLevelTab === dashboardTabs.calendar ? (
+          <aside
           className={
             serviceOrderPanelStage === "idle"
               ? "detail-sidebar detail-sidebar-idle"
@@ -8996,8 +8999,9 @@ export default function DashboardPage() {
             )}
           </div>
           ) : null}
-        </aside>
-        ) : null}
+          </aside>
+          ) : null}
+        </div>
       </section>
 
       <footer className="admin-footer">

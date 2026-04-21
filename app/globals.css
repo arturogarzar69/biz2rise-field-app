@@ -11,10 +11,12 @@
   --panel: rgba(255, 255, 255, 0.94);
   --panel-strong: #ffffff;
   --panel-muted: #f8fafc;
-  --surface-app: #f2f5f8;
-  --surface-sidebar: #ebf0f5;
-  --surface-workspace: #f7f9fc;
-  --surface-panel: #ffffff;
+  --surface-base: #edf2f6;
+  --surface-app: var(--surface-base);
+  --surface-sidebar: #edf2f6;
+  --surface-workspace: #f8fafc;
+  --surface-drawer: #ffffff;
+  --surface-panel: var(--surface-drawer);
   --border: #dde5ee;
   --border-soft: #edf1f6;
   --text: #172033;
@@ -227,13 +229,13 @@ textarea {
 
 .admin-dashboard {
   min-height: 100vh;
-  padding: 24px;
+  padding: 22px;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 14px;
   background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.66), transparent 22%),
-    linear-gradient(180deg, #f8fafc 0%, var(--surface-app) 100%);
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.48), transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 88%, #ffffff 12%) 0%, var(--surface-base) 100%);
 }
 
 .technician-dashboard {
@@ -482,9 +484,12 @@ textarea {
 .admin-content {
   --sidebar-width-current: var(--sidebar-width-expanded);
   display: grid;
-  gap: 14px;
+  gap: 8px;
   align-items: stretch;
   min-height: calc(100vh - 180px);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  box-shadow: none;
 }
 
 .admin-content-sidebar-collapsed {
@@ -492,15 +497,15 @@ textarea {
 }
 
 .admin-content-operational-idle {
-  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr) minmax(0, var(--drawer-width-collapsed));
+  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr);
 }
 
 .admin-content-operational-detail {
-  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr) minmax(280px, var(--drawer-width-detail));
+  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr);
 }
 
 .admin-content-operational-edit {
-  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr) minmax(420px, var(--drawer-width-operational));
+  grid-template-columns: var(--sidebar-width-current) minmax(0, 1fr);
 }
 
 .admin-content-two-column {
@@ -508,6 +513,43 @@ textarea {
 }
 
 .admin-content > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.main-workspace-surface {
+  display: grid;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-workspace);
+  box-shadow:
+    -6px 0 12px rgba(15, 23, 42, 0.03),
+    0 1px 0 rgba(255, 255, 255, 0.68) inset,
+    0 14px 30px rgba(15, 23, 42, 0.028);
+}
+
+.main-workspace-surface-operational-idle {
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--drawer-width-collapsed));
+  gap: 0;
+}
+
+.main-workspace-surface-operational-detail {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, var(--drawer-width-detail));
+}
+
+.main-workspace-surface-operational-edit {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, var(--drawer-width-operational));
+}
+
+.main-workspace-surface-two-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.main-workspace-surface > * {
   min-width: 0;
   min-height: 0;
 }
@@ -536,25 +578,27 @@ textarea {
 .detail-sidebar,
 .calendar-panel {
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
   backdrop-filter: blur(12px);
 }
 
 .operations-panel {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-sidebar) 98%, #ffffff 2%) 0%, color-mix(in srgb, var(--surface-sidebar) 94%, #ffffff 6%) 100%);
-  border: 1px solid rgba(221, 229, 238, 0.22);
+  background: color-mix(in srgb, var(--surface-sidebar) 96%, var(--surface-base) 4%);
+  border: 1px solid rgba(221, 229, 238, 0.08);
+  box-shadow: none;
 }
 
 .calendar-panel {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-workspace) 96%, #ffffff 4%) 0%, color-mix(in srgb, var(--surface-workspace) 92%, #ffffff 8%) 100%);
-  border: 1px solid rgba(221, 229, 238, 0.18);
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
 }
 
 .detail-sidebar,
 .admin-context-panel,
 .admin-placeholder {
-  background: color-mix(in srgb, var(--surface-panel) 96%, var(--surface-workspace) 4%);
-  border: 1px solid rgba(221, 229, 238, 0.2);
+  background: var(--surface-drawer);
+  border: 1px solid rgba(221, 229, 238, 0.1);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
 .operations-panel {
@@ -1160,7 +1204,7 @@ textarea {
 .calendar-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  padding: 20px;
+  padding: 0;
   overflow: visible;
 }
 
@@ -2059,10 +2103,10 @@ textarea {
 
 .calendar-shell {
   border: 0;
-  border-radius: 22px;
+  border-radius: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface-panel) 84%, var(--surface-workspace) 16%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: transparent;
+  box-shadow: none;
 }
 
 .operational-calendar-layout {
@@ -2183,6 +2227,7 @@ textarea {
   overflow: hidden;
   position: relative;
   justify-self: end;
+  align-self: stretch;
   width: min(100%, var(--drawer-width-detail));
   max-width: min(100%, var(--drawer-width-detail));
   z-index: 4;
@@ -2512,10 +2557,10 @@ textarea {
 
 .rbc-toolbar,
 .calendar-toolbar {
-  padding: 12px 14px 10px;
+  padding: 10px 0 12px;
   margin-bottom: 0;
   border-bottom: 1px solid rgba(221, 229, 238, 0.18);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66) 0%, rgba(249, 251, 254, 0.42) 100%);
+  background: transparent;
 }
 
 .rbc-toolbar button,
@@ -2634,13 +2679,13 @@ textarea {
 }
 
 .rbc-event {
-  background: rgba(238, 245, 255, 0.64);
+  background: #6b8fc1;
   border: 0;
-  color: #102f5c;
-  border-radius: 12px;
+  color: #f8fbff;
+  border-radius: 9px;
   padding: 0;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.044);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.045);
 }
 
 .rbc-event-content {
@@ -2685,12 +2730,12 @@ textarea {
 
 .calendar-event-week {
   display: grid;
-  grid-template-columns: 3px minmax(0, 1fr);
+  grid-template-columns: 2px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
   height: 100%;
-  padding: 6px 9px;
+  padding: 5px 8px;
   box-sizing: border-box;
   container-type: size;
   position: relative;
@@ -2768,8 +2813,8 @@ textarea {
 
 .calendar-event-week-accent {
   border-radius: 999px;
-  background: currentColor;
-  opacity: 0.76;
+  background: rgba(255, 255, 255, 0.58);
+  opacity: 1;
   box-shadow: none;
 }
 
@@ -2785,13 +2830,14 @@ textarea {
   line-height: 1.1;
   letter-spacing: -0.01em;
   font-weight: 700;
+  color: #ffffff;
 }
 
 .calendar-event-week-line-secondary {
   font-size: 0.67rem;
   line-height: 1.1;
-  color: color-mix(in srgb, currentColor 24%, #64748b 76%) !important;
-  opacity: 0.78;
+  color: rgba(255, 255, 255, 0.78) !important;
+  opacity: 1;
 }
 
 .calendar-event strong {
@@ -2803,9 +2849,9 @@ textarea {
 .calendar-event span {
   display: block;
   margin-top: 0;
-  color: color-mix(in srgb, currentColor 54%, #64748b 46%);
+  color: rgba(255, 255, 255, 0.78);
   font-size: 0.69rem;
-  opacity: 0.92;
+  opacity: 1;
 }
 
 .calendar-event-month {
@@ -2881,7 +2927,7 @@ textarea {
 }
 
 .rbc-time-view .rbc-event {
-  border-radius: 12px;
+  border-radius: 9px;
   overflow: hidden;
   padding-right: 2px;
   margin-left: 5px;
@@ -2892,8 +2938,8 @@ textarea {
 
 .rbc-time-view .rbc-event.calendar-event-shell-selected {
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.86),
-    0 0 0 2px rgba(29, 78, 216, 0.1) !important;
+    0 0 0 1px rgba(255, 255, 255, 0.68),
+    0 0 0 2px rgba(15, 23, 42, 0.09) !important;
 }
 
 .rbc-time-view .rbc-event:hover {
@@ -2928,7 +2974,7 @@ textarea {
 }
 
 .rbc-time-view .calendar-event-week {
-  padding: 6px 9px;
+  padding: 5px 8px;
 }
 
 .rbc-time-view .calendar-event-week strong {
@@ -3476,6 +3522,14 @@ button:focus-visible {
     min-height: 0;
   }
 
+  .main-workspace-surface,
+  .main-workspace-surface-operational-idle,
+  .main-workspace-surface-operational-detail,
+  .main-workspace-surface-operational-edit,
+  .main-workspace-surface-two-column {
+    grid-template-columns: 1fr;
+  }
+
   .operations-panel,
   .detail-sidebar,
   .calendar-panel,
@@ -3540,6 +3594,7 @@ button:focus-visible {
   }
 
   .admin-content,
+  .main-workspace-surface,
   .admin-secondary-panel,
   .operations-panel,
   .calendar-panel,
