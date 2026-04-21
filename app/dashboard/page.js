@@ -23,9 +23,11 @@ import "react-big-calendar/lib/css/react-big-calendar.css";
 import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 import ServiceListView from "../../components/ServiceListView";
 import {
+  hasServiceLocationOverride,
   isCompletedStatus,
   isOverdueServiceOrder,
   parseServiceOrderStart,
+  resolveEffectiveServiceLocation,
   resolveDurationMinutes
 } from "../../lib/serviceOrderUtils";
 import {
@@ -61,6 +63,11 @@ const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
 const initialFormState = {
   clientId: "",
   branchId: "",
+  isOneOffLocation: false,
+  serviceLocationName: "",
+  serviceLocationAddress: "",
+  serviceLocationPhone: "",
+  serviceLocationContact: "",
   technicianName: "",
   serviceDate: "",
   serviceTime: "9:00 AM",
@@ -95,6 +102,11 @@ const initialClientFormState = {
 const initialDetailFormState = {
   clientId: "",
   branchId: "",
+  isOneOffLocation: false,
+  serviceLocationName: "",
+  serviceLocationAddress: "",
+  serviceLocationPhone: "",
+  serviceLocationContact: "",
   technicianName: "",
   serviceDate: "",
   serviceTime: "9:00 AM",
@@ -206,6 +218,23 @@ const dashboardTabs = {
   technicians: "technicians",
   settings: "settings"
 };
+const sidebarNavigationGroups = [
+  {
+    label: "OPERACION",
+    items: [{ key: "calendar", value: dashboardTabs.calendar, icon: "CA" }]
+  },
+  {
+    label: "GESTION",
+    items: [
+      { key: "clients", value: dashboardTabs.clients, icon: "CL" },
+      { key: "technicians", value: dashboardTabs.technicians, icon: "TE" }
+    ]
+  },
+  {
+    label: "SISTEMA",
+    items: [{ key: "settings", value: dashboardTabs.settings, icon: "SE" }]
+  }
+];
 const operationalCalendarView = "operational";
 const calendarScrollToTime = addHours(startOfDay(new Date()), 6);
 const rightPanelModes = {
@@ -236,6 +265,11 @@ const serviceOrderSelectQuery = `
   completed_at,
   client_id,
   branch_id,
+  service_location_name,
+  service_location_address,
+  service_location_phone,
+  service_location_contact,
+  is_one_off_location,
   clients (
     name,
     client_type,
@@ -441,7 +475,8 @@ function transformServiceOrdersToEvents(serviceOrders) {
     const end = addMinutes(start, durationMinutes);
     const technicianColor = getTechnicianColorToken(serviceOrder.technician_name);
     const clientName = getClientDisplayName(serviceOrder.clients);
-    const branchName = getBranchDisplayName(serviceOrder.branches);
+    const effectiveLocation = resolveEffectiveServiceLocation(serviceOrder);
+    const branchName = effectiveLocation.name || uiText.dashboard.branchEmpty;
     const isOverdue = isOverdueServiceOrder(
       serviceOrder.service_date,
       serviceOrder.service_time,
@@ -456,6 +491,10 @@ function transformServiceOrdersToEvents(serviceOrders) {
       title: clientName,
       clientName,
       branchName,
+      locationAddress: effectiveLocation.address,
+      locationPhone: effectiveLocation.phone,
+      locationContact: effectiveLocation.contact,
+      isOneOffLocation: effectiveLocation.isOneOff,
       technician: serviceOrder.technician_name,
       technicianDisplayName: getTechnicianDisplayName(serviceOrder.technician_name),
       status: serviceOrder.status,
@@ -468,7 +507,7 @@ function transformServiceOrdersToEvents(serviceOrders) {
       tooltipText: [
         ...(isOverdue ? [uiText.dashboard.overdueLabel] : []),
         `Cliente: ${clientName || "-"}`,
-        `Sucursal: ${branchName || uiText.dashboard.branchEmpty}`,
+        `Ubicacion: ${branchName || uiText.dashboard.branchEmpty}`,
         `Tecnico: ${getTechnicianDisplayName(serviceOrder.technician_name)}`,
         `Hora: ${formatDisplayTime(serviceOrder.service_time) || "-"} - ${
           formatDisplayTime(format(end, "h:mm a").toUpperCase()) || "-"
@@ -658,6 +697,36 @@ function getBranchSummary(branch) {
   }
 
   return [branch.address, branch.contact, branch.phone].filter(Boolean).join(" | ");
+}
+
+function buildServiceLocationOverridePayload(orderState) {
+  if (!orderState?.isOneOffLocation) {
+    return {
+      is_one_off_location: false,
+      service_location_name: null,
+      service_location_address: null,
+      service_location_phone: null,
+      service_location_contact: null
+    };
+  }
+
+  return {
+    is_one_off_location: true,
+    service_location_name: (orderState.serviceLocationName || "").trim() || null,
+    service_location_address: (orderState.serviceLocationAddress || "").trim() || null,
+    service_location_phone: (orderState.serviceLocationPhone || "").trim() || null,
+    service_location_contact: (orderState.serviceLocationContact || "").trim() || null
+  };
+}
+
+function getServiceLocationSummary(serviceOrder) {
+  const effectiveLocation = resolveEffectiveServiceLocation(serviceOrder);
+
+  return (
+    [effectiveLocation.address, effectiveLocation.contact, effectiveLocation.phone]
+      .filter(Boolean)
+      .join(" | ") || uiText.dashboard.branchEmpty
+  );
 }
 
 function formatCreatedAt(createdAt) {
@@ -1090,7 +1159,7 @@ function WorkspacePanel({
                   value={formState.branchId}
                   onChange={onFormChange}
                   disabled={isSavingOrder || isClientsLoading || !formState.clientId}
-                  required
+                  required={!formState.isOneOffLocation}
                 >
                   <option value="">
                     {!formState.clientId
@@ -1181,6 +1250,85 @@ function WorkspacePanel({
                 ))}
               </select>
             </label>
+
+                <div className="workspace-field-wide service-order-inline-row">
+                  <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
+                    <input
+                      name="isOneOffLocation"
+                      type="checkbox"
+                      checked={formState.isOneOffLocation}
+                      onChange={onFormChange}
+                      disabled={isSavingOrder}
+                    />
+                    <span>{uiText.serviceOrder.fields.useOneOffLocation}</span>
+                  </label>
+                  <div className="service-order-inline-meta">
+                    <strong>
+                      {formState.isOneOffLocation
+                        ? "Ubicacion unica de esta visita"
+                        : "Usando ubicacion guardada"}
+                    </strong>
+                    <small className="detail-subcopy">
+                      {uiText.serviceOrder.oneOffLocationDescription}
+                    </small>
+                  </div>
+                </div>
+
+                {formState.isOneOffLocation ? (
+                  <>
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.oneOffLocationName}</span>
+                      <input
+                        name="serviceLocationName"
+                        type="text"
+                        value={formState.serviceLocationName}
+                        onChange={onFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.oneOffLocationName}
+                        disabled={isSavingOrder}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>{uiText.serviceOrder.fields.oneOffLocationAddress}</span>
+                      <textarea
+                        name="serviceLocationAddress"
+                        value={formState.serviceLocationAddress}
+                        onChange={onFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.oneOffLocationAddress}
+                        disabled={isSavingOrder}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.oneOffLocationPhone}</span>
+                      <input
+                        name="serviceLocationPhone"
+                        type="text"
+                        value={formState.serviceLocationPhone}
+                        onChange={onFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.oneOffLocationPhone}
+                        disabled={isSavingOrder}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.oneOffLocationContact}</span>
+                      <input
+                        name="serviceLocationContact"
+                        type="text"
+                        value={formState.serviceLocationContact}
+                        onChange={onFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.oneOffLocationContact}
+                        disabled={isSavingOrder}
+                      />
+                    </label>
+
+                    <p className="detail-subcopy workspace-field-wide">
+                      {uiText.serviceOrder.oneOffLocationHint}
+                    </p>
+                  </>
+                ) : null}
 
                 <div className="workspace-field-wide service-order-inline-row">
                   <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
@@ -1294,12 +1442,14 @@ function WorkspacePanel({
                 <p className="empty-hint">{uiText.serviceOrder.technicianEmpty}</p>
               ) : null}
               {formState.clientId &&
+              !formState.isOneOffLocation &&
               isResidentialFormClient &&
               !isBranchesLoading &&
               !preferredResidentialBranch ? (
                 <p className="empty-hint">{uiText.serviceOrder.residentialBranchMissing}</p>
               ) : null}
               {formState.clientId &&
+              !formState.isOneOffLocation &&
               !isResidentialFormClient &&
               !isBranchesLoading &&
               availableBranches.length === 0 ? (
@@ -1330,8 +1480,11 @@ function WorkspacePanel({
                   isClientsLoading ||
                   isTechniciansLoading ||
                   clients.length === 0 ||
-                  (!isResidentialFormClient && !formState.branchId) ||
-                  (isResidentialFormClient && !preferredResidentialBranch) ||
+                  (!formState.isOneOffLocation &&
+                    ((!isResidentialFormClient && !formState.branchId) ||
+                      (isResidentialFormClient && !preferredResidentialBranch))) ||
+                  (formState.isOneOffLocation &&
+                    !formState.serviceLocationAddress.trim()) ||
                   activeTechnicians.length === 0 ||
                   !formState.technicianName
                 }
@@ -2041,6 +2194,7 @@ export default function DashboardPage() {
   const [calendarView, setCalendarView] = useState(operationalCalendarView);
   const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()));
   const [activeTopLevelTab, setActiveTopLevelTab] = useState(dashboardTabs.calendar);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [activeAdminView, setActiveAdminView] = useState(adminViewTabs.calendar);
   const [selectedCalendarTechnicians, setSelectedCalendarTechnicians] = useState([]);
   const [activeCompany, setActiveCompany] = useState(null);
@@ -2170,6 +2324,9 @@ export default function DashboardPage() {
     serviceOrders.find((serviceOrder) => serviceOrder.id === selectedServiceOrderId) ||
     selectedServiceOrderSnapshot ||
     null;
+  const selectedServiceLocation = selectedServiceOrder
+    ? resolveEffectiveServiceLocation(selectedServiceOrder)
+    : null;
   const isEditingServiceOrder =
     activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.edit;
   const isCreateServiceOrderMode =
@@ -2223,7 +2380,10 @@ export default function DashboardPage() {
     [selectedCalendarTechnicians]
   );
   const hasActiveTechnicianFilter = selectedCalendarTechnicianSet.size > 0;
-  const overdueCount = calendarEvents.filter((event) => Boolean(event.isOverdue)).length;
+  const overdueCount = useMemo(
+    () => calendarEvents.filter((event) => Boolean(event.isOverdue)).length,
+    [calendarEvents]
+  );
   const toggleOverdueFilter = () => {
     setShowOnlyOverdue((currentState) => !currentState);
   };
@@ -2238,14 +2398,18 @@ export default function DashboardPage() {
         : [...currentState, technicianName]
     );
   };
-  const filteredCalendarEvents = calendarEvents.filter((event) => {
-    const matchesTechnician = hasActiveTechnicianFilter
-      ? selectedCalendarTechnicianSet.has(event.technician)
-      : true;
-    const matchesOverdue = showOnlyOverdue ? Boolean(event.isOverdue) : true;
+  const filteredCalendarEvents = useMemo(
+    () =>
+      calendarEvents.filter((event) => {
+        const matchesTechnician = hasActiveTechnicianFilter
+          ? selectedCalendarTechnicianSet.has(event.technician)
+          : true;
+        const matchesOverdue = showOnlyOverdue ? Boolean(event.isOverdue) : true;
 
-    return matchesTechnician && matchesOverdue;
-  });
+        return matchesTechnician && matchesOverdue;
+      }),
+    [calendarEvents, hasActiveTechnicianFilter, selectedCalendarTechnicianSet, showOnlyOverdue]
+  );
   const backlogServiceOrders = useMemo(
     () =>
       serviceOrders
@@ -2489,10 +2653,74 @@ export default function DashboardPage() {
       : rightPanelMode === rightPanelModes.edit
         ? "Ajusta programacion, estado y la configuracion de recurrencia sin salir del calendario. Las visitas futuras aun no se generan automaticamente."
         : selectedServiceOrder
-          ? `${getBranchDisplayName(selectedServiceOrder.branches)} · ${formatServiceDate(
+          ? `${selectedServiceLocation?.name || uiText.dashboard.branchEmpty} · ${formatServiceDate(
               selectedServiceOrder.service_date
             )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
           : uiText.dashboard.detailDescription;
+  const sidebarUserName = userProfile?.full_name || userEmail || "Usuario";
+  const sidebarCompanyName = activeCompany?.name || uiText.common.appName;
+  const renderSidebarNavigation = () => (
+    <div className="workspace-sidebar-shell">
+      <div className="workspace-sidebar-header">
+        <button
+          type="button"
+          className="workspace-sidebar-toggle"
+          onClick={() => setIsSidebarCollapsed((currentState) => !currentState)}
+          aria-label={isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          title={isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+        >
+          {isSidebarCollapsed ? "→" : "←"}
+        </button>
+      </div>
+
+      <nav className="workspace-sidebar-nav" aria-label="Navegacion principal">
+        {sidebarNavigationGroups.map((group) => (
+          <div key={group.label} className="workspace-sidebar-group">
+            {!isSidebarCollapsed ? (
+              <span className="workspace-sidebar-group-label">{group.label}</span>
+            ) : null}
+            <div className="workspace-sidebar-group-items">
+              {group.items.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  className={
+                    activeTopLevelTab === item.value
+                      ? "workspace-sidebar-nav-item workspace-sidebar-nav-item-active"
+                      : "workspace-sidebar-nav-item"
+                  }
+                  onClick={() => setActiveTopLevelTab(item.value)}
+                  title={uiText.dashboard.topTabs[item.key]}
+                  aria-current={activeTopLevelTab === item.value ? "page" : undefined}
+                >
+                  <span className="workspace-sidebar-nav-icon" aria-hidden="true">
+                    {item.icon}
+                  </span>
+                  {!isSidebarCollapsed ? (
+                    <span className="workspace-sidebar-nav-label">
+                      {uiText.dashboard.topTabs[item.key]}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+    </div>
+  );
+  const renderSidebarFooter = () => (
+    <div className="workspace-sidebar-footer">
+      <div className="workspace-sidebar-footer-copy">
+        <strong>{isSidebarCollapsed ? sidebarCompanyName.slice(0, 2).toUpperCase() : sidebarCompanyName}</strong>
+        {!isSidebarCollapsed ? <span>{sidebarUserName}</span> : null}
+      </div>
+      <div className="workspace-sidebar-footer-brand">
+        <span>B2R</span>
+        {!isSidebarCollapsed ? <strong>Biz2Rise</strong> : null}
+      </div>
+    </div>
+  );
   const isClientDrawerDirty =
     activeMode === "create"
       ? Boolean(clientDrawerForm.name.trim())
@@ -3131,7 +3359,15 @@ export default function DashboardPage() {
       branchesForClient
     );
 
-    if (!resolvedBranchId) {
+    if (
+      orderState.isOneOffLocation &&
+      !(orderState.serviceLocationAddress || "").trim()
+    ) {
+      setError(uiText.serviceOrder.oneOffLocationRequired);
+      return;
+    }
+
+    if (!resolvedBranchId && !orderState.isOneOffLocation) {
       setError(
         isResidentialClient(selectedClient?.client_type)
           ? uiText.serviceOrder.residentialBranchMissing
@@ -3173,6 +3409,7 @@ export default function DashboardPage() {
       status: orderState.status || "scheduled",
       execution_status: defaultExecutionStatus,
       service_instructions: orderState.serviceInstructions || "",
+      ...buildServiceLocationOverridePayload(orderState),
       ...buildRecurrencePayload(orderState)
     };
 
@@ -3302,6 +3539,11 @@ export default function DashboardPage() {
     executionStatus = undefined,
     startedAt = undefined,
     completedAt = undefined,
+    isOneOffLocation = undefined,
+    serviceLocationName = undefined,
+    serviceLocationAddress = undefined,
+    serviceLocationPhone = undefined,
+    serviceLocationContact = undefined,
     clientId = undefined,
     recurrenceState = null,
     existingOrder = null,
@@ -3402,6 +3644,24 @@ export default function DashboardPage() {
       Object.assign(persistencePayload, buildRecurrencePayload(recurrenceState, existingOrder));
     }
 
+    if (isOneOffLocation !== undefined) {
+      Object.assign(persistencePayload, {
+        is_one_off_location: Boolean(isOneOffLocation),
+        service_location_name: Boolean(isOneOffLocation)
+          ? (serviceLocationName || "").trim() || null
+          : null,
+        service_location_address: Boolean(isOneOffLocation)
+          ? (serviceLocationAddress || "").trim() || null
+          : null,
+        service_location_phone: Boolean(isOneOffLocation)
+          ? (serviceLocationPhone || "").trim() || null
+          : null,
+        service_location_contact: Boolean(isOneOffLocation)
+          ? (serviceLocationContact || "").trim() || null
+          : null
+      });
+    }
+
     if (branchId !== undefined) {
       persistencePayload.branch_id = branchId;
     }
@@ -3458,6 +3718,11 @@ export default function DashboardPage() {
           service_report: currentOrder.service_report || "",
           started_at: currentOrder.started_at || null,
           completed_at: currentOrder.completed_at || null,
+          is_one_off_location: Boolean(currentOrder.is_one_off_location),
+          service_location_name: currentOrder.service_location_name || null,
+          service_location_address: currentOrder.service_location_address || null,
+          service_location_phone: currentOrder.service_location_phone || null,
+          service_location_contact: currentOrder.service_location_contact || null,
           branch_id: currentOrder.branch_id ?? null,
           client_id: currentOrder.client_id ?? null,
           clients: currentOrder.clients || null,
@@ -4041,6 +4306,11 @@ export default function DashboardPage() {
     setDetailFormState({
       clientId: selectedServiceOrder.client_id || "",
       branchId: selectedServiceOrder.branch_id || "",
+      isOneOffLocation: hasServiceLocationOverride(selectedServiceOrder),
+      serviceLocationName: selectedServiceOrder.service_location_name || "",
+      serviceLocationAddress: selectedServiceOrder.service_location_address || "",
+      serviceLocationPhone: selectedServiceOrder.service_location_phone || "",
+      serviceLocationContact: selectedServiceOrder.service_location_contact || "",
       technicianName: selectedServiceOrder.technician_name || "",
       serviceDate: selectedServiceOrder.service_date || "",
       serviceTime: selectedServiceOrder.service_time || "9:00 AM",
@@ -4234,6 +4504,22 @@ export default function DashboardPage() {
     setFormState((currentState) => ({
       ...currentState,
       branchId: name === "clientId" ? "" : currentState.branchId,
+      serviceLocationName:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationName,
+      serviceLocationAddress:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationAddress,
+      serviceLocationPhone:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationPhone,
+      serviceLocationContact:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationContact,
       recurrenceType:
         name === "isRecurring" && checked === false
           ? defaultRecurrenceType
@@ -4692,6 +4978,22 @@ export default function DashboardPage() {
     setDetailFormState((currentState) => ({
       ...currentState,
       branchId: name === "clientId" ? "" : currentState.branchId,
+      serviceLocationName:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationName,
+      serviceLocationAddress:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationAddress,
+      serviceLocationPhone:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationPhone,
+      serviceLocationContact:
+        name === "isOneOffLocation" && checked === false
+          ? ""
+          : currentState.serviceLocationContact,
       recurrenceType:
         name === "isRecurring" && checked === false
           ? defaultRecurrenceType
@@ -5819,6 +6121,14 @@ export default function DashboardPage() {
       return;
     }
 
+    if (
+      detailFormState.isOneOffLocation &&
+      !detailFormState.serviceLocationAddress.trim()
+    ) {
+      setDetailFormError(uiText.serviceOrder.oneOffLocationRequired);
+      return;
+    }
+
     setIsSavingDetail(true);
 
     try {
@@ -5839,6 +6149,11 @@ export default function DashboardPage() {
         status: nextStatus,
         serviceInstructions: detailFormState.serviceInstructions.trim(),
         serviceReport: detailFormState.serviceReport.trim(),
+        isOneOffLocation: detailFormState.isOneOffLocation,
+        serviceLocationName: detailFormState.serviceLocationName,
+        serviceLocationAddress: detailFormState.serviceLocationAddress,
+        serviceLocationPhone: detailFormState.serviceLocationPhone,
+        serviceLocationContact: detailFormState.serviceLocationContact,
         recurrenceState: detailFormState,
         existingOrder: selectedServiceOrder,
         branchId: isResidentialDetailClient
@@ -6493,8 +6808,7 @@ export default function DashboardPage() {
             technicianOrders.length > 0 ? (
               <div className="technician-service-list">
                 {technicianOrders.map((serviceOrder) => {
-                  const branch = serviceOrder.branches;
-                  const branchName = getBranchDisplayName(branch);
+                  const serviceLocation = resolveEffectiveServiceLocation(serviceOrder);
                   const isSelected = serviceOrder.id === selectedTechnicianOrderId;
                   const executionStatus = getExecutionStatusValue(serviceOrder);
 
@@ -6525,27 +6839,31 @@ export default function DashboardPage() {
                         <div className="technician-service-card-grid">
                           <div className="detail-row">
                             <span>{uiText.technicianDashboard.fields.branch}</span>
-                            <strong>{branchName || uiText.technicianDashboard.fallbacks.branch}</strong>
+                            <strong>
+                              {serviceLocation.name || uiText.technicianDashboard.fallbacks.branch}
+                            </strong>
                           </div>
 
                           <div className="detail-row">
                             <span>{uiText.technicianDashboard.fields.address}</span>
                             <strong>
-                              {branch?.address || uiText.technicianDashboard.fallbacks.address}
+                              {serviceLocation.address ||
+                                uiText.technicianDashboard.fallbacks.address}
                             </strong>
                           </div>
 
                           <div className="detail-row">
                             <span>{uiText.technicianDashboard.fields.phone}</span>
                             <strong>
-                              {branch?.phone || uiText.technicianDashboard.fallbacks.phone}
+                              {serviceLocation.phone || uiText.technicianDashboard.fallbacks.phone}
                             </strong>
                           </div>
 
                           <div className="detail-row">
                             <span>{uiText.technicianDashboard.fields.contact}</span>
                             <strong>
-                              {branch?.contact || uiText.technicianDashboard.fallbacks.contact}
+                              {serviceLocation.contact ||
+                                uiText.technicianDashboard.fallbacks.contact}
                             </strong>
                           </div>
 
@@ -6590,11 +6908,17 @@ export default function DashboardPage() {
               <p>{uiText.technicianDashboard.detailEmpty}</p>
             ) : (
               <div className="detail-panel">
+                {(() => {
+                  const technicianServiceLocation =
+                    resolveEffectiveServiceLocation(selectedTechnicianOrder);
+
+                  return (
+                    <>
                 <div className="branch-summary-card">
                   <span>{uiText.technicianDashboard.selectedService}</span>
                   <strong>{getClientDisplayName(selectedTechnicianOrder.clients)}</strong>
                   <p>
-                    {getBranchDisplayName(selectedTechnicianOrder.branches)}
+                    {technicianServiceLocation.name || uiText.technicianDashboard.fallbacks.branch}
                   </p>
                 </div>
 
@@ -6605,13 +6929,15 @@ export default function DashboardPage() {
 
                 <div className="detail-row">
                   <span>{uiText.technicianDashboard.fields.branch}</span>
-                  <strong>{getBranchDisplayName(selectedTechnicianOrder.branches)}</strong>
+                  <strong>
+                    {technicianServiceLocation.name || uiText.technicianDashboard.fallbacks.branch}
+                  </strong>
                 </div>
 
                 <div className="detail-row">
                   <span>{uiText.technicianDashboard.fields.address}</span>
                   <strong>
-                    {selectedTechnicianOrder.branches?.address ||
+                    {technicianServiceLocation.address ||
                       uiText.technicianDashboard.fallbacks.address}
                   </strong>
                 </div>
@@ -6619,7 +6945,7 @@ export default function DashboardPage() {
                 <div className="detail-row">
                   <span>{uiText.technicianDashboard.fields.phone}</span>
                   <strong>
-                    {selectedTechnicianOrder.branches?.phone ||
+                    {technicianServiceLocation.phone ||
                       uiText.technicianDashboard.fallbacks.phone}
                   </strong>
                 </div>
@@ -6627,7 +6953,7 @@ export default function DashboardPage() {
                 <div className="detail-row">
                   <span>{uiText.technicianDashboard.fields.contact}</span>
                   <strong>
-                    {selectedTechnicianOrder.branches?.contact ||
+                    {technicianServiceLocation.contact ||
                       uiText.technicianDashboard.fallbacks.contact}
                   </strong>
                 </div>
@@ -6731,6 +7057,9 @@ export default function DashboardPage() {
                       : uiText.technicianDashboard.actions.complete}
                   </button>
                 </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </aside>
@@ -6757,27 +7086,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="admin-app-bar-center">
-          <div className="admin-primary-tabs" role="tablist" aria-label="Secciones principales">
-            {Object.entries(dashboardTabs).map(([key, value]) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={activeTopLevelTab === value}
-                className={
-                  activeTopLevelTab === value
-                    ? "admin-primary-tab admin-primary-tab-active"
-                    : "admin-primary-tab"
-                }
-                onClick={() => setActiveTopLevelTab(value)}
-              >
-                {uiText.dashboard.topTabs[key]}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="admin-app-bar-actions">
           <div className="admin-summary-bar" aria-label="Resumen operativo">
             <span className="admin-summary-chip">
@@ -6795,11 +7103,6 @@ export default function DashboardPage() {
           </div>
 
           <div className="admin-header-actions">
-            <div className="admin-user">
-              <span className="admin-user-label">{uiText.common.loggedInAs}</span>
-              <strong>{userProfile?.full_name || userEmail}</strong>
-            </div>
-
             <button
               className="button"
               type="button"
@@ -6816,15 +7119,32 @@ export default function DashboardPage() {
         className={
           activeTopLevelTab === dashboardTabs.calendar
             ? serviceOrderPanelStage === "operational"
-              ? "admin-content admin-content-operational-edit"
+              ? `admin-content admin-content-operational-edit${
+                  isSidebarCollapsed ? " admin-content-sidebar-collapsed" : ""
+                }`
               : serviceOrderPanelStage === "detail"
-                ? "admin-content admin-content-operational-detail"
-                : "admin-content admin-content-two-column"
-            : "admin-content admin-content-two-column"
+                ? `admin-content admin-content-operational-detail${
+                    isSidebarCollapsed ? " admin-content-sidebar-collapsed" : ""
+                  }`
+                : `admin-content admin-content-two-column${
+                    isSidebarCollapsed ? " admin-content-sidebar-collapsed" : ""
+                  }`
+            : `admin-content admin-content-two-column${
+                isSidebarCollapsed ? " admin-content-sidebar-collapsed" : ""
+              }`
         }
       >
         {activeTopLevelTab === dashboardTabs.calendar ? (
-        <aside className="operations-panel">
+        <aside
+          className={
+            isSidebarCollapsed
+              ? "operations-panel operations-panel-collapsed"
+              : "operations-panel"
+          }
+        >
+          {renderSidebarNavigation()}
+          {!isSidebarCollapsed ? (
+          <div className="workspace-sidebar-content">
           <div className="operations-inbox">
             <div className="operations-inbox-header">
               <div>
@@ -6841,6 +7161,7 @@ export default function DashboardPage() {
               ) : (
                 pendingOrders.map((serviceOrder) => {
                   const isPendingToday = serviceOrder.service_date === getTodayDateString();
+                  const serviceLocation = resolveEffectiveServiceLocation(serviceOrder);
 
                   return (
                     <div
@@ -6868,6 +7189,7 @@ export default function DashboardPage() {
                         onDragEnd={handleBacklogDragEnd}
                       >
                         <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
+                        <span>{serviceLocation.name || uiText.dashboard.branchEmpty}</span>
                         <span>
                           {formatDisplayTime(serviceOrder.service_time)} ·{" "}
                           {getTechnicianDisplayName(serviceOrder.technician_name)}
@@ -6997,12 +7319,23 @@ export default function DashboardPage() {
               </label>
             </div>
           )}
-
+          </div>
+          ) : null}
+          {renderSidebarFooter()}
         </aside>
         ) : null}
 
         {activeTopLevelTab === dashboardTabs.clients ? (
-          <aside className="operations-panel">
+          <aside
+            className={
+              isSidebarCollapsed
+                ? "operations-panel operations-panel-collapsed"
+                : "operations-panel"
+            }
+          >
+            {renderSidebarNavigation()}
+            {!isSidebarCollapsed ? (
+            <div className="workspace-sidebar-content">
             <div className="operations-divider">
               <span className="control-group-label">{uiText.dashboard.topTabs.clients}</span>
             </div>
@@ -7042,11 +7375,23 @@ export default function DashboardPage() {
                 </select>
               </label>
             </div>
+            </div>
+            ) : null}
+            {renderSidebarFooter()}
           </aside>
         ) : null}
 
         {activeTopLevelTab === dashboardTabs.technicians ? (
-          <aside className="operations-panel">
+          <aside
+            className={
+              isSidebarCollapsed
+                ? "operations-panel operations-panel-collapsed"
+                : "operations-panel"
+            }
+          >
+            {renderSidebarNavigation()}
+            {!isSidebarCollapsed ? (
+            <div className="workspace-sidebar-content">
             <div className="operations-divider">
               <span className="control-group-label">{uiText.dashboard.topTabs.technicians}</span>
             </div>
@@ -7105,11 +7450,23 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+            </div>
+            ) : null}
+            {renderSidebarFooter()}
           </aside>
         ) : null}
 
         {activeTopLevelTab === dashboardTabs.settings ? (
-          <aside className="operations-panel">
+          <aside
+            className={
+              isSidebarCollapsed
+                ? "operations-panel operations-panel-collapsed"
+                : "operations-panel"
+            }
+          >
+            {renderSidebarNavigation()}
+            {!isSidebarCollapsed ? (
+            <div className="workspace-sidebar-content">
             <div className="operations-divider">
               <span className="control-group-label">{uiText.dashboard.topTabs.settings}</span>
             </div>
@@ -7132,6 +7489,9 @@ export default function DashboardPage() {
                 {uiText.dashboard.settingsNav.notifications}
               </button>
             </div>
+            </div>
+            ) : null}
+            {renderSidebarFooter()}
           </aside>
         ) : null}
 
@@ -7375,7 +7735,7 @@ export default function DashboardPage() {
               error={calendarError}
               onSelectServiceOrder={handleSelectServiceOrder}
               getClientDisplayName={getClientDisplayName}
-              getBranchDisplayName={getBranchDisplayName}
+              resolveEffectiveServiceLocation={resolveEffectiveServiceLocation}
               formatServiceDate={formatServiceDate}
             />
           ) : null}
@@ -8046,7 +8406,7 @@ export default function DashboardPage() {
                           disabled={
                             isSavingDetail || isBranchesLoading || !detailFormState.clientId
                           }
-                          required
+                          required={!detailFormState.isOneOffLocation}
                         >
                           <option value="">
                             {isBranchesLoading
@@ -8142,6 +8502,85 @@ export default function DashboardPage() {
                         ))}
                       </select>
                     </label>
+
+                    <div className="service-order-inline-row workspace-field-wide">
+                      <label className="workspace-checkbox workspace-checkbox-compact service-order-inline-checkbox">
+                        <input
+                          name="isOneOffLocation"
+                          type="checkbox"
+                          checked={detailFormState.isOneOffLocation}
+                          onChange={handleDetailFormChange}
+                          disabled={isSavingDetail}
+                        />
+                        <span>{uiText.serviceOrder.fields.useOneOffLocation}</span>
+                      </label>
+                      <div className="service-order-inline-meta">
+                        <strong>
+                          {detailFormState.isOneOffLocation
+                            ? "Ubicacion unica de esta visita"
+                            : "Usando ubicacion guardada"}
+                        </strong>
+                        <small className="detail-subcopy">
+                          {uiText.serviceOrder.oneOffLocationDescription}
+                        </small>
+                      </div>
+                    </div>
+
+                    {detailFormState.isOneOffLocation ? (
+                      <>
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.oneOffLocationName}</span>
+                          <input
+                            name="serviceLocationName"
+                            type="text"
+                            value={detailFormState.serviceLocationName}
+                            onChange={handleDetailFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.oneOffLocationName}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>{uiText.serviceOrder.fields.oneOffLocationAddress}</span>
+                          <textarea
+                            name="serviceLocationAddress"
+                            value={detailFormState.serviceLocationAddress}
+                            onChange={handleDetailFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.oneOffLocationAddress}
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.oneOffLocationPhone}</span>
+                          <input
+                            name="serviceLocationPhone"
+                            type="text"
+                            value={detailFormState.serviceLocationPhone}
+                            onChange={handleDetailFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.oneOffLocationPhone}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.oneOffLocationContact}</span>
+                          <input
+                            name="serviceLocationContact"
+                            type="text"
+                            value={detailFormState.serviceLocationContact}
+                            onChange={handleDetailFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.oneOffLocationContact}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
+
+                        <p className="detail-subcopy workspace-field-wide">
+                          {uiText.serviceOrder.oneOffLocationHint}
+                        </p>
+                      </>
+                    ) : null}
 
                     {isSelectedServiceOrderOverdue ? (
                       <div className="detail-overdue-box detail-overdue-box-inline service-order-inline-alert">
@@ -8300,9 +8739,15 @@ export default function DashboardPage() {
                     disabled={
                       isSavingDetail ||
                       isTechniciansLoading ||
-                      (!isResidentialDetailClient &&
+                      (!detailFormState.isOneOffLocation &&
+                        !isResidentialDetailClient &&
                         !detailFormState.branchId &&
                         detailAvailableBranches.length > 0) ||
+                      (!detailFormState.isOneOffLocation &&
+                        isResidentialDetailClient &&
+                        !preferredDetailResidentialBranch) ||
+                      (detailFormState.isOneOffLocation &&
+                        !detailFormState.serviceLocationAddress.trim()) ||
                       activeTechnicians.length === 0 ||
                       !detailFormState.technicianName
                     }
@@ -8319,7 +8764,7 @@ export default function DashboardPage() {
                   <div className="detail-identity-copy">
                     <span className="detail-sidebar-kicker">Resumen</span>
                     <strong>{getClientDisplayName(selectedOrder.clients)}</strong>
-                    <p>{getBranchDisplayName(selectedOrder.branches)}</p>
+                    <p>{selectedServiceLocation?.name || uiText.dashboard.branchEmpty}</p>
                   </div>
                   <div className="detail-identity-meta">
                     <span>{getTechnicianDisplayName(selectedOrder.technician_name)}</span>
@@ -8342,8 +8787,13 @@ export default function DashboardPage() {
                     </div>
                     <div className="detail-row">
                       <span>{uiText.dashboard.detailFields.branchName}</span>
-                      <strong>{getBranchDisplayName(selectedOrder.branches)}</strong>
-                      <p className="detail-subcopy">{getBranchSummary(selectedOrder.branches)}</p>
+                      <strong>{selectedServiceLocation?.name || uiText.dashboard.branchEmpty}</strong>
+                      <p className="detail-subcopy">{getServiceLocationSummary(selectedOrder)}</p>
+                      <small className="detail-subcopy">
+                        {selectedServiceLocation?.isOneOff
+                          ? "Ubicacion unica de esta visita"
+                          : "Ubicacion guardada"}
+                      </small>
                     </div>
                     <div className="detail-row">
                       <span>{uiText.dashboard.detailFields.createdAt}</span>

@@ -26,7 +26,7 @@ export default function ServiceListView({
   error,
   onSelectServiceOrder,
   getClientDisplayName,
-  getBranchDisplayName,
+  resolveEffectiveServiceLocation,
   formatServiceDate
 }) {
   return (
@@ -93,7 +93,10 @@ export default function ServiceListView({
                     <td>{formatServiceDate(serviceOrder.service_date)}</td>
                     <td>{formatDisplayTime(serviceOrder.service_time)}</td>
                     <td>{getClientDisplayName(serviceOrder.clients)}</td>
-                    <td>{getBranchDisplayName(serviceOrder.branches)}</td>
+                    <td>
+                      {resolveEffectiveServiceLocation(serviceOrder).name ||
+                        uiText.dashboard.branchEmpty}
+                    </td>
                     <td>
                       {serviceOrder.technician_name ||
                         uiText.dashboard.calendarTechnicianFallback}
