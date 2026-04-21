@@ -227,10 +227,10 @@ textarea {
 
 .admin-dashboard {
   min-height: 100vh;
-  padding: 28px;
+  padding: 24px;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 18px;
+  gap: 14px;
   background:
     radial-gradient(circle at top right, rgba(255, 255, 255, 0.66), transparent 22%),
     linear-gradient(180deg, #f8fafc 0%, var(--surface-app) 100%);
@@ -482,7 +482,7 @@ textarea {
 .admin-content {
   --sidebar-width-current: var(--sidebar-width-expanded);
   display: grid;
-  gap: 18px;
+  gap: 14px;
   align-items: stretch;
   min-height: calc(100vh - 180px);
 }
@@ -2637,10 +2637,10 @@ textarea {
   background: rgba(238, 245, 255, 0.64);
   border: 0;
   color: #102f5c;
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 0;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.048);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.044);
 }
 
 .rbc-event-content {
@@ -2674,9 +2674,9 @@ textarea {
 
 .calendar-event {
   display: block;
-  padding: 7px 9px;
+  padding: 6px 8px;
   font-size: 0.77rem;
-  line-height: 1.15;
+  line-height: 1.12;
   transition:
     transform 0.16s ease,
     background-color 0.16s ease,
@@ -2687,10 +2687,10 @@ textarea {
   display: grid;
   grid-template-columns: 3px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   height: 100%;
-  padding: 8px 11px;
+  padding: 6px 9px;
   box-sizing: border-box;
   container-type: size;
   position: relative;
@@ -2761,7 +2761,7 @@ textarea {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   min-height: 100%;
   padding-right: 30px;
 }
@@ -2782,14 +2782,14 @@ textarea {
 
 .calendar-event-week-line-primary {
   font-size: 0.8rem;
-  line-height: 1.14;
+  line-height: 1.1;
   letter-spacing: -0.01em;
   font-weight: 700;
 }
 
 .calendar-event-week-line-secondary {
   font-size: 0.67rem;
-  line-height: 1.15;
+  line-height: 1.1;
   color: color-mix(in srgb, currentColor 24%, #64748b 76%) !important;
   opacity: 0.78;
 }
@@ -2881,7 +2881,7 @@ textarea {
 }
 
 .rbc-time-view .rbc-event {
-  border-radius: 16px;
+  border-radius: 12px;
   overflow: hidden;
   padding-right: 2px;
   margin-left: 5px;
@@ -2893,7 +2893,7 @@ textarea {
 .rbc-time-view .rbc-event.calendar-event-shell-selected {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.86),
-    0 0 0 3px rgba(29, 78, 216, 0.09) !important;
+    0 0 0 2px rgba(29, 78, 216, 0.1) !important;
 }
 
 .rbc-time-view .rbc-event:hover {
@@ -2928,12 +2928,12 @@ textarea {
 }
 
 .rbc-time-view .calendar-event-week {
-  padding: 8px 11px;
+  padding: 6px 9px;
 }
 
 .rbc-time-view .calendar-event-week strong {
   font-size: 0.8rem;
-  line-height: 1.12;
+  line-height: 1.1;
   letter-spacing: -0.01em;
 }
 
