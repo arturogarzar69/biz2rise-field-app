@@ -487,9 +487,17 @@ textarea {
   gap: 8px;
   align-items: stretch;
   min-height: calc(100vh - 180px);
-  border-radius: var(--radius-lg);
-  background: transparent;
-  box-shadow: none;
+  padding: 8px;
+  border-radius: 28px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-sidebar) 88%, #ffffff 12%) 0%,
+      color-mix(in srgb, var(--surface-sidebar) 96%, var(--surface-base) 4%) 100%
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 18px 48px rgba(15, 23, 42, 0.05);
 }
 
 .admin-content-sidebar-collapsed {
@@ -524,12 +532,20 @@ textarea {
   min-width: 0;
   min-height: 0;
   padding: 16px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-workspace);
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 22px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-workspace) 70%, #ffffff 30%) 0%,
+      color-mix(in srgb, var(--surface-workspace) 92%, #ffffff 8%) 100%
+    );
   box-shadow:
-    -6px 0 12px rgba(15, 23, 42, 0.03),
-    0 1px 0 rgba(255, 255, 255, 0.68) inset,
-    0 14px 30px rgba(15, 23, 42, 0.028);
+    0 1px 0 rgba(255, 255, 255, 0.84) inset,
+    1px 1px 0 rgba(15, 23, 42, 0.025) inset,
+    -1px -1px 0 rgba(255, 255, 255, 0.5),
+    0 12px 24px rgba(15, 23, 42, 0.04),
+    0 2px 6px rgba(15, 23, 42, 0.018);
 }
 
 .main-workspace-surface-operational-idle {
@@ -582,8 +598,8 @@ textarea {
 }
 
 .operations-panel {
-  background: color-mix(in srgb, var(--surface-sidebar) 96%, var(--surface-base) 4%);
-  border: 1px solid rgba(221, 229, 238, 0.08);
+  background: transparent;
+  border: 1px solid transparent;
   box-shadow: none;
 }
 
