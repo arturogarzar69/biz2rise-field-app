@@ -16,6 +16,8 @@ import {
   getDay,
   addHours,
   addMinutes,
+  addMonths,
+  differenceInCalendarDays,
   differenceInMinutes
 } from "date-fns";
 import { es } from "date-fns/locale";
@@ -74,6 +76,8 @@ const initialFormState = {
   durationMinutes: 60,
   isRecurring: false,
   recurrenceType: "weekly",
+  recurrenceInterval: 1,
+  recurrenceDays: [],
   recurrenceEndDate: "",
   status: "scheduled",
   serviceInstructions: "",
@@ -258,6 +262,7 @@ const serviceOrderSelectQuery = `
   recurrence_end_date,
   recurrence_group_id,
   parent_service_order_id,
+  appointment_id,
   created_at,
   service_instructions,
   service_report,
@@ -285,7 +290,96 @@ const serviceOrderSelectQuery = `
   )
 `;
 
+const appointmentSelectQuery = `
+  id,
+  company_id,
+  series_id,
+  client_id,
+  branch_id,
+  technician_name,
+  title,
+  notes,
+  appointment_date,
+  appointment_time,
+  duration_minutes,
+  status,
+  confirmed_at,
+  cancelled_at,
+  converted_at,
+  service_order_id,
+  service_location_name,
+  service_location_address,
+  service_location_phone,
+  service_location_contact,
+  is_one_off_location,
+  created_at,
+  updated_at,
+  clients (
+    id,
+    name,
+    business_name,
+    trade_name
+  ),
+  branches (
+    id,
+    name,
+    address,
+    phone,
+    contact
+  )
+`;
+
+const appointmentSeriesSelectQuery = `
+  id,
+  company_id,
+  client_id,
+  branch_id,
+  technician_name,
+  title,
+  notes,
+  start_date,
+  start_time,
+  duration_minutes,
+  is_recurring,
+  recurrence_type,
+  recurrence_interval,
+  recurrence_days,
+  recurrence_end_date,
+  generated_through_date,
+  service_location_name,
+  service_location_address,
+  service_location_phone,
+  service_location_contact,
+  is_one_off_location,
+  status,
+  clients (
+    id,
+    name,
+    business_name,
+    trade_name
+  ),
+  branches (
+    id,
+    name,
+    address,
+    phone,
+    contact
+  )
+`;
+
 const defaultExecutionStatus = "pending";
+const appointmentGenerationWindowDays = 45;
+const recurrenceWeekdayOptions = [
+  { value: "sunday", label: "Dom" },
+  { value: "monday", label: "Lun" },
+  { value: "tuesday", label: "Mar" },
+  { value: "wednesday", label: "Mie" },
+  { value: "thursday", label: "Jue" },
+  { value: "friday", label: "Vie" },
+  { value: "saturday", label: "Sab" }
+];
+const recurrenceWeekdayValues = recurrenceWeekdayOptions.map((dayOption) => dayOption.value);
+const weekdayOnlyValues = ["monday", "tuesday", "wednesday", "thursday", "friday"];
 
 function getOperationalRange(anchorDate) {
   const normalizedAnchorDate = startOfDay(anchorDate || new Date());
@@ -422,11 +516,293 @@ function generateSafeUuid() {
 function normalizeRecurrenceType(recurrenceType) {
   const normalizedType = String(recurrenceType || "").trim().toLowerCase();
 
-  if (["daily", "weekly", "biweekly", "monthly"].includes(normalizedType)) {
+  if (["daily", "weekly", "biweekly", "monthly", "weekdays", "custom"].includes(normalizedType)) {
     return normalizedType;
   }
 
   return defaultRecurrenceType;
+}
+
+function normalizeRecurrenceInterval(recurrenceInterval) {
+  const parsedInterval = Number(recurrenceInterval);
+
+  if (!Number.isFinite(parsedInterval) || parsedInterval <= 0) {
+    return 1;
+  }
+
+  return Math.max(1, Math.floor(parsedInterval));
+}
+
+function normalizeRecurrenceDays(recurrenceDays) {
+  if (!Array.isArray(recurrenceDays)) {
+    return [];
+  }
+
+  return recurrenceDays
+    .map((recurrenceDay) => String(recurrenceDay || "").trim().toLowerCase())
+    .filter((recurrenceDay) => recurrenceWeekdayValues.includes(recurrenceDay));
+}
+
+function getWeekdayNameFromDate(date) {
+  if (!date || !isValid(date)) {
+    return "";
+  }
+
+  return recurrenceWeekdayValues[getDay(date)];
+}
+
+function parseDateOnly(dateValue) {
+  return parse(dateValue, "yyyy-MM-dd", new Date());
+}
+
+function formatDateOnly(dateValue) {
+  return format(dateValue, "yyyy-MM-dd");
+}
+
+function isSameOrBeforeDate(leftDate, rightDate) {
+  return startOfDay(leftDate).getTime() <= startOfDay(rightDate).getTime();
+}
+
+function getAppointmentGenerationEndDate(startDateValue, recurrenceEndDateValue = "") {
+  const todayWindowEnd = addDays(startOfDay(new Date()), appointmentGenerationWindowDays);
+  const startDate = parseDateOnly(startDateValue);
+  const windowEnd = todayWindowEnd.getTime() > startDate.getTime() ? todayWindowEnd : startDate;
+  const recurrenceEndDate = recurrenceEndDateValue ? parseDateOnly(recurrenceEndDateValue) : null;
+
+  if (recurrenceEndDate && isValid(recurrenceEndDate) && recurrenceEndDate.getTime() < windowEnd.getTime()) {
+    return recurrenceEndDate;
+  }
+
+  return windowEnd;
+}
+
+function expandRecurringAppointmentDates({
+  startDateValue,
+  recurrenceType,
+  recurrenceInterval,
+  recurrenceDays,
+  recurrenceEndDateValue = "",
+  rangeStartValue = null,
+  rangeEndValue
+}) {
+  const startDate = parseDateOnly(startDateValue);
+
+  if (!isValid(startDate)) {
+    return [];
+  }
+
+  const normalizedRecurrenceType = normalizeRecurrenceType(recurrenceType);
+  const normalizedRecurrenceInterval = normalizeRecurrenceInterval(recurrenceInterval);
+  const rangeStart = rangeStartValue ? parseDateOnly(rangeStartValue) : startDate;
+  const rangeEnd = parseDateOnly(rangeEndValue);
+  const recurrenceEndDate = recurrenceEndDateValue ? parseDateOnly(recurrenceEndDateValue) : null;
+  const endDate =
+    recurrenceEndDate && isValid(recurrenceEndDate) && recurrenceEndDate.getTime() < rangeEnd.getTime()
+      ? recurrenceEndDate
+      : rangeEnd;
+  const occurrenceDates = [];
+  const pushDateIfInWindow = (dateValue) => {
+    if (
+      isValid(dateValue) &&
+      isSameOrBeforeDate(startDate, dateValue) &&
+      isSameOrBeforeDate(rangeStart, dateValue) &&
+      isSameOrBeforeDate(dateValue, endDate)
+    ) {
+      occurrenceDates.push(formatDateOnly(dateValue));
+    }
+  };
+
+  if (!isValid(rangeStart) || !isValid(rangeEnd) || rangeEnd.getTime() < startDate.getTime()) {
+    return [];
+  }
+
+  if (normalizedRecurrenceType === "monthly") {
+    let cursor = startDate;
+
+    while (isSameOrBeforeDate(cursor, endDate)) {
+      pushDateIfInWindow(cursor);
+      cursor = addMonths(cursor, normalizedRecurrenceInterval);
+    }
+
+    return [...new Set(occurrenceDates)];
+  }
+
+  const selectedDays =
+    normalizedRecurrenceType === "weekdays"
+      ? weekdayOnlyValues
+      : normalizeRecurrenceDays(recurrenceDays);
+  const weeklyDays =
+    selectedDays.length > 0 ? selectedDays : [getWeekdayNameFromDate(startDate)];
+  let cursor = startDate;
+
+  while (isSameOrBeforeDate(cursor, endDate)) {
+    const daysSinceStart = differenceInCalendarDays(cursor, startDate);
+    const fullWeeksSinceStart = Math.floor(daysSinceStart / 7);
+    const isMatchingDailyInterval =
+      normalizedRecurrenceType === "daily" && daysSinceStart % normalizedRecurrenceInterval === 0;
+    const isMatchingWeekday = normalizedRecurrenceType === "weekdays" && weekdayOnlyValues.includes(getWeekdayNameFromDate(cursor));
+    const isMatchingWeeklyInterval =
+      ["weekly", "biweekly", "custom"].includes(normalizedRecurrenceType) &&
+      fullWeeksSinceStart % (normalizedRecurrenceType === "biweekly" ? 2 : normalizedRecurrenceInterval) === 0 &&
+      weeklyDays.includes(getWeekdayNameFromDate(cursor));
+
+    if (isMatchingDailyInterval || isMatchingWeekday || isMatchingWeeklyInterval) {
+      pushDateIfInWindow(cursor);
+    }
+
+    cursor = addDays(cursor, 1);
+  }
+
+  return [...new Set(occurrenceDates)];
+}
+
+function expandRecurringAppointments(orderState) {
+  const endDate = getAppointmentGenerationEndDate(
+    orderState.serviceDate,
+    orderState.recurrenceEndDate
+  );
+
+  return expandRecurringAppointmentDates({
+    startDateValue: orderState.serviceDate,
+    recurrenceType: orderState.recurrenceType,
+    recurrenceInterval: orderState.recurrenceInterval,
+    recurrenceDays: orderState.recurrenceDays,
+    recurrenceEndDateValue: orderState.recurrenceEndDate,
+    rangeStartValue: orderState.serviceDate,
+    rangeEndValue: formatDateOnly(endDate)
+  });
+}
+
+function buildAppointmentBasePayload({
+  activeCompanyId,
+  orderState,
+  selectedClient,
+  resolvedBranchId,
+  recurrenceSeriesId = null,
+  appointmentDate
+}) {
+  return {
+    company_id: activeCompanyId,
+    series_id: recurrenceSeriesId,
+    client_id: orderState.clientId,
+    branch_id: resolvedBranchId,
+    technician_name: orderState.technicianName.trim(),
+    title: getClientDisplayName(selectedClient),
+    notes: orderState.serviceInstructions || orderState.notes || null,
+    appointment_date: appointmentDate || orderState.serviceDate,
+    appointment_time: orderState.serviceTime.trim(),
+    duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
+    status: "tentative",
+    ...buildServiceLocationOverridePayload(orderState)
+  };
+}
+
+function buildAppointmentSeriesPayload({
+  activeCompanyId,
+  orderState,
+  selectedClient,
+  resolvedBranchId,
+  generatedThroughDate
+}) {
+  const recurrenceType = normalizeRecurrenceType(orderState.recurrenceType);
+  const recurrenceDays =
+    recurrenceType === "weekdays"
+      ? weekdayOnlyValues
+      : normalizeRecurrenceDays(orderState.recurrenceDays);
+
+  return {
+    company_id: activeCompanyId,
+    client_id: orderState.clientId,
+    branch_id: resolvedBranchId,
+    technician_name: orderState.technicianName.trim(),
+    title: getClientDisplayName(selectedClient),
+    notes: orderState.serviceInstructions || orderState.notes || null,
+    start_date: orderState.serviceDate,
+    start_time: orderState.serviceTime.trim(),
+    duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
+    is_recurring: true,
+    recurrence_type: recurrenceType,
+    recurrence_interval: normalizeRecurrenceInterval(orderState.recurrenceInterval),
+    recurrence_days: recurrenceDays,
+    recurrence_end_date: orderState.recurrenceEndDate || null,
+    generated_through_date: generatedThroughDate || orderState.serviceDate,
+    status: "active",
+    ...buildServiceLocationOverridePayload(orderState)
+  };
+}
+
+function buildAppointmentPayloadFromSeries({ activeCompanyId, series, appointmentDate }) {
+  return {
+    company_id: activeCompanyId,
+    series_id: series.id,
+    client_id: series.client_id,
+    branch_id: series.branch_id || null,
+    technician_name: series.technician_name || "",
+    title: series.title || getClientDisplayName(series.clients),
+    notes: series.notes || null,
+    appointment_date: appointmentDate,
+    appointment_time: series.start_time,
+    duration_minutes: resolveDurationMinutes(series.duration_minutes),
+    status: "tentative",
+    is_one_off_location: Boolean(series.is_one_off_location),
+    service_location_name: series.service_location_name || null,
+    service_location_address: series.service_location_address || null,
+    service_location_phone: series.service_location_phone || null,
+    service_location_contact: series.service_location_contact || null
+  };
+}
+
+function getSeriesMaterializationTargetDate(series) {
+  const targetHorizon = addDays(startOfDay(new Date()), appointmentGenerationWindowDays);
+  const recurrenceEndDate = series?.recurrence_end_date
+    ? parseDateOnly(series.recurrence_end_date)
+    : null;
+
+  if (
+    recurrenceEndDate &&
+    isValid(recurrenceEndDate) &&
+    recurrenceEndDate.getTime() < targetHorizon.getTime()
+  ) {
+    return recurrenceEndDate;
+  }
+
+  return targetHorizon;
+}
+
+function shouldExtendAppointmentSeries(series) {
+  if (!series?.id || series.status !== "active" || !series.is_recurring) {
+    return false;
+  }
+
+  const targetDate = getSeriesMaterializationTargetDate(series);
+  const generatedThroughDate = series.generated_through_date
+    ? parseDateOnly(series.generated_through_date)
+    : null;
+
+  if (!isValid(targetDate)) {
+    return false;
+  }
+
+  if (!generatedThroughDate || !isValid(generatedThroughDate)) {
+    return true;
+  }
+
+  return generatedThroughDate.getTime() < targetDate.getTime();
+}
+
+function getSeriesExtensionRange(series) {
+  const targetDate = getSeriesMaterializationTargetDate(series);
+  const generatedThroughDate = series.generated_through_date
+    ? parseDateOnly(series.generated_through_date)
+    : null;
+  const startDate = series.generated_through_date && generatedThroughDate && isValid(generatedThroughDate)
+    ? addDays(generatedThroughDate, 1)
+    : parseDateOnly(series.start_date);
+
+  return {
+    startDate,
+    targetDate
+  };
 }
 
 function getRecurrenceFormState(serviceOrder) {
@@ -486,6 +862,7 @@ function transformServiceOrdersToEvents(serviceOrders) {
 
     return {
       id: serviceOrder.id,
+      type: "service_order",
       resource: serviceOrder,
       serviceOrder,
       title: clientName,
@@ -520,12 +897,173 @@ function transformServiceOrdersToEvents(serviceOrders) {
   });
 }
 
+function transformAppointmentsToEvents(appointments) {
+  return appointments.map((appointment) => {
+    const start = parseServiceOrderStart(
+      appointment.appointment_date,
+      appointment.appointment_time
+    );
+    const durationMinutes = resolveDurationMinutes(appointment.duration_minutes);
+    const end = addMinutes(start, durationMinutes);
+    const technicianColor = getTechnicianColorToken(appointment.technician_name);
+    const clientName = getClientDisplayName(appointment.clients);
+    const effectiveLocation = resolveEffectiveServiceLocation(appointment);
+    const branchName = effectiveLocation.name || uiText.dashboard.branchEmpty;
+    const title = appointment.title || clientName;
+    const status = appointment.status || "pending";
+    const isConvertedAppointment = Boolean(
+      appointment.service_order_id ||
+        appointment.converted_at ||
+        status === "confirmed" ||
+        status === "converted"
+    );
+
+    return {
+      id: `appointment-${appointment.id}`,
+      type: "appointment",
+      appointmentId: appointment.id,
+      resource: appointment,
+      appointment,
+      title,
+      clientName: title,
+      branchName,
+      locationAddress: effectiveLocation.address,
+      locationPhone: effectiveLocation.phone,
+      locationContact: effectiveLocation.contact,
+      isOneOffLocation: effectiveLocation.isOneOff,
+      technician: appointment.technician_name,
+      technicianDisplayName: getTechnicianDisplayName(appointment.technician_name),
+      status,
+      appointmentStatus: status,
+      serviceOrderId: appointment.service_order_id,
+      isConvertedAppointment,
+      isOverdue: false,
+      serviceDate: appointment.appointment_date,
+      serviceTime: appointment.appointment_time,
+      durationMinutes,
+      createdAt: appointment.created_at,
+      technicianColor,
+      tooltipText: [
+        "Cita",
+        appointment.service_order_id || appointment.converted_at ? "Convertida a orden" : null,
+        `Titulo: ${title || "-"}`,
+        `Cliente: ${clientName || "-"}`,
+        `Ubicacion: ${branchName || uiText.dashboard.branchEmpty}`,
+        `Tecnico: ${getTechnicianDisplayName(appointment.technician_name)}`,
+        `Hora: ${formatDisplayTime(appointment.appointment_time) || "-"} - ${
+          formatDisplayTime(format(end, "h:mm a").toUpperCase()) || "-"
+        }`,
+        `Duracion: ${durationMinutes} min`
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      start,
+      end
+    };
+  });
+}
+
+function transformProjectedAppointmentSeriesToEvents({
+  appointmentSeries,
+  appointments,
+  visibleRangeStart,
+  visibleRangeEnd
+}) {
+  const materializedAppointmentKeys = new Set(
+    (appointments || [])
+      .filter((appointment) => appointment.series_id)
+      .map(
+        (appointment) =>
+          `${appointment.series_id}::${appointment.appointment_date}::${appointment.appointment_time}`
+      )
+  );
+
+  return (appointmentSeries || []).flatMap((series) => {
+    if (series.status && series.status !== "active") {
+      return [];
+    }
+
+    const occurrenceDates = expandRecurringAppointmentDates({
+      startDateValue: series.start_date,
+      recurrenceType: series.recurrence_type,
+      recurrenceInterval: series.recurrence_interval,
+      recurrenceDays: series.recurrence_days,
+      recurrenceEndDateValue: series.recurrence_end_date,
+      rangeStartValue: formatDateOnly(visibleRangeStart),
+      rangeEndValue: formatDateOnly(visibleRangeEnd)
+    });
+
+    return occurrenceDates
+      .filter(
+        (appointmentDate) =>
+          !materializedAppointmentKeys.has(`${series.id}::${appointmentDate}::${series.start_time}`)
+      )
+      .map((appointmentDate) => {
+        const start = parseServiceOrderStart(appointmentDate, series.start_time);
+        const durationMinutes = resolveDurationMinutes(series.duration_minutes);
+        const end = addMinutes(start, durationMinutes);
+        const clientName = getClientDisplayName(series.clients);
+        const effectiveLocation = resolveEffectiveServiceLocation(series);
+        const branchName = effectiveLocation.name || uiText.dashboard.branchEmpty;
+        const title = series.title || clientName;
+
+        return {
+          id: `projected-${series.id}-${appointmentDate}-${String(series.start_time || "").replace(/\s+/g, "")}`,
+          type: "projected_appointment",
+          seriesId: series.id,
+          resource: series,
+          appointmentSeries: series,
+          title,
+          clientName: title,
+          branchName,
+          locationAddress: effectiveLocation.address,
+          locationPhone: effectiveLocation.phone,
+          locationContact: effectiveLocation.contact,
+          isOneOffLocation: effectiveLocation.isOneOff,
+          technician: series.technician_name,
+          technicianDisplayName: getTechnicianDisplayName(series.technician_name),
+          status: "projected",
+          appointmentStatus: "projected",
+          isProjectedAppointment: true,
+          isOverdue: false,
+          serviceDate: appointmentDate,
+          serviceTime: series.start_time,
+          durationMinutes,
+          createdAt: null,
+          technicianColor: getTechnicianColorToken(series.technician_name),
+          tooltipText: [
+            "Cita recurrente proyectada",
+            `Titulo: ${title || "-"}`,
+            `Cliente: ${clientName || "-"}`,
+            `Ubicacion: ${branchName || uiText.dashboard.branchEmpty}`,
+            `Tecnico: ${getTechnicianDisplayName(series.technician_name)}`,
+            `Hora: ${formatDisplayTime(series.start_time) || "-"} - ${
+              formatDisplayTime(format(end, "h:mm a").toUpperCase()) || "-"
+            }`,
+            `Duracion: ${durationMinutes} min`
+          ].join("\n"),
+          start,
+          end
+        };
+      });
+  });
+}
+
+function mergeCalendarEvents(serviceOrders, appointments, projectedAppointmentEvents = []) {
+  return [
+    ...transformServiceOrdersToEvents(serviceOrders || []),
+    ...transformAppointmentsToEvents(appointments || []),
+    ...projectedAppointmentEvents
+  ];
+}
+
 function getClientDisplayName(client) {
   if (!client) {
     return uiText.dashboard.detailFields.clientName;
   }
 
   return (
+    client.displayName ||
     client.trade_name ||
     client.business_name ||
     client.name ||
@@ -827,23 +1365,39 @@ function EventCard({
   onComplete
 }) {
   const isCompleted = event.status === "completed";
+  const isAppointment = event.type === "appointment";
+  const isProjectedAppointment = event.type === "projected_appointment";
+  const isCalendarAppointment = isAppointment || isProjectedAppointment;
 
   if (view === "month") {
     return (
       <div
         className={`calendar-event calendar-event-month${
           isSelected ? " calendar-event-selected" : ""
+        }${isCalendarAppointment ? " calendar-event-appointment" : ""}${
+          isProjectedAppointment ? " calendar-event-appointment-projected" : ""
         }`}
         title={event.tooltipText}
-        data-service-order-id={event.id}
+        data-calendar-event-id={event.id}
+        data-service-order-id={event.type === "service_order" ? event.id : undefined}
+        data-appointment-id={event.type === "appointment" ? event.appointmentId : undefined}
+        data-appointment-series-id={isProjectedAppointment ? event.seriesId : undefined}
         onClick={() => {
-          console.log("[Service Order Debug] EventCard onClick:", event);
+          console.log("[Calendar Event Debug] EventCard onClick:", event);
           onSelect?.(event);
         }}
       >
         <span
           className="calendar-event-dot"
-          style={{ backgroundColor: event.technicianColor.accent }}
+          style={{
+            backgroundColor: isCalendarAppointment
+              ? event.isConvertedAppointment
+                ? "#64748b"
+                : isProjectedAppointment
+                  ? "#cbd5e1"
+                  : "#94a3b8"
+              : event.technicianColor.accent
+          }}
         />
         {event.isOverdue ? <span className="calendar-event-overdue-dot" /> : null}
       </div>
@@ -854,14 +1408,22 @@ function EventCard({
     <div
       className={`calendar-event calendar-event-week${
         isSelected ? " calendar-event-selected" : ""
-      }${isCompleted ? " calendar-event-completed" : ""}`}
+      }${isCompleted ? " calendar-event-completed" : ""}${
+        isCalendarAppointment ? " calendar-event-appointment" : ""
+      }${
+        isProjectedAppointment ? " calendar-event-appointment-projected" : ""
+      }${event.isConvertedAppointment ? " calendar-event-appointment-converted" : ""}`}
       title={event.tooltipText}
-      data-service-order-id={event.id}
+      data-calendar-event-id={event.id}
+      data-service-order-id={event.type === "service_order" ? event.id : undefined}
+      data-appointment-id={event.type === "appointment" ? event.appointmentId : undefined}
+      data-appointment-series-id={isProjectedAppointment ? event.seriesId : undefined}
       onClick={() => {
-        console.log("[Service Order Debug] EventCard onClick:", event);
+        console.log("[Calendar Event Debug] EventCard onClick:", event);
         onSelect?.(event);
       }}
       >
+      {!isCalendarAppointment ? (
       <div className="calendar-event-quick-actions" aria-hidden={!isSelected}>
         <button
           type="button"
@@ -888,9 +1450,11 @@ function EventCard({
           <span aria-hidden="true">✓</span>
         </button>
       </div>
+      ) : null}
       <div className="calendar-event-week-accent" />
       <div className="calendar-event-week-copy">
         <strong className="calendar-event-week-line-primary">
+          {isProjectedAppointment ? "Proyectada: " : isAppointment ? "Cita: " : ""}
           {event.clientName} - {event.branchName || uiText.dashboard.branchEmpty}
         </strong>
         <span className="calendar-event-week-line-secondary">
@@ -971,7 +1535,11 @@ function CalendarEventWrapper({ children, event, onSelect }) {
   // metadata at the wrapper level so Month and Week can render differently.
   return cloneElement(children, {
     title: event.tooltipText,
-    "data-service-order-id": event.id,
+    "data-calendar-event-id": event.id,
+    "data-service-order-id": event.type === "service_order" ? event.id : undefined,
+    "data-appointment-id": event.type === "appointment" ? event.appointmentId : undefined,
+    "data-appointment-series-id":
+      event.type === "projected_appointment" ? event.seriesId : undefined,
     onMouseDownCapture: (nativeEvent) => {
       children.props.onMouseDownCapture?.(nativeEvent);
       handleMouseDownCapture(nativeEvent);
@@ -1355,8 +1923,8 @@ function WorkspacePanel({
                     </strong>
                     <small className="detail-subcopy">
                       {formState.isRecurring
-                        ? "Guarda la configuracion recurrente para este servicio. Las siguientes visitas aun no se crean automaticamente."
-                        : "Activalo solo si este servicio debe repetirse. Por ahora no genera visitas futuras automaticamente."}
+                        ? "Se crearan citas visibles para los proximos 45 dias, respetando la fecha final si la defines."
+                        : "Crea una sola cita en el horario seleccionado."}
                     </small>
                   </div>
                 </div>
@@ -1381,14 +1949,53 @@ function WorkspacePanel({
                         <option value="weekly">
                           {uiText.serviceOrder.recurrenceOptions.weekly}
                         </option>
-                        <option value="biweekly">
-                          {uiText.serviceOrder.recurrenceOptions.biweekly}
+                        <option value="weekdays">
+                          Dias laborales
                         </option>
                         <option value="monthly">
                           {uiText.serviceOrder.recurrenceOptions.monthly}
                         </option>
+                        <option value="custom">
+                          Personalizado
+                        </option>
                       </select>
                     </label>
+
+                    <label className="workspace-input-group">
+                      <span>Intervalo</span>
+                      <input
+                        name="recurrenceInterval"
+                        type="number"
+                        min="1"
+                        value={formState.recurrenceInterval}
+                        onChange={onFormChange}
+                        disabled={isSavingOrder || formState.recurrenceType === "weekdays"}
+                      />
+                    </label>
+
+                    {["weekly", "custom"].includes(formState.recurrenceType) ? (
+                      <div className="workspace-field-wide service-order-location-type">
+                        <span>Dias</span>
+                        <div className="service-order-location-options">
+                          {recurrenceWeekdayOptions.map((dayOption) => (
+                            <label
+                              key={dayOption.value}
+                              className="service-order-location-option"
+                            >
+                              <input
+                                name="recurrenceDays"
+                                type="checkbox"
+                                value={dayOption.value}
+                                checked={formState.recurrenceDays.includes(dayOption.value)}
+                                onChange={onFormChange}
+                                disabled={isSavingOrder}
+                              />
+                              <span>{dayOption.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <label className="workspace-input-group">
                       <span>{uiText.serviceOrder.fields.recurrenceEndDate}</span>
@@ -1494,7 +2101,7 @@ function WorkspacePanel({
                   !formState.technicianName
                 }
               >
-                {isSavingOrder ? uiText.serviceOrder.saving : uiText.serviceOrder.save}
+                {isSavingOrder ? "Guardando cita..." : "Crear cita"}
               </button>
             </div>
           </div>
@@ -2191,7 +2798,8 @@ export default function DashboardPage() {
   const [isProfileResolved, setIsProfileResolved] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [serviceOrders, setServiceOrders] = useState([]);
-  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [appointmentSeries, setAppointmentSeries] = useState([]);
   const [calendarError, setCalendarError] = useState("");
   const [calendarActionMessage, setCalendarActionMessage] = useState("");
   const [calendarActionError, setCalendarActionError] = useState("");
@@ -2216,6 +2824,7 @@ export default function DashboardPage() {
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [selectedServiceOrderId, setSelectedServiceOrderId] = useState(null);
   const [selectedServiceOrderSnapshot, setSelectedServiceOrderSnapshot] = useState(null);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [rightPanelMode, setRightPanelMode] = useState(rightPanelModes.empty);
   const [activeTab] = useState(uiText.tabs.newServiceOrder);
   const [clients, setClients] = useState([]);
@@ -2299,12 +2908,14 @@ export default function DashboardPage() {
   const [detailFormMessage, setDetailFormMessage] = useState("");
   const [detailFormError, setDetailFormError] = useState("");
   const [isSavingDetail, setIsSavingDetail] = useState(false);
+  const [isConfirmingAppointment, setIsConfirmingAppointment] = useState(false);
   const [isConfirmingDeleteServiceOrder, setIsConfirmingDeleteServiceOrder] = useState(false);
   const [isDeletingServiceOrder, setIsDeletingServiceOrder] = useState(false);
   const detailDateInputRef = useRef(null);
   const createServiceOrderClientSelectRef = useRef(null);
   const draggedBacklogServiceOrderRef = useRef(null);
   const externalDragCleanupTimeoutRef = useRef(null);
+  const extendedAppointmentSeriesRef = useRef(new Set());
   const calendarPointerStateRef = useRef({
     serviceOrderId: null,
     x: 0,
@@ -2332,6 +2943,20 @@ export default function DashboardPage() {
   const selectedServiceLocation = selectedServiceOrder
     ? resolveEffectiveServiceLocation(selectedServiceOrder)
     : null;
+  const selectedAppointmentLocation = selectedAppointment
+    ? resolveEffectiveServiceLocation(selectedAppointment)
+    : null;
+  const selectedAppointmentLinkedServiceOrder = selectedAppointment?.service_order_id
+    ? serviceOrders.find(
+        (serviceOrder) => serviceOrder.id === selectedAppointment.service_order_id
+      ) || null
+    : null;
+  const isSelectedAppointmentConverted = Boolean(
+    selectedAppointment?.service_order_id ||
+      selectedAppointment?.converted_at ||
+      selectedAppointment?.status === "confirmed" ||
+      selectedAppointment?.status === "converted"
+  );
   const isEditingServiceOrder =
     activeTopLevelTab === dashboardTabs.calendar && rightPanelMode === rightPanelModes.edit;
   const isCreateServiceOrderMode =
@@ -2340,10 +2965,14 @@ export default function DashboardPage() {
     activeTopLevelTab === dashboardTabs.calendar &&
     rightPanelMode === rightPanelModes.detail &&
     Boolean(selectedServiceOrder);
+  const isAppointmentDetailMode =
+    activeTopLevelTab === dashboardTabs.calendar &&
+    rightPanelMode === rightPanelModes.detail &&
+    Boolean(selectedAppointment);
   const isFocusedServiceOrderPanel = isCreateServiceOrderMode || isEditingServiceOrder;
   const serviceOrderPanelStage = isFocusedServiceOrderPanel
     ? "operational"
-    : isServiceOrderDetailMode
+    : isServiceOrderDetailMode || isAppointmentDetailMode
       ? "detail"
       : "idle";
   const createServiceOrderContext =
@@ -2360,6 +2989,44 @@ export default function DashboardPage() {
   const selectedTechnicianOrder =
     technicianOrders.find((serviceOrder) => serviceOrder.id === selectedTechnicianOrderId) ||
     null;
+  const viewMode = calendarView === "month" ? "month" : "week";
+  const focusedDate = calendarDate;
+  const visibleCalendarRange = useMemo(() => {
+    if (calendarView === "month") {
+      return {
+        start: startOfWeek(startOfDay(focusedDate), { weekStartsOn: 0 }),
+        end: addDays(startOfWeek(startOfDay(focusedDate), { weekStartsOn: 0 }), 41)
+      };
+    }
+
+    if (calendarView === operationalCalendarView) {
+      const operationalRange = getOperationalRange(focusedDate);
+
+      return {
+        start: operationalRange[0],
+        end: operationalRange[operationalRange.length - 1]
+      };
+    }
+
+    return {
+      start: startOfWeek(startOfDay(focusedDate), { weekStartsOn: 0 }),
+      end: addDays(startOfWeek(startOfDay(focusedDate), { weekStartsOn: 0 }), 6)
+    };
+  }, [calendarView, focusedDate]);
+  const projectedAppointmentEvents = useMemo(
+    () =>
+      transformProjectedAppointmentSeriesToEvents({
+        appointmentSeries,
+        appointments,
+        visibleRangeStart: visibleCalendarRange.start,
+        visibleRangeEnd: visibleCalendarRange.end
+      }),
+    [appointmentSeries, appointments, visibleCalendarRange]
+  );
+  const calendarEvents = useMemo(
+    () => mergeCalendarEvents(serviceOrders, appointments, projectedAppointmentEvents),
+    [appointments, projectedAppointmentEvents, serviceOrders]
+  );
   const technicianLegendItems = Array.from(
     new Map(
       [
@@ -2450,7 +3117,8 @@ export default function DashboardPage() {
         }),
     [hasActiveTechnicianFilter, selectedCalendarTechnicianSet, serviceOrders]
   );
-  const hasExistingServiceOrderData = serviceOrders.length > 0 || calendarEvents.length > 0;
+  const hasExistingServiceOrderData =
+    serviceOrders.length > 0 || appointments.length > 0 || calendarEvents.length > 0;
   const shouldKeepCalendarVisibleDuringRefresh =
     isServiceOrdersLoading && hasExistingServiceOrderData;
   const shouldRenderCalendarContent =
@@ -2641,6 +3309,8 @@ export default function DashboardPage() {
       ? "Orden de servicio"
       : rightPanelMode === rightPanelModes.edit
         ? "Orden de servicio"
+        : selectedAppointment
+          ? "Cita"
         : selectedServiceOrder
           ? "Orden de servicio"
           : uiText.dashboard.detailTitle;
@@ -2649,6 +3319,8 @@ export default function DashboardPage() {
       ? uiText.serviceOrder.title
       : rightPanelMode === rightPanelModes.edit
         ? "Editar orden de servicio"
+        : selectedAppointment
+          ? getClientDisplayName(selectedAppointment.clients)
         : selectedServiceOrder
           ? getClientDisplayName(selectedServiceOrder.clients)
           : uiText.dashboard.detailTitle;
@@ -2657,6 +3329,10 @@ export default function DashboardPage() {
       ? "Completa los datos para programar un nuevo servicio."
       : rightPanelMode === rightPanelModes.edit
         ? "Ajusta programacion, estado y la configuracion de recurrencia sin salir del calendario. Las visitas futuras aun no se generan automaticamente."
+        : selectedAppointment
+          ? `${selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty} · ${formatServiceDate(
+              selectedAppointment.appointment_date
+            )} · ${formatDisplayTime(selectedAppointment.appointment_time)}`
         : selectedServiceOrder
           ? `${selectedServiceLocation?.name || uiText.dashboard.branchEmpty} · ${formatServiceDate(
               selectedServiceOrder.service_date
@@ -2789,8 +3465,6 @@ export default function DashboardPage() {
       )
     : false;
   const selectedOrder = selectedServiceOrder;
-  const viewMode = calendarView === "month" ? "month" : "week";
-  const focusedDate = calendarDate;
   const pendingOrders = backlogServiceOrders;
   const todayOrdersCount = useMemo(
     () =>
@@ -2892,13 +3566,158 @@ export default function DashboardPage() {
     return data;
   };
 
+  const extendAppointmentSeriesWindow = async ({ supabase, companyId, series }) => {
+    if (!supabase || !companyId || !shouldExtendAppointmentSeries(series)) {
+      return {
+        series,
+        appointments: []
+      };
+    }
+
+    const { startDate, targetDate } = getSeriesExtensionRange(series);
+
+    if (!isValid(startDate) || !isValid(targetDate) || targetDate.getTime() < startDate.getTime()) {
+      return {
+        series,
+        appointments: []
+      };
+    }
+
+    const occurrenceDates = expandRecurringAppointmentDates({
+      startDateValue: series.start_date,
+      recurrenceType: series.recurrence_type,
+      recurrenceInterval: series.recurrence_interval,
+      recurrenceDays: series.recurrence_days,
+      recurrenceEndDateValue: series.recurrence_end_date,
+      rangeStartValue: formatDateOnly(startDate),
+      rangeEndValue: formatDateOnly(targetDate)
+    });
+
+    if (occurrenceDates.length === 0) {
+      return {
+        series,
+        appointments: []
+      };
+    }
+
+    const { data: existingOccurrences, error: existingOccurrencesError } = await supabase
+      .from("appointments")
+      .select("appointment_date, appointment_time")
+      .eq("company_id", companyId)
+      .eq("series_id", series.id)
+      .gte("appointment_date", formatDateOnly(startDate))
+      .lte("appointment_date", formatDateOnly(targetDate));
+
+    if (existingOccurrencesError) {
+      throw existingOccurrencesError;
+    }
+
+    const existingOccurrenceKeys = new Set(
+      (existingOccurrences || []).map(
+        (appointment) => `${appointment.appointment_date}::${appointment.appointment_time}`
+      )
+    );
+    const occurrencePayloads = occurrenceDates
+      .map((appointmentDate) =>
+        buildAppointmentPayloadFromSeries({
+          activeCompanyId: companyId,
+          series,
+          appointmentDate
+        })
+      )
+      .filter(
+        (appointmentPayload) =>
+          !existingOccurrenceKeys.has(
+            `${appointmentPayload.appointment_date}::${appointmentPayload.appointment_time}`
+          )
+      );
+
+    const { data: createdAppointments, error: createdAppointmentsError } = occurrencePayloads.length
+      ? await supabase
+          .from("appointments")
+          .insert(occurrencePayloads)
+          .select(appointmentSelectQuery)
+      : { data: [], error: null };
+
+    if (createdAppointmentsError) {
+      throw createdAppointmentsError;
+    }
+
+    const generatedThroughDate =
+      occurrenceDates[occurrenceDates.length - 1] || series.generated_through_date;
+    const { data: updatedSeries, error: updatedSeriesError } = await supabase
+      .from("appointment_series")
+      .update({ generated_through_date: generatedThroughDate })
+      .select(appointmentSeriesSelectQuery)
+      .eq("id", series.id)
+      .eq("company_id", companyId)
+      .single();
+
+    if (updatedSeriesError) {
+      throw updatedSeriesError;
+    }
+
+    return {
+      series: updatedSeries || {
+        ...series,
+        generated_through_date: generatedThroughDate
+      },
+      appointments: createdAppointments || []
+    };
+  };
+
+  const ensureAppointmentSeriesMaterializedThrough = async ({
+    supabase,
+    companyId,
+    appointmentSeries
+  }) => {
+    const targetDate = formatDateOnly(addDays(startOfDay(new Date()), appointmentGenerationWindowDays));
+    const nextSeries = [];
+    const createdAppointments = [];
+
+    for (const series of appointmentSeries || []) {
+      const extensionKey = `${series.id}:${targetDate}`;
+
+      if (!shouldExtendAppointmentSeries(series) || extendedAppointmentSeriesRef.current.has(extensionKey)) {
+        nextSeries.push(series);
+        continue;
+      }
+
+      try {
+        extendedAppointmentSeriesRef.current.add(extensionKey);
+        const extensionResult = await extendAppointmentSeriesWindow({
+          supabase,
+          companyId,
+          series
+        });
+
+        nextSeries.push(extensionResult.series || series);
+        createdAppointments.push(...(extensionResult.appointments || []));
+      } catch (error) {
+        extendedAppointmentSeriesRef.current.delete(extensionKey);
+        console.error("[Appointments Debug] appointment series extension error:", {
+          seriesId: series.id,
+          error
+        });
+        nextSeries.push(series);
+      }
+    }
+
+    return {
+      appointmentSeries: nextSeries,
+      appointments: createdAppointments
+    };
+  };
+
   const fetchServiceOrders = async (supabase, companyId) => {
     if (!companyId) {
       setServiceOrders([]);
-      setCalendarEvents([]);
+      setAppointments([]);
+      setAppointmentSeries([]);
       setCalendarError("");
       setSelectedServiceOrderId(null);
       setSelectedServiceOrderSnapshot(null);
+      setSelectedAppointment(null);
       setIsServiceOrdersLoading(false);
       return;
     }
@@ -2921,8 +3740,51 @@ export default function DashboardPage() {
       throw error;
     }
 
+    const { data: appointments, error: appointmentsError } = await supabase
+      .from("appointments")
+      .select(appointmentSelectQuery)
+      .eq("company_id", companyId)
+      .order("appointment_date", { ascending: true })
+      .order("appointment_time", { ascending: true });
+
+    if (appointmentsError) {
+      setIsServiceOrdersLoading(false);
+      console.error("[Appointments Debug] fetch appointments error:", appointmentsError);
+      throw appointmentsError;
+    }
+
+    const { data: appointmentSeries, error: appointmentSeriesError } = await supabase
+      .from("appointment_series")
+      .select(appointmentSeriesSelectQuery)
+      .eq("company_id", companyId)
+      .eq("status", "active")
+      .order("start_date", { ascending: true })
+      .order("start_time", { ascending: true });
+
+    if (appointmentSeriesError) {
+      setIsServiceOrdersLoading(false);
+      console.error("[Appointments Debug] fetch appointment series error:", appointmentSeriesError);
+      throw appointmentSeriesError;
+    }
+
+    const extensionResult = await ensureAppointmentSeriesMaterializedThrough({
+      supabase,
+      companyId,
+      appointmentSeries: appointmentSeries || []
+    });
+    const nextAppointments = [
+      ...(appointments || []),
+      ...(extensionResult.appointments || [])
+    ].sort((left, right) => {
+      const leftStart = parseServiceOrderStart(left.appointment_date, left.appointment_time);
+      const rightStart = parseServiceOrderStart(right.appointment_date, right.appointment_time);
+
+      return leftStart.getTime() - rightStart.getTime();
+    });
+
     setServiceOrders(serviceOrders || []);
-    setCalendarEvents(transformServiceOrdersToEvents(serviceOrders || []));
+    setAppointments(nextAppointments);
+    setAppointmentSeries(extensionResult.appointmentSeries || appointmentSeries || []);
     setCalendarError("");
     setSelectedServiceOrderSnapshot((currentSnapshot) => {
       if (!currentSnapshot?.id) {
@@ -3218,7 +4080,6 @@ export default function DashboardPage() {
         return currentServiceOrders;
       }
 
-      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
       setSelectedServiceOrderSnapshot((currentSnapshot) =>
         currentSnapshot?.id === serviceOrderId
           ? {
@@ -3278,7 +4139,6 @@ export default function DashboardPage() {
         return leftStart.getTime() - rightStart.getTime();
       });
 
-      setCalendarEvents(transformServiceOrdersToEvents(nextServiceOrders));
       setSelectedServiceOrderSnapshot((currentSnapshot) =>
         currentSnapshot?.id === nextServiceOrder.id
           ? {
@@ -3440,6 +4300,177 @@ export default function DashboardPage() {
       onSuccess?.(createdServiceOrder);
     } catch (error) {
       setError(error.message || uiText.serviceOrder.createError);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createAppointmentWithState = async ({
+    orderState,
+    selectedClient,
+    branchesForClient,
+    setError,
+    setSuccess,
+    setSaving,
+    resetState,
+    onSuccess
+  }) => {
+    setError("");
+    setSuccess("");
+
+    if (!activeCompanyId) {
+      setError(uiText.dashboard.profileLoadError);
+      return;
+    }
+
+    const resolvedBranchId = resolveServiceOrderBranchId(
+      selectedClient,
+      orderState.branchId,
+      branchesForClient
+    );
+
+    if (orderState.isOneOffLocation && !(orderState.serviceLocationAddress || "").trim()) {
+      setError(uiText.serviceOrder.oneOffLocationRequired);
+      return;
+    }
+
+    if (!resolvedBranchId && !orderState.isOneOffLocation) {
+      setError(
+        isResidentialClient(selectedClient?.client_type)
+          ? uiText.serviceOrder.residentialBranchMissing
+          : uiText.serviceOrder.branchEmpty
+      );
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setError(uiText.serviceOrder.configError);
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      if (!orderState.isRecurring) {
+        const appointmentPayload = buildAppointmentBasePayload({
+          activeCompanyId,
+          orderState,
+          selectedClient,
+          resolvedBranchId
+        });
+
+        const { data: createdAppointment, error: appointmentError } = await supabase
+          .from("appointments")
+          .insert(appointmentPayload)
+          .select(appointmentSelectQuery)
+          .single();
+
+        if (appointmentError) {
+          console.error("[Appointment Create Error] Failed to insert appointment:", {
+            payload: appointmentPayload,
+            error: appointmentError
+          });
+          throw new Error(appointmentError.message || "No fue posible crear la cita.");
+        }
+
+        await fetchServiceOrders(supabase, activeCompanyId);
+        setSelectedServiceOrderId(null);
+        setSelectedServiceOrderSnapshot(null);
+        setSelectedAppointment(createdAppointment);
+        setRightPanelMode(rightPanelModes.detail);
+        setSuccess("Cita creada correctamente.");
+        resetState();
+        onSuccess?.(createdAppointment);
+        return;
+      }
+
+      const occurrenceDates = expandRecurringAppointments(orderState);
+      const generatedThroughDate = occurrenceDates[occurrenceDates.length - 1] || orderState.serviceDate;
+      const seriesPayload = buildAppointmentSeriesPayload({
+        activeCompanyId,
+        orderState,
+        selectedClient,
+        resolvedBranchId,
+        generatedThroughDate
+      });
+
+      const { data: createdSeries, error: seriesError } = await supabase
+        .from("appointment_series")
+        .insert(seriesPayload)
+        .select("*")
+        .single();
+
+      if (seriesError) {
+        console.error("[Appointment Series Create Error] Failed to insert series:", {
+          payload: seriesPayload,
+          error: seriesError
+        });
+        throw new Error(seriesError.message || "No fue posible crear la serie de citas.");
+      }
+
+      const { data: existingOccurrences, error: existingOccurrencesError } = await supabase
+        .from("appointments")
+        .select("appointment_date, appointment_time")
+        .eq("company_id", activeCompanyId)
+        .eq("series_id", createdSeries.id)
+        .gte("appointment_date", orderState.serviceDate)
+        .lte("appointment_date", generatedThroughDate);
+
+      if (existingOccurrencesError) {
+        throw existingOccurrencesError;
+      }
+
+      const existingOccurrenceKeys = new Set(
+        (existingOccurrences || []).map(
+          (appointment) => `${appointment.appointment_date}::${appointment.appointment_time}`
+        )
+      );
+      const occurrencePayloads = occurrenceDates
+        .map((appointmentDate) =>
+          buildAppointmentBasePayload({
+            activeCompanyId,
+            orderState,
+            selectedClient,
+            resolvedBranchId,
+            recurrenceSeriesId: createdSeries.id,
+            appointmentDate
+          })
+        )
+        .filter(
+          (appointmentPayload) =>
+            !existingOccurrenceKeys.has(
+              `${appointmentPayload.appointment_date}::${appointmentPayload.appointment_time}`
+            )
+        );
+
+      const { data: createdAppointments, error: occurrencesError } = occurrencePayloads.length
+        ? await supabase
+            .from("appointments")
+            .insert(occurrencePayloads)
+            .select(appointmentSelectQuery)
+        : { data: [], error: null };
+
+      if (occurrencesError) {
+        console.error("[Appointment Occurrences Create Error] Failed to insert occurrences:", {
+          count: occurrencePayloads.length,
+          error: occurrencesError
+        });
+        throw new Error(occurrencesError.message || "No fue posible generar las citas.");
+      }
+
+      await fetchServiceOrders(supabase, activeCompanyId);
+      setAppointmentSeries((currentSeries) => [createdSeries, ...currentSeries]);
+      setSelectedServiceOrderId(null);
+      setSelectedServiceOrderSnapshot(null);
+      setSelectedAppointment(createdAppointments?.[0] || null);
+      setRightPanelMode(rightPanelModes.detail);
+      setSuccess(`Serie creada con ${createdAppointments?.length || 0} citas.`);
+      resetState();
+      onSuccess?.(createdAppointments?.[0] || createdSeries);
+    } catch (error) {
+      setError(error.message || "No fue posible crear la cita.");
     } finally {
       setSaving(false);
     }
@@ -3765,36 +4796,71 @@ export default function DashboardPage() {
     return updatedServiceOrder || null;
   };
 
-  const getCalendarEventStyle = (event) => ({
-    style: {
-      background: event?.isOverdue
-        ? "color-mix(in srgb, #c2410c " +
-          (showOnlyOverdue ? "76%" : "68%") +
-          ", #fff2ef " +
-          (showOnlyOverdue ? "24%" : "32%") +
-          ")"
-        : "color-mix(in srgb, " +
-          (event?.technicianColor?.accent || "#64748b") +
-          " 56%, #f8fbff 44%)",
-      borderColor: "transparent",
-      color: event?.isOverdue ? "#fffaf7" : "#f8fbff",
-      boxShadow: `0 2px 5px ${
-        (event?.isOverdue
-          ? showOnlyOverdue
-            ? "#c2410c20"
-            : "#c2410c18"
-          : (event?.technicianColor?.accent || "#64748b") + "14")
-      }`,
-      borderWidth: 0
-    },
-    className: [
-      event?.isOverdue ? "calendar-event-overdue" : "",
-      event?.isOverdue && showOnlyOverdue ? "calendar-event-overdue-filtered" : "",
-      event?.id === selectedServiceOrderId ? "calendar-event-shell-selected" : ""
-    ]
-      .filter(Boolean)
-      .join(" ")
-  });
+  const getCalendarEventStyle = (event) => {
+    if (event?.type === "projected_appointment") {
+      return {
+        style: {
+          background: "color-mix(in srgb, #cbd5e1 24%, #f8fafc 76%)",
+          borderColor: "transparent",
+          color: "#64748b",
+          boxShadow: "none",
+          borderWidth: 0
+        },
+        className: "calendar-event-shell-appointment calendar-event-shell-appointment-projected"
+      };
+    }
+
+    if (event?.type === "appointment") {
+      return {
+        style: {
+          background: event?.isConvertedAppointment
+            ? "color-mix(in srgb, #64748b 36%, #f8fafc 64%)"
+            : "color-mix(in srgb, #94a3b8 28%, #f8fafc 72%)",
+          borderColor: "transparent",
+          color: "#334155",
+          boxShadow: "0 2px 4px rgba(15, 23, 42, 0.035)",
+          borderWidth: 0
+        },
+        className: [
+          "calendar-event-shell-appointment",
+          event?.isConvertedAppointment ? "calendar-event-shell-appointment-converted" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")
+      };
+    }
+
+    return {
+      style: {
+        background: event?.isOverdue
+          ? "color-mix(in srgb, #c2410c " +
+            (showOnlyOverdue ? "76%" : "68%") +
+            ", #fff2ef " +
+            (showOnlyOverdue ? "24%" : "32%") +
+            ")"
+          : "color-mix(in srgb, " +
+            (event?.technicianColor?.accent || "#64748b") +
+            " 56%, #f8fbff 44%)",
+        borderColor: "transparent",
+        color: event?.isOverdue ? "#fffaf7" : "#f8fbff",
+        boxShadow: `0 2px 5px ${
+          (event?.isOverdue
+            ? showOnlyOverdue
+              ? "#c2410c20"
+              : "#c2410c18"
+            : (event?.technicianColor?.accent || "#64748b") + "14")
+        }`,
+        borderWidth: 0
+      },
+      className: [
+        event?.isOverdue ? "calendar-event-overdue" : "",
+        event?.isOverdue && showOnlyOverdue ? "calendar-event-overdue-filtered" : "",
+        event?.id === selectedServiceOrderId ? "calendar-event-shell-selected" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")
+    };
+  };
 
   const handleCalendarViewChange = (nextView) => {
     setCalendarView(nextView);
@@ -4082,15 +5148,19 @@ export default function DashboardPage() {
 
     if (!supabase || !activeCompanyId || isTechnicianUser) {
       setServiceOrders([]);
-      setCalendarEvents([]);
+      setAppointments([]);
+      setAppointmentSeries([]);
       setCalendarError("");
+      setSelectedAppointment(null);
       setIsServiceOrdersLoading(false);
       return;
     }
 
     fetchServiceOrders(supabase, activeCompanyId).catch(() => {
       setCalendarError(uiText.dashboard.calendarErrorBody);
-      setCalendarEvents([]);
+      setAppointments([]);
+      setAppointmentSeries([]);
+      setSelectedAppointment(null);
       setIsServiceOrdersLoading(false);
     });
   }, [activeCompanyId, isTechnicianUser]);
@@ -4294,7 +5364,9 @@ export default function DashboardPage() {
       setIsConfirmingDeleteServiceOrder(false);
       setIsDeletingServiceOrder(false);
       setRightPanelMode((currentMode) =>
-        currentMode === rightPanelModes.create ? currentMode : rightPanelModes.empty
+        currentMode === rightPanelModes.create || selectedAppointment
+          ? currentMode
+          : rightPanelModes.empty
       );
       return;
     }
@@ -4320,8 +5392,9 @@ export default function DashboardPage() {
     setDetailFormMessage("");
     setDetailFormError("");
     setIsConfirmingDeleteServiceOrder(false);
+    setSelectedAppointment(null);
     setRightPanelMode(rightPanelModes.detail);
-  }, [selectedServiceOrder]);
+  }, [selectedAppointment, selectedServiceOrder]);
 
   useEffect(() => {
     console.log("[Service Order Debug] Selection state:", {
@@ -4500,6 +5573,16 @@ export default function DashboardPage() {
 
     setFormState((currentState) => ({
       ...currentState,
+      recurrenceDays:
+        name === "recurrenceDays"
+          ? checked
+            ? [...new Set([...currentState.recurrenceDays, value])]
+            : currentState.recurrenceDays.filter((recurrenceDay) => recurrenceDay !== value)
+          : name === "isRecurring" && checked === false
+            ? []
+          : name === "recurrenceType" && !["weekly", "custom"].includes(value)
+            ? []
+            : currentState.recurrenceDays,
       isOneOffLocation:
         name === "locationType" ? value === "one_off" : currentState.isOneOffLocation,
       branchId: name === "clientId" ? "" : currentState.branchId,
@@ -4523,9 +5606,17 @@ export default function DashboardPage() {
         name === "isRecurring" && checked === false
           ? defaultRecurrenceType
           : currentState.recurrenceType,
+      recurrenceInterval:
+        name === "isRecurring" && checked === false
+          ? 1
+          : name === "recurrenceType" && value === "weekdays"
+            ? 1
+            : currentState.recurrenceInterval,
       recurrenceEndDate:
         name === "isRecurring" && checked === false ? "" : currentState.recurrenceEndDate,
-      ...(name === "locationType" ? {} : { [name]: type === "checkbox" ? checked : value })
+      ...(name === "locationType" || name === "recurrenceDays"
+        ? {}
+        : { [name]: type === "checkbox" ? checked : value })
     }));
   };
 
@@ -5007,7 +6098,7 @@ export default function DashboardPage() {
 
   const handleCreateServiceOrder = async (event) => {
     event.preventDefault();
-    await createServiceOrderWithState({
+    await createAppointmentWithState({
       orderState: formState,
       selectedClient: selectedFormClient,
       branchesForClient: availableBranches,
@@ -5048,6 +6139,7 @@ export default function DashboardPage() {
 
     setSelectedServiceOrderId(null);
     setSelectedServiceOrderSnapshot(null);
+    setSelectedAppointment(null);
     setFormError("");
     setFormMessage("");
     setFormState({
@@ -5080,6 +6172,7 @@ export default function DashboardPage() {
 
     setSelectedServiceOrderId(null);
     setSelectedServiceOrderSnapshot(null);
+    setSelectedAppointment(null);
     setRightPanelMode(rightPanelModes.empty);
   };
 
@@ -5986,6 +7079,45 @@ export default function DashboardPage() {
   const handleSelectServiceOrder = (event) => {
     console.log("[Service Order Debug] Clicked calendar event:", event);
 
+    if (event?.type === "projected_appointment") {
+      console.log("[Appointments Debug] Projected appointment selected:", {
+        seriesId: event.seriesId,
+        date: event.serviceDate,
+        time: event.serviceTime
+      });
+      setCalendarActionError("");
+      setCalendarActionMessage("Cita recurrente proyectada. Aun no existe como cita real.");
+      return;
+    }
+
+    if (event?.type === "appointment") {
+      const resolvedAppointment =
+        event?.appointment ||
+        event?.resource ||
+        appointments.find((appointment) => appointment.id === event?.appointmentId) ||
+        null;
+
+      if (!resolvedAppointment?.id) {
+        console.warn("[Appointments Debug] No se pudo resolver la cita desde el evento.");
+        return;
+      }
+
+      console.log("[Appointments Debug] Read-only appointment selected:", {
+        appointmentId: resolvedAppointment.id,
+        serviceOrderId: event.serviceOrderId || null,
+        status: event.appointmentStatus || event.status
+      });
+      setCalendarActionError("");
+      setCalendarActionMessage("");
+      setDetailFormError("");
+      setDetailFormMessage("");
+      setSelectedServiceOrderId(null);
+      setSelectedServiceOrderSnapshot(null);
+      setSelectedAppointment(resolvedAppointment);
+      setRightPanelMode(rightPanelModes.detail);
+      return;
+    }
+
     const resolvedServiceOrder =
       event?.resource ||
       event?.serviceOrder ||
@@ -5998,6 +7130,7 @@ export default function DashboardPage() {
     }
 
     console.log("[Service Order Debug] Resolved order candidate:", resolvedServiceOrder);
+    setSelectedAppointment(null);
     setSelectedServiceOrderId(resolvedServiceOrder.id);
     setSelectedServiceOrderSnapshot(resolvedServiceOrder);
     setRightPanelMode(rightPanelModes.detail);
@@ -6240,6 +7373,14 @@ export default function DashboardPage() {
   const handleMoveServiceOrder = async ({ event, start }) => {
     console.log("[Service Order Debug] onEventDrop:", { event, start });
 
+    if (event?.type === "appointment" || event?.type === "projected_appointment") {
+      console.log("[Appointments Debug] Ignoring read-only appointment drag:", {
+        appointmentId: event.appointmentId,
+        seriesId: event.seriesId || null
+      });
+      return;
+    }
+
     if (!event?.id || !start || !isValid(start)) {
       return;
     }
@@ -6463,6 +7604,14 @@ export default function DashboardPage() {
   const handleResizeServiceOrder = async ({ event, end }) => {
     console.log("[Service Order Debug] onEventResize:", { event, end });
 
+    if (event?.type === "appointment" || event?.type === "projected_appointment") {
+      console.log("[Appointments Debug] Ignoring read-only appointment resize:", {
+        appointmentId: event.appointmentId,
+        seriesId: event.seriesId || null
+      });
+      return;
+    }
+
     if (!event?.id || !end || !isValid(end)) {
       return;
     }
@@ -6540,6 +7689,14 @@ export default function DashboardPage() {
   };
 
   const handleQuickCompleteServiceOrder = async (event) => {
+    if (event?.type === "appointment" || event?.type === "projected_appointment") {
+      console.log("[Appointments Debug] Ignoring quick complete for read-only appointment:", {
+        appointmentId: event.appointmentId,
+        seriesId: event.seriesId || null
+      });
+      return;
+    }
+
     if (!event?.id) {
       return;
     }
@@ -6594,6 +7751,159 @@ export default function DashboardPage() {
     } catch (error) {
       setCalendarActionError(error.message || uiText.technicianDashboard.completionError);
     }
+  };
+
+  const handleConfirmAppointment = async () => {
+    if (!selectedAppointment?.id) {
+      return;
+    }
+
+    if (isSelectedAppointmentConverted) {
+      setDetailFormError("");
+      setDetailFormMessage("Esta cita ya genero una orden de servicio.");
+      return;
+    }
+
+    if (!activeCompanyId) {
+      setDetailFormError(uiText.dashboard.profileLoadError);
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      setDetailFormError(uiText.dashboard.calendarErrorBody);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const appointmentUsesOneOffLocation =
+      Boolean(selectedAppointment.is_one_off_location) ||
+      Boolean(
+        selectedAppointment.service_location_name ||
+          selectedAppointment.service_location_address ||
+          selectedAppointment.service_location_phone ||
+          selectedAppointment.service_location_contact
+      );
+    const serviceOrderPayload = {
+      company_id: activeCompanyId,
+      appointment_id: selectedAppointment.id,
+      client_id: selectedAppointment.client_id,
+      branch_id: selectedAppointment.branch_id || null,
+      technician_name: selectedAppointment.technician_name,
+      service_date: selectedAppointment.appointment_date,
+      service_time: selectedAppointment.appointment_time,
+      duration_minutes: resolveDurationMinutes(selectedAppointment.duration_minutes),
+      status: "scheduled",
+      execution_status: defaultExecutionStatus,
+      service_instructions: selectedAppointment.notes || null,
+      is_one_off_location: appointmentUsesOneOffLocation,
+      service_location_name: appointmentUsesOneOffLocation
+        ? selectedAppointment.service_location_name || null
+        : null,
+      service_location_address: appointmentUsesOneOffLocation
+        ? selectedAppointment.service_location_address || null
+        : null,
+      service_location_phone: appointmentUsesOneOffLocation
+        ? selectedAppointment.service_location_phone || null
+        : null,
+      service_location_contact: appointmentUsesOneOffLocation
+        ? selectedAppointment.service_location_contact || null
+        : null
+    };
+
+    setIsConfirmingAppointment(true);
+    setDetailFormError("");
+    setDetailFormMessage("");
+
+    try {
+      const { data: currentAppointment, error: currentAppointmentError } = await supabase
+        .from("appointments")
+        .select(appointmentSelectQuery)
+        .eq("id", selectedAppointment.id)
+        .eq("company_id", activeCompanyId)
+        .single();
+
+      if (currentAppointmentError) {
+        throw currentAppointmentError;
+      }
+
+      if (
+        currentAppointment?.service_order_id ||
+        currentAppointment?.converted_at ||
+        currentAppointment?.status === "confirmed" ||
+        currentAppointment?.status === "converted"
+      ) {
+        setSelectedAppointment(currentAppointment || selectedAppointment);
+        setDetailFormMessage("Esta cita ya genero una orden de servicio.");
+        return;
+      }
+
+      const { data: createdServiceOrder, error: insertError } = await supabase
+        .from("service_orders")
+        .insert(serviceOrderPayload)
+        .select(serviceOrderSelectQuery)
+        .single();
+
+      if (insertError) {
+        console.error("[Appointments Debug] confirm appointment insert error:", insertError);
+        throw insertError;
+      }
+
+      const { data: updatedAppointment, error: appointmentUpdateError } = await supabase
+        .from("appointments")
+        .update({
+          status: "confirmed",
+          confirmed_at: selectedAppointment.confirmed_at || now,
+          converted_at: selectedAppointment.converted_at || now,
+          service_order_id: createdServiceOrder?.id || selectedAppointment.service_order_id || null
+        })
+        .select(appointmentSelectQuery)
+        .eq("id", selectedAppointment.id)
+        .eq("company_id", activeCompanyId)
+        .single();
+
+      if (appointmentUpdateError) {
+        console.error(
+          "[Appointments Debug] confirm appointment update error:",
+          appointmentUpdateError
+        );
+        throw appointmentUpdateError;
+      }
+
+      setSelectedAppointment(updatedAppointment || selectedAppointment);
+      setDetailFormMessage("Cita confirmada y orden de servicio creada.");
+      await fetchServiceOrders(supabase, activeCompanyId);
+    } catch (error) {
+      setDetailFormError(error.message || "No fue posible confirmar la cita.");
+    } finally {
+      setIsConfirmingAppointment(false);
+    }
+  };
+
+  const handleOpenLinkedServiceOrder = () => {
+    if (!selectedAppointment?.service_order_id) {
+      return;
+    }
+
+    const linkedServiceOrder =
+      selectedAppointmentLinkedServiceOrder ||
+      serviceOrders.find(
+        (serviceOrder) => serviceOrder.id === selectedAppointment.service_order_id
+      ) ||
+      null;
+
+    if (!linkedServiceOrder) {
+      setDetailFormError("No se encontro la orden vinculada en el calendario actual.");
+      return;
+    }
+
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setSelectedAppointment(null);
+    setSelectedServiceOrderId(linkedServiceOrder.id);
+    setSelectedServiceOrderSnapshot(linkedServiceOrder);
+    setRightPanelMode(rightPanelModes.detail);
   };
 
   const handleStartReschedule = () => {
@@ -7712,8 +9022,13 @@ export default function DashboardPage() {
 
                     return previewItem;
                   }}
-                  draggableAccessor={() => true}
+                  draggableAccessor={(event) =>
+                    event?.type !== "appointment" && event?.type !== "projected_appointment"
+                  }
                   resizable={calendarView !== "month"}
+                  resizableAccessor={(event) =>
+                    event?.type !== "appointment" && event?.type !== "projected_appointment"
+                  }
                   eventPropGetter={getCalendarEventStyle}
                   style={{ height: 640 }}
                   components={{
@@ -7723,7 +9038,11 @@ export default function DashboardPage() {
                         {...eventProps}
                         view={calendarView}
                         onSelect={handleSelectServiceOrder}
-                        isSelected={eventProps.event?.id === selectedServiceOrderId}
+                        isSelected={
+                          eventProps.event?.type === "appointment"
+                            ? eventProps.event?.appointmentId === selectedAppointment?.id
+                            : eventProps.event?.id === selectedServiceOrderId
+                        }
                         onComplete={handleQuickCompleteServiceOrder}
                       />
                     ),
@@ -8365,6 +9684,156 @@ export default function DashboardPage() {
                 clientSelectRef={createServiceOrderClientSelectRef}
                 onCancelOrder={handleCloseQuickCreate}
               />
+            ) : selectedAppointment ? (
+              <div className="detail-summary">
+                <section className="drawer-section detail-section-card detail-identity-card">
+                  <div className="detail-identity-copy">
+                    <span className="detail-sidebar-kicker">Cita</span>
+                    <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                    <p>{selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}</p>
+                  </div>
+                  <div className="detail-identity-meta">
+                    <span>{getTechnicianDisplayName(selectedAppointment.technician_name)}</span>
+                    <span>
+                      {formatServiceDate(selectedAppointment.appointment_date)} ·{" "}
+                      {formatDisplayTime(selectedAppointment.appointment_time)}
+                    </span>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Resumen</h4>
+                  </div>
+
+                  <div className="detail-section-grid">
+                    <div className="detail-row">
+                      <span>Cliente</span>
+                      <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>Ubicacion</span>
+                      <strong>
+                        {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
+                      </strong>
+                      <p className="detail-subcopy">
+                        {getServiceLocationSummary(selectedAppointment)}
+                      </p>
+                    </div>
+                    <div className="detail-row">
+                      <span>Tecnico</span>
+                      <strong>
+                        {getTechnicianDisplayName(selectedAppointment.technician_name)}
+                      </strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>Fecha / hora</span>
+                      <strong>
+                        {formatServiceDate(selectedAppointment.appointment_date)} ·{" "}
+                        {formatDisplayTime(selectedAppointment.appointment_time)}
+                      </strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>Duracion</span>
+                      <strong>
+                        {resolveDurationMinutes(selectedAppointment.duration_minutes)} min
+                      </strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Estado</h4>
+                  </div>
+
+                  <div className="detail-section-grid">
+                    <div className="detail-status-summary">
+                      <span className="detail-status-badge">
+                        {selectedAppointment.status || "pending"}
+                      </span>
+                    </div>
+                    {isSelectedAppointmentConverted ? (
+                      <p className="detail-section-empty-copy">
+                        Esta cita ya genero una orden de servicio.
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
+
+                {isSelectedAppointmentConverted ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <h4 className="drawer-section-title">Orden vinculada</h4>
+                    </div>
+
+                    <div className="detail-section-grid">
+                      <div className="detail-row">
+                        <span>ID de orden</span>
+                        <strong>{selectedAppointment.service_order_id || "Pendiente de sincronizar"}</strong>
+                      </div>
+                      {selectedAppointmentLinkedServiceOrder ? (
+                        <div className="detail-row">
+                          <span>Programacion</span>
+                          <strong>
+                            {formatServiceDate(selectedAppointmentLinkedServiceOrder.service_date)} ·{" "}
+                            {formatDisplayTime(selectedAppointmentLinkedServiceOrder.service_time)}
+                          </strong>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {selectedAppointment.service_order_id ? (
+                      <div className="detail-delete-actions">
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={handleOpenLinkedServiceOrder}
+                        >
+                          Abrir orden de servicio
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {selectedAppointment.notes ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <h4 className="drawer-section-title">Notas</h4>
+                    </div>
+
+                    <div className="detail-section-grid">
+                      <div className="detail-row detail-row-notes">
+                        <strong>{selectedAppointment.notes}</strong>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+
+                <div className="workspace-form-messages">
+                  {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                  {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
+                </div>
+
+                <div className="detail-panel-footer detail-panel-footer-detail">
+                  <button
+                    className={isConfirmingAppointment ? "button is-loading" : "button"}
+                    type="button"
+                    onClick={handleConfirmAppointment}
+                    disabled={
+                      isConfirmingAppointment ||
+                      isSelectedAppointmentConverted
+                    }
+                  >
+                    {isConfirmingAppointment
+                      ? "Confirmando..."
+                      : isSelectedAppointmentConverted
+                        ? "Esta cita ya genero una orden de servicio"
+                        : "Confirmar cita y crear orden de servicio"}
+                  </button>
+                </div>
+              </div>
             ) : !selectedOrder ? (
               <div className="detail-empty-state">
                 <p>Selecciona una orden del calendario</p>

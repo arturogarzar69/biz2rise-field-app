@@ -2856,6 +2856,75 @@ textarea {
   opacity: 1;
 }
 
+.calendar-event-appointment .calendar-event-week-accent {
+  background: rgba(51, 65, 85, 0.28);
+}
+
+.calendar-event-appointment .calendar-event-week-line-primary {
+  color: #334155;
+  font-weight: 700;
+}
+
+.calendar-event-appointment .calendar-event-week-line-secondary,
+.calendar-event-appointment span {
+  color: rgba(51, 65, 85, 0.68) !important;
+}
+
+.calendar-event-appointment-converted .calendar-event-week-accent {
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.calendar-event-shell-appointment {
+  filter: saturate(0.9);
+}
+
+.calendar-event-shell-appointment-converted {
+  opacity: 0.72;
+  filter: saturate(0.72);
+}
+
+.calendar-event-shell-appointment-projected {
+  opacity: 0.58;
+  filter: saturate(0.55);
+}
+
+.calendar-event-appointment-projected {
+  outline: 1px dashed rgba(100, 116, 139, 0.36);
+  outline-offset: -2px;
+}
+
+.calendar-event-appointment-projected .calendar-event-week-accent {
+  background: rgba(100, 116, 139, 0.2);
+}
+
+.calendar-event-appointment-projected::after {
+  content: "Proyectada";
+  position: absolute;
+  right: 5px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.08);
+  color: rgba(71, 85, 105, 0.72);
+  font-size: 0.55rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.calendar-event-appointment-converted::after {
+  content: "Orden";
+  position: absolute;
+  right: 5px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+  color: rgba(51, 65, 85, 0.76);
+  font-size: 0.55rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
 .calendar-event strong {
   display: block;
   font-weight: 700;
