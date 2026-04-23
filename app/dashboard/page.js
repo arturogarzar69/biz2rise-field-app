@@ -9496,11 +9496,12 @@ export default function DashboardPage() {
                             type="button"
                             className={
                               isActive
-                                ? "calendar-legend-item calendar-legend-item-active"
-                                : "calendar-legend-item"
+                                ? "calendar-legend-item calendar-chip active"
+                                : "calendar-legend-item calendar-chip"
                             }
                             aria-pressed={isActive}
                             onClick={() => toggleCalendarTechnicianFilter(item.technicianName)}
+                            style={{ "--calendar-chip-accent": item.color.accent }}
                           >
                             <span
                               className="calendar-legend-dot"
@@ -9584,6 +9585,22 @@ export default function DashboardPage() {
               </div>
             ) : null}
 
+            {activeAdminView === adminViewTabs.calendar && hasActiveTechnicianFilter ? (
+              <div className="calendar-filter-banner calendar-filter-banner-technicians">
+                <span>
+                  Mostrando: {selectedCalendarTechnicians.length}{" "}
+                  {selectedCalendarTechnicians.length === 1 ? "tecnico" : "tecnicos"}
+                </span>
+                <button
+                  type="button"
+                  className="calendar-filter-banner-action"
+                  onClick={() => setSelectedCalendarTechnicians([])}
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            ) : null}
+
           </div>
 
           {calendarActionError ? <p className="error">{calendarActionError}</p> : null}
@@ -9610,7 +9627,26 @@ export default function DashboardPage() {
           {activeAdminView === adminViewTabs.calendar &&
           shouldRenderCalendarContent &&
           !isServiceOrdersLoading &&
+          hasActiveTechnicianFilter &&
+          filteredCalendarEvents.length === 0 ? (
+            <div className="calendar-empty-state">
+              <h3>No hay servicios para los tecnicos seleccionados</h3>
+              <p>Prueba con otros tecnicos o limpia los filtros para ver todos los servicios.</p>
+              <button
+                type="button"
+                className="calendar-filter-banner-action calendar-empty-state-action"
+                onClick={() => setSelectedCalendarTechnicians([])}
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          ) : null}
+
+          {activeAdminView === adminViewTabs.calendar &&
+          shouldRenderCalendarContent &&
+          !isServiceOrdersLoading &&
           calendarView !== operationalCalendarView &&
+          !hasActiveTechnicianFilter &&
           filteredCalendarEvents.length === 0 ? (
             <div className="calendar-empty-state">
               <h3>{uiText.dashboard.calendarEmptyTitle}</h3>
