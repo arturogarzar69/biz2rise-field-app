@@ -3162,6 +3162,7 @@ export default function DashboardPage() {
   const draggedBacklogServiceOrderRef = useRef(null);
   const externalDragCleanupTimeoutRef = useRef(null);
   const extendedAppointmentSeriesRef = useRef(new Set());
+  const authUserIdRef = useRef("");
   const calendarPointerStateRef = useRef({
     calendarEventId: null,
     x: 0,
@@ -3792,10 +3793,17 @@ export default function DashboardPage() {
       state: companySettingsForm.state.trim(),
       postalCode: companySettingsForm.postalCode.trim(),
       country: companySettingsForm.country.trim(),
-      logoUrl: companySettingsForm.logoUrl.trim()
+          logoUrl: companySettingsForm.logoUrl.trim()
     }) !== JSON.stringify(buildCompanySettingsFormState(activeCompany));
 
-  const fetchUserProfile = async (supabase, userId) => {
+  authUserIdRef.current = authUserId;
+
+  const fetchUserProfile = async (supabase, userId, reason = "unknown") => {
+    console.log("[Dashboard Refresh Debug] fetchUserProfile:", {
+      userId,
+      reason,
+      timestamp: new Date().toISOString()
+    });
     const { data, error } = await supabase
       .from("profiles")
       .select("id, full_name, role, company_id")
@@ -3819,7 +3827,7 @@ export default function DashboardPage() {
     return data;
   };
 
-  const fetchActiveCompany = async (supabase, companyId) => {
+  const fetchActiveCompany = async (supabase, companyId, reason = "unknown") => {
     if (!companyId) {
       setActiveCompany(null);
       setCompanySettingsForm(initialCompanySettingsForm);
@@ -3827,6 +3835,12 @@ export default function DashboardPage() {
       setCompanySettingsMessage("");
       return null;
     }
+
+    console.log("[Dashboard Refresh Debug] fetchActiveCompany:", {
+      companyId,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     const { data, error } = await supabase
       .from("companies")
@@ -4027,7 +4041,7 @@ export default function DashboardPage() {
     };
   };
 
-  const fetchServiceOrders = async (supabase, companyId) => {
+  const fetchServiceOrders = async (supabase, companyId, reason = "unknown") => {
     if (!companyId) {
       setServiceOrders([]);
       setAppointments([]);
@@ -4042,7 +4056,11 @@ export default function DashboardPage() {
     }
 
     setIsServiceOrdersLoading(true);
-    console.log("[Backlog DnD Debug] fetchServiceOrders start:", { companyId });
+    console.log("[Dashboard Refresh Debug] fetchServiceOrders:", {
+      companyId,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     // Read service orders together with the related client record so each
     // calendar event can show the customer's name without extra requests.
@@ -4160,7 +4178,12 @@ export default function DashboardPage() {
     });
   };
 
-  const fetchTechnicianOrders = async (supabase, companyId, technicianName) => {
+  const fetchTechnicianOrders = async (
+    supabase,
+    companyId,
+    technicianName,
+    reason = "unknown"
+  ) => {
     if (!companyId || !technicianName) {
       setTechnicianOrders([]);
       setTechnicianOrdersError("");
@@ -4169,6 +4192,12 @@ export default function DashboardPage() {
     }
 
     setIsTechnicianOrdersLoading(true);
+    console.log("[Dashboard Refresh Debug] fetchTechnicianOrders:", {
+      companyId,
+      technicianName,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     let query = supabase
       .from("service_orders")
@@ -4214,7 +4243,7 @@ export default function DashboardPage() {
     setIsTechnicianOrdersLoading(false);
   };
 
-  const fetchClients = async (supabase, companyId) => {
+  const fetchClients = async (supabase, companyId, reason = "unknown") => {
     if (!companyId) {
       console.warn("[Multi-tenant] No hay company_id activo para cargar clientes.");
       setClients([]);
@@ -4224,6 +4253,11 @@ export default function DashboardPage() {
     }
 
     setIsClientsLoading(true);
+    console.log("[Dashboard Refresh Debug] fetchClients:", {
+      companyId,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     const scopedQuery = await supabase
       .from("clients")
@@ -4327,7 +4361,7 @@ export default function DashboardPage() {
     return branchRecords;
   };
 
-  const fetchTechnicians = async (supabase, companyId) => {
+  const fetchTechnicians = async (supabase, companyId, reason = "unknown") => {
     if (!companyId) {
       console.warn("[Multi-tenant] No hay company_id activo para cargar tecnicos.");
       setTechnicians([]);
@@ -4337,6 +4371,11 @@ export default function DashboardPage() {
     }
 
     setIsTechniciansLoading(true);
+    console.log("[Dashboard Refresh Debug] fetchTechnicians:", {
+      companyId,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     let supportsExtendedFields = true;
     let { data, error } = await supabase
@@ -5474,7 +5513,7 @@ export default function DashboardPage() {
       setProfileError("");
 
       try {
-        await fetchUserProfile(supabase, session.user.id);
+        await fetchUserProfile(supabase, session.user.id, "initial-mount");
       } catch (_profileError) {
         setUserProfile(null);
         setProfileError(uiText.dashboard.profileLoadError);
@@ -5488,26 +5527,50 @@ export default function DashboardPage() {
 
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("[Dashboard Refresh Debug] auth state change:", {
+        event,
+        hasUser: Boolean(session?.user),
+        nextUserId: session?.user?.id || null,
+        currentUserId: authUserIdRef.current || null,
+        timestamp: new Date().toISOString()
+      });
+
       if (!session?.user) {
         router.replace("/");
         router.refresh();
         return;
       }
 
-      setIsLoading(true);
-      setIsProfileResolved(false);
-      setUserProfile(null);
-      setAuthUserId(session.user.id || "");
+      const nextUserId = session.user.id || "";
+      const isSameUser = Boolean(nextUserId) && nextUserId === authUserIdRef.current;
+      const shouldRefreshProfileInPlace =
+        isSameUser &&
+        ["TOKEN_REFRESHED", "SIGNED_IN", "USER_UPDATED", "INITIAL_SESSION"].includes(event);
+
+      setAuthUserId(nextUserId);
       setUserEmail(session.user.email || "");
-      fetchUserProfile(supabase, session.user.id)
+
+      if (!shouldRefreshProfileInPlace) {
+        setIsLoading(true);
+        setIsProfileResolved(false);
+        setUserProfile(null);
+      }
+
+      fetchUserProfile(
+        supabase,
+        session.user.id,
+        shouldRefreshProfileInPlace ? `auth-${event}-in-place` : `auth-${event}`
+      )
         .catch(() => {
           setUserProfile(null);
           setProfileError(uiText.dashboard.profileLoadError);
           setIsProfileResolved(true);
         })
         .finally(() => {
-          setIsLoading(false);
+          if (!shouldRefreshProfileInPlace) {
+            setIsLoading(false);
+          }
         });
     });
 
@@ -5528,7 +5591,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchActiveCompany(supabase, activeCompanyId).catch(() => {
+    fetchActiveCompany(supabase, activeCompanyId, "active-company-effect").catch(() => {
       setActiveCompany(null);
       setCompanySettingsError(uiText.dashboard.companySettingsLoadError);
     });
@@ -5548,7 +5611,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchServiceOrders(supabase, activeCompanyId).catch(() => {
+    fetchServiceOrders(supabase, activeCompanyId, "calendar-company-effect").catch(() => {
       setCalendarError(uiText.dashboard.calendarErrorBody);
       setAppointments([]);
       setAppointmentSeries([]);
@@ -5572,7 +5635,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchClients(supabase, activeCompanyId);
+    fetchClients(supabase, activeCompanyId, "create-drawer-prefetch");
   }, [activeCompanyId, activeTab, clients.length, isTechnicianUser, rightPanelMode]);
 
   useEffect(() => {
@@ -5590,7 +5653,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchTechnicians(supabase, activeCompanyId);
+    fetchTechnicians(supabase, activeCompanyId, "create-drawer-prefetch");
   }, [
     activeCompanyId,
     activeTab,
@@ -5826,7 +5889,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchTechnicians(supabase, activeCompanyId);
+    fetchTechnicians(supabase, activeCompanyId, "service-order-selection-prefetch");
   }, [activeCompanyId, selectedServiceOrderId, technicians.length, isTechnicianUser]);
 
   useEffect(() => {
@@ -5946,7 +6009,12 @@ export default function DashboardPage() {
       return;
     }
 
-    fetchTechnicianOrders(supabase, activeCompanyId, userProfile.full_name);
+    fetchTechnicianOrders(
+      supabase,
+      activeCompanyId,
+      userProfile.full_name,
+      "technician-dashboard-effect"
+    );
   }, [activeCompanyId, isTechnicianUser, userProfile?.full_name]);
 
   useEffect(() => {
