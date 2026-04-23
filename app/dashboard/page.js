@@ -461,7 +461,19 @@ function parseTimeOptionToMinutes(timeValue) {
     return null;
   }
 
-  const match = String(timeValue).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const normalizedTimeValue = String(timeValue).trim();
+  const twentyFourHourMatch = normalizedTimeValue.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+  if (twentyFourHourMatch) {
+    const hours = Number(twentyFourHourMatch[1]);
+    const minutes = Number(twentyFourHourMatch[2]);
+
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return hours * 60 + minutes;
+    }
+  }
+
+  const match = normalizedTimeValue.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
 
   if (!match) {
     return null;
@@ -473,6 +485,27 @@ function parseTimeOptionToMinutes(timeValue) {
   const normalizedHours = hours % 12 + (meridiem === "PM" ? 12 : 0);
 
   return normalizedHours * 60 + minutes;
+}
+
+function normalizeAppointmentOccurrenceTimeKey(timeValue) {
+  const totalMinutes = parseTimeOptionToMinutes(timeValue);
+
+  if (totalMinutes === null) {
+    return String(timeValue || "").trim();
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function getAppointmentOccurrenceKey(seriesId, appointmentDate, appointmentTime) {
+  return [
+    seriesId || "",
+    appointmentDate || "",
+    normalizeAppointmentOccurrenceTimeKey(appointmentTime)
+  ].join("::");
 }
 
 function generateTimeSlots(startHour, endHour, intervalMinutes) {
@@ -974,7 +1007,11 @@ function transformProjectedAppointmentSeriesToEvents({
       .filter((appointment) => appointment.series_id)
       .map(
         (appointment) =>
-          `${appointment.series_id}::${appointment.appointment_date}::${appointment.appointment_time}`
+          getAppointmentOccurrenceKey(
+            appointment.series_id,
+            appointment.appointment_date,
+            appointment.appointment_time
+          )
       )
   );
 
@@ -996,7 +1033,9 @@ function transformProjectedAppointmentSeriesToEvents({
     return occurrenceDates
       .filter(
         (appointmentDate) =>
-          !materializedAppointmentKeys.has(`${series.id}::${appointmentDate}::${series.start_time}`)
+          !materializedAppointmentKeys.has(
+            getAppointmentOccurrenceKey(series.id, appointmentDate, series.start_time)
+          )
       )
       .map((appointmentDate) => {
         const start = parseServiceOrderStart(appointmentDate, series.start_time);
@@ -1050,10 +1089,32 @@ function transformProjectedAppointmentSeriesToEvents({
 }
 
 function mergeCalendarEvents(serviceOrders, appointments, projectedAppointmentEvents = []) {
+  const realAppointmentOccurrenceKeys = new Set(
+    (appointments || [])
+      .filter((appointment) => appointment.series_id)
+      .map((appointment) =>
+        getAppointmentOccurrenceKey(
+          appointment.series_id,
+          appointment.appointment_date,
+          appointment.appointment_time
+        )
+      )
+  );
+  const visibleProjectedAppointmentEvents = (projectedAppointmentEvents || []).filter(
+    (projectedEvent) =>
+      !realAppointmentOccurrenceKeys.has(
+        getAppointmentOccurrenceKey(
+          projectedEvent.seriesId,
+          projectedEvent.serviceDate,
+          projectedEvent.serviceTime
+        )
+      )
+  );
+
   return [
     ...transformServiceOrdersToEvents(serviceOrders || []),
     ...transformAppointmentsToEvents(appointments || []),
-    ...projectedAppointmentEvents
+    ...visibleProjectedAppointmentEvents
   ];
 }
 
@@ -1376,7 +1437,7 @@ function EventCard({
           isSelected ? " calendar-event-selected" : ""
         }${isCalendarAppointment ? " calendar-event-appointment" : ""}${
           isProjectedAppointment ? " calendar-event-appointment-projected" : ""
-        }`}
+        }${event.isConvertedAppointment ? " calendar-event-appointment-converted" : ""}`}
         title={event.tooltipText}
         data-calendar-event-id={event.id}
         data-service-order-id={event.type === "service_order" ? event.id : undefined}
@@ -1661,13 +1722,62 @@ function WorkspacePanel({
   onCancelOrder = null
 }) {
   if (activeTab === uiText.tabs.newServiceOrder) {
+    const isFormStarted = Boolean(
+      formState.clientId ||
+        formState.branchId ||
+        formState.isOneOffLocation ||
+        formState.serviceLocationName.trim() ||
+        formState.serviceLocationAddress.trim() ||
+        formState.serviceLocationPhone.trim() ||
+        formState.serviceLocationContact.trim() ||
+        formState.technicianName ||
+        formState.serviceDate ||
+        formState.serviceInstructions.trim() ||
+        formState.notes.trim() ||
+        formState.isRecurring
+    );
+    const requiredPendingFields = {
+      clientId: !formState.clientId,
+      branchId:
+        !formState.isOneOffLocation &&
+        !isResidentialFormClient &&
+        Boolean(formState.clientId) &&
+        !formState.branchId,
+      residentialBranch:
+        !formState.isOneOffLocation &&
+        isResidentialFormClient &&
+        Boolean(formState.clientId) &&
+        !preferredResidentialBranch,
+      serviceLocationAddress:
+        formState.isOneOffLocation && !formState.serviceLocationAddress.trim(),
+      technicianName: !formState.technicianName,
+      serviceDate: !formState.serviceDate,
+      serviceTime: !formState.serviceTime,
+      durationMinutes: !formState.durationMinutes,
+      recurrenceType: formState.isRecurring && !formState.recurrenceType,
+      recurrenceInterval:
+        formState.isRecurring &&
+        formState.recurrenceType !== "weekdays" &&
+        !formState.recurrenceInterval
+    };
+    const isRequiredFieldPending = (fieldName) =>
+      Boolean(isFormStarted && requiredPendingFields[fieldName]);
+    const getRequiredFieldClassName = (fieldName, baseClassName = "workspace-input-group") =>
+      isRequiredFieldPending(fieldName)
+        ? `${baseClassName} field-required-pending`
+        : baseClassName;
+    const renderRequiredHint = (fieldName) =>
+      isRequiredFieldPending(fieldName) ? (
+        <small className="field-required-pending-copy">Campo requerido</small>
+      ) : null;
+
     return (
       <div className="workspace-section">
         <div className={isQuickCreate ? "workspace-copy workspace-copy-compact" : "workspace-copy"}>
-          <h3>{uiText.serviceOrder.title}</h3>
+          <h3>{isQuickCreate ? "Nueva cita" : uiText.serviceOrder.title}</h3>
           <p>
             {isQuickCreate
-              ? "Completa lo esencial y programa el servicio rapidamente. Si aplica, marca la recurrencia desde esta vista; por ahora solo se guarda la configuracion y no se generan visitas futuras automaticamente."
+              ? "Completa lo esencial y programa la cita rapidamente. Si aplica, marca la recurrencia desde esta vista."
               : uiText.serviceOrder.description}
           </p>
         </div>
@@ -1680,7 +1790,7 @@ function WorkspacePanel({
               </div>
 
               <div className="workspace-grid service-order-grid">
-                <label className="workspace-input-group">
+                <label className={getRequiredFieldClassName("clientId")}>
               <span>{uiText.serviceOrder.fields.client}</span>
               <select
                 ref={clientSelectRef}
@@ -1701,6 +1811,7 @@ function WorkspacePanel({
                   </option>
                 ))}
               </select>
+              {renderRequiredHint("clientId")}
             </label>
 
                 <div className="workspace-field-wide service-order-location-type">
@@ -1732,7 +1843,12 @@ function WorkspacePanel({
                 </div>
 
                 {!formState.isOneOffLocation && isResidentialFormClient ? (
-                  <div className="detail-row workspace-quick-static-field">
+                  <div
+                    className={getRequiredFieldClassName(
+                      "residentialBranch",
+                      "detail-row workspace-quick-static-field"
+                    )}
+                  >
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <strong>
                   {preferredResidentialBranch
@@ -1746,9 +1862,10 @@ function WorkspacePanel({
                     ? uiText.serviceOrder.residentialBranchAuto
                     : uiText.serviceOrder.residentialBranchMissing}
                 </small>
+                {renderRequiredHint("residentialBranch")}
               </div>
             ) : !formState.isOneOffLocation ? (
-                  <label className="workspace-input-group">
+                  <label className={getRequiredFieldClassName("branchId")}>
                 <span>{uiText.serviceOrder.fields.branch}</span>
                 <select
                   name="branchId"
@@ -1770,10 +1887,11 @@ function WorkspacePanel({
                     </option>
                   ))}
                 </select>
+                {renderRequiredHint("branchId")}
               </label>
             ) : null}
 
-                <label className="workspace-input-group">
+                <label className={getRequiredFieldClassName("technicianName")}>
                   <span>{uiText.serviceOrder.fields.technician}</span>
                   <select
                     name="technicianName"
@@ -1793,9 +1911,10 @@ function WorkspacePanel({
                       </option>
                 ))}
                   </select>
+                  {renderRequiredHint("technicianName")}
                 </label>
 
-                <label className="workspace-input-group">
+                <label className={getRequiredFieldClassName("serviceDate")}>
               <span>{uiText.serviceOrder.fields.serviceDate}</span>
               <input
                 name="serviceDate"
@@ -1805,9 +1924,10 @@ function WorkspacePanel({
                 disabled={isSavingOrder}
                 required
               />
+              {renderRequiredHint("serviceDate")}
             </label>
 
-                <label className="workspace-input-group">
+                <label className={getRequiredFieldClassName("serviceTime")}>
               <span>{uiText.serviceOrder.fields.serviceTime}</span>
               <select
                 name="serviceTime"
@@ -1825,9 +1945,10 @@ function WorkspacePanel({
                   </option>
                 ))}
               </select>
+              {renderRequiredHint("serviceTime")}
             </label>
 
-                <label className="workspace-input-group">
+                <label className={getRequiredFieldClassName("durationMinutes")}>
               <span>{uiText.serviceOrder.fields.duration}</span>
               <select
                 name="durationMinutes"
@@ -1845,6 +1966,7 @@ function WorkspacePanel({
                   </option>
                 ))}
               </select>
+              {renderRequiredHint("durationMinutes")}
             </label>
 
                 {formState.isOneOffLocation ? (
@@ -1861,7 +1983,12 @@ function WorkspacePanel({
                       />
                     </label>
 
-                    <label className="workspace-input-group workspace-field-wide">
+                    <label
+                      className={getRequiredFieldClassName(
+                        "serviceLocationAddress",
+                        "workspace-input-group workspace-field-wide"
+                      )}
+                    >
                       <span>{uiText.serviceOrder.fields.oneOffLocationAddress}</span>
                       <textarea
                         name="serviceLocationAddress"
@@ -1871,6 +1998,7 @@ function WorkspacePanel({
                         disabled={isSavingOrder}
                         rows={3}
                       />
+                      {renderRequiredHint("serviceLocationAddress")}
                     </label>
 
                     <label className="workspace-input-group">
@@ -1931,7 +2059,7 @@ function WorkspacePanel({
 
                 {formState.isRecurring ? (
                   <>
-                    <label className="workspace-input-group">
+                    <label className={getRequiredFieldClassName("recurrenceType")}>
                       <span>{uiText.serviceOrder.fields.recurrenceType}</span>
                       <select
                         name="recurrenceType"
@@ -1959,9 +2087,10 @@ function WorkspacePanel({
                           Personalizado
                         </option>
                       </select>
+                      {renderRequiredHint("recurrenceType")}
                     </label>
 
-                    <label className="workspace-input-group">
+                    <label className={getRequiredFieldClassName("recurrenceInterval")}>
                       <span>Intervalo</span>
                       <input
                         name="recurrenceInterval"
@@ -1971,6 +2100,7 @@ function WorkspacePanel({
                         onChange={onFormChange}
                         disabled={isSavingOrder || formState.recurrenceType === "weekdays"}
                       />
+                      {renderRequiredHint("recurrenceInterval")}
                     </label>
 
                     {["weekly", "custom"].includes(formState.recurrenceType) ? (
@@ -3306,7 +3436,7 @@ export default function DashboardPage() {
             : "";
   const serviceOrderPanelKicker =
     rightPanelMode === rightPanelModes.create
-      ? "Orden de servicio"
+      ? "Cita"
       : rightPanelMode === rightPanelModes.edit
         ? "Orden de servicio"
         : selectedAppointment
@@ -3316,25 +3446,31 @@ export default function DashboardPage() {
           : uiText.dashboard.detailTitle;
   const serviceOrderPanelTitle =
     rightPanelMode === rightPanelModes.create
-      ? uiText.serviceOrder.title
+      ? "Cita"
       : rightPanelMode === rightPanelModes.edit
-        ? "Editar orden de servicio"
+        ? "Orden de servicio"
         : selectedAppointment
-          ? getClientDisplayName(selectedAppointment.clients)
+          ? "Cita"
         : selectedServiceOrder
-          ? getClientDisplayName(selectedServiceOrder.clients)
+          ? "Orden de servicio"
           : uiText.dashboard.detailTitle;
   const serviceOrderPanelSubtitle =
     rightPanelMode === rightPanelModes.create
-      ? "Completa los datos para programar un nuevo servicio."
+      ? "Completa los datos para programar una cita."
       : rightPanelMode === rightPanelModes.edit
-        ? "Ajusta programacion, estado y la configuracion de recurrencia sin salir del calendario. Las visitas futuras aun no se generan automaticamente."
+        ? selectedServiceOrder
+          ? `${getClientDisplayName(selectedServiceOrder.clients)} · ${formatServiceDate(
+              selectedServiceOrder.service_date
+            )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
+          : "Ajusta programacion, estado y ejecucion de la orden."
         : selectedAppointment
-          ? `${selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty} · ${formatServiceDate(
+          ? `${formatServiceDate(
               selectedAppointment.appointment_date
-            )} · ${formatDisplayTime(selectedAppointment.appointment_time)}`
+            )} · ${formatDisplayTime(selectedAppointment.appointment_time)} · ${getTechnicianDisplayName(
+              selectedAppointment.technician_name
+            )}`
         : selectedServiceOrder
-          ? `${selectedServiceLocation?.name || uiText.dashboard.branchEmpty} · ${formatServiceDate(
+          ? `${getClientDisplayName(selectedServiceOrder.clients)} · ${formatServiceDate(
               selectedServiceOrder.service_date
             )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
           : uiText.dashboard.detailDescription;
@@ -4800,7 +4936,7 @@ export default function DashboardPage() {
     if (event?.type === "projected_appointment") {
       return {
         style: {
-          background: "color-mix(in srgb, #cbd5e1 24%, #f8fafc 76%)",
+          background: "color-mix(in srgb, #cbd5e1 16%, #f8fafc 84%)",
           borderColor: "transparent",
           color: "#64748b",
           boxShadow: "none",
@@ -4814,11 +4950,13 @@ export default function DashboardPage() {
       return {
         style: {
           background: event?.isConvertedAppointment
-            ? "color-mix(in srgb, #64748b 36%, #f8fafc 64%)"
-            : "color-mix(in srgb, #94a3b8 28%, #f8fafc 72%)",
+            ? "color-mix(in srgb, #64748b 30%, #f8fafc 70%)"
+            : "color-mix(in srgb, #94a3b8 18%, #f8fafc 82%)",
           borderColor: "transparent",
-          color: "#334155",
-          boxShadow: "0 2px 4px rgba(15, 23, 42, 0.035)",
+          color: event?.isConvertedAppointment ? "#334155" : "#475569",
+          boxShadow: event?.isConvertedAppointment
+            ? "0 1px 4px rgba(15, 23, 42, 0.04)"
+            : "none",
           borderWidth: 0
         },
         className: [
@@ -4840,7 +4978,7 @@ export default function DashboardPage() {
             ")"
           : "color-mix(in srgb, " +
             (event?.technicianColor?.accent || "#64748b") +
-            " 56%, #f8fbff 44%)",
+            " 64%, #f8fbff 36%)",
         borderColor: "transparent",
         color: event?.isOverdue ? "#fffaf7" : "#f8fbff",
         boxShadow: `0 2px 5px ${
@@ -4853,6 +4991,7 @@ export default function DashboardPage() {
         borderWidth: 0
       },
       className: [
+        "calendar-event-shell-service-order",
         event?.isOverdue ? "calendar-event-overdue" : "",
         event?.isOverdue && showOnlyOverdue ? "calendar-event-overdue-filtered" : "",
         event?.id === selectedServiceOrderId ? "calendar-event-shell-selected" : ""
@@ -7373,11 +7512,73 @@ export default function DashboardPage() {
   const handleMoveServiceOrder = async ({ event, start }) => {
     console.log("[Service Order Debug] onEventDrop:", { event, start });
 
-    if (event?.type === "appointment" || event?.type === "projected_appointment") {
-      console.log("[Appointments Debug] Ignoring read-only appointment drag:", {
-        appointmentId: event.appointmentId,
+    if (event?.type === "projected_appointment") {
+      console.log("[Appointments Debug] Ignoring projected appointment drag:", {
         seriesId: event.seriesId || null
       });
+      return;
+    }
+
+    if (event?.type === "appointment") {
+      if (!event?.appointmentId || !start || !isValid(start)) {
+        return;
+      }
+
+      if (!activeCompanyId) {
+        setCalendarActionError(uiText.dashboard.profileLoadError);
+        return;
+      }
+
+      const supabase = getSupabaseClient();
+
+      if (!supabase) {
+        setCalendarActionError(uiText.serviceOrder.configError);
+        return;
+      }
+
+      const nextAppointmentDate = getServiceDateFromCalendarSlot(start);
+      const nextAppointmentTime = getServiceTimeFromDropTarget(
+        start,
+        event.serviceTime,
+        calendarView,
+        serviceTimeOptions
+      );
+
+      setCalendarActionError("");
+      setCalendarActionMessage("");
+
+      try {
+        const { data: updatedAppointment, error } = await supabase
+          .from("appointments")
+          .update({
+            appointment_date: nextAppointmentDate,
+            appointment_time: nextAppointmentTime
+          })
+          .eq("id", event.appointmentId)
+          .eq("company_id", activeCompanyId)
+          .select(appointmentSelectQuery)
+          .single();
+
+        if (error) {
+          console.error("[Appointments Debug] appointment drag update error:", error);
+          throw error;
+        }
+
+        setAppointments((currentAppointments) =>
+          currentAppointments.map((appointment) =>
+            appointment.id === updatedAppointment.id ? updatedAppointment : appointment
+          )
+        );
+
+        if (selectedAppointment?.id === updatedAppointment.id) {
+          setSelectedAppointment(updatedAppointment);
+        }
+
+        setCalendarActionMessage(uiText.dashboard.detailSuccess);
+      } catch (error) {
+        setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
+      }
+
       return;
     }
 
@@ -8551,7 +8752,7 @@ export default function DashboardPage() {
             </div>
             <div className="operations-panel-actions">
               <button className="button" type="button" onClick={handleOpenCreatePanel}>
-                + {uiText.tabs.newServiceOrder}
+                + Nueva cita
               </button>
               <button
                 className="button button-secondary"
@@ -9023,7 +9224,7 @@ export default function DashboardPage() {
                     return previewItem;
                   }}
                   draggableAccessor={(event) =>
-                    event?.type !== "appointment" && event?.type !== "projected_appointment"
+                    event?.type !== "projected_appointment"
                   }
                   resizable={calendarView !== "month"}
                   resizableAccessor={(event) =>
@@ -9830,13 +10031,13 @@ export default function DashboardPage() {
                       ? "Confirmando..."
                       : isSelectedAppointmentConverted
                         ? "Esta cita ya genero una orden de servicio"
-                        : "Confirmar cita y crear orden de servicio"}
+                        : "Confirmar y crear orden de servicio"}
                   </button>
                 </div>
               </div>
             ) : !selectedOrder ? (
               <div className="detail-empty-state">
-                <p>Selecciona una orden del calendario</p>
+                <p>Selecciona una cita u orden del calendario</p>
               </div>
             ) : rightPanelMode === rightPanelModes.edit ? (
               <form className="detail-panel" onSubmit={handleUpdateServiceOrder}>
