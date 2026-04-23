@@ -3163,6 +3163,8 @@ export default function DashboardPage() {
   const externalDragCleanupTimeoutRef = useRef(null);
   const extendedAppointmentSeriesRef = useRef(new Set());
   const authUserIdRef = useRef("");
+  const lastLoadedCompanyIdRef = useRef(null);
+  const lastLoadedActiveCompanyIdRef = useRef(null);
   const calendarPointerStateRef = useRef({
     calendarEventId: null,
     x: 0,
@@ -5584,6 +5586,7 @@ export default function DashboardPage() {
     const supabase = getSupabaseClient();
 
     if (!supabase || !activeCompanyId) {
+      lastLoadedActiveCompanyIdRef.current = null;
       setActiveCompany(null);
       setCompanySettingsForm(initialCompanySettingsForm);
       setCompanySettingsError("");
@@ -5591,7 +5594,18 @@ export default function DashboardPage() {
       return;
     }
 
+    if (lastLoadedActiveCompanyIdRef.current === activeCompanyId) {
+      console.log("[Dashboard Refresh Debug] skip fetchActiveCompany same company:", {
+        companyId: activeCompanyId,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    lastLoadedActiveCompanyIdRef.current = activeCompanyId;
+
     fetchActiveCompany(supabase, activeCompanyId, "active-company-effect").catch(() => {
+      lastLoadedActiveCompanyIdRef.current = null;
       setActiveCompany(null);
       setCompanySettingsError(uiText.dashboard.companySettingsLoadError);
     });
@@ -5601,6 +5615,7 @@ export default function DashboardPage() {
     const supabase = getSupabaseClient();
 
     if (!supabase || !activeCompanyId || isTechnicianUser) {
+      lastLoadedCompanyIdRef.current = null;
       setServiceOrders([]);
       setAppointments([]);
       setAppointmentSeries([]);
@@ -5611,7 +5626,18 @@ export default function DashboardPage() {
       return;
     }
 
+    if (lastLoadedCompanyIdRef.current === activeCompanyId) {
+      console.log("[Dashboard Refresh Debug] skip fetchServiceOrders same company:", {
+        companyId: activeCompanyId,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    lastLoadedCompanyIdRef.current = activeCompanyId;
+
     fetchServiceOrders(supabase, activeCompanyId, "calendar-company-effect").catch(() => {
+      lastLoadedCompanyIdRef.current = null;
       setCalendarError(uiText.dashboard.calendarErrorBody);
       setAppointments([]);
       setAppointmentSeries([]);
