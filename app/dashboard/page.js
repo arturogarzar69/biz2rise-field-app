@@ -59,6 +59,12 @@ const localizer = dateFnsLocalizer({
 });
 
 const DragAndDropCalendar = withDragAndDrop(Calendar);
+const DEBUG = process.env.NODE_ENV === "development";
+const debugLog = (...args) => {
+  if (DEBUG) {
+    console.log(...args);
+  }
+};
 
 const defaultClientSubTab = uiText.clients.subTabs.list;
 const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
@@ -1299,7 +1305,7 @@ function getServiceTimeFromCalendarSlot(slotDate, calendarView, serviceTimeOptio
       : closestOption;
   }, null);
 
-  console.log("[Backlog DnD Debug] normalized slot to nearest service time option:", {
+  debugLog("[Backlog DnD Debug] normalized slot to nearest service time option:", {
     rawValue,
     slotMinutes,
     nearestTimeOption: nearestTimeOption?.value || null
@@ -1512,7 +1518,7 @@ function EventCard({
         data-appointment-id={event.type === "appointment" ? event.appointmentId : undefined}
         data-appointment-series-id={isProjectedAppointment ? event.seriesId : undefined}
         onClick={() => {
-          console.log("[Calendar Event Debug] EventCard onClick:", event);
+          debugLog("[Calendar Event Debug] EventCard onClick:", event);
           onSelect?.(event);
         }}
       >
@@ -1548,7 +1554,7 @@ function EventCard({
       data-appointment-id={event.type === "appointment" ? event.appointmentId : undefined}
       data-appointment-series-id={isProjectedAppointment ? event.seriesId : undefined}
       onClick={() => {
-        console.log("[Calendar Event Debug] EventCard onClick:", event);
+        debugLog("[Calendar Event Debug] EventCard onClick:", event);
         onSelect?.(event);
       }}
       >
@@ -1569,7 +1575,7 @@ function EventCard({
           onClick={(nativeEvent) => {
             nativeEvent.preventDefault();
             nativeEvent.stopPropagation();
-            console.log("[Service Order Status Debug] event quick icon clicked:", {
+            debugLog("[Service Order Status Debug] event quick icon clicked:", {
               serviceOrderId: event.id,
               eventStatus: event.status
             });
@@ -1621,7 +1627,7 @@ function CalendarEventWrapper({ children, event, onSelect }) {
       isResizeHandle
     };
 
-    console.log("[Service Order Debug] CalendarEventWrapper onMouseDownCapture:", {
+    debugLog("[Service Order Debug] CalendarEventWrapper onMouseDownCapture:", {
       event,
       isResizeHandle,
       targetClassName
@@ -1638,7 +1644,7 @@ function CalendarEventWrapper({ children, event, onSelect }) {
       currentPointerState.isResizeHandle ||
       targetClassName.includes("rbc-addons-dnd-resize");
 
-    console.log("[Service Order Debug] CalendarEventWrapper onMouseUpCapture:", {
+    debugLog("[Service Order Debug] CalendarEventWrapper onMouseUpCapture:", {
       event,
       movedDistance,
       isResizeHandle,
@@ -1649,12 +1655,12 @@ function CalendarEventWrapper({ children, event, onSelect }) {
       return;
     }
 
-    console.log("[Service Order Debug] CalendarEventWrapper selecting event:", event);
+    debugLog("[Service Order Debug] CalendarEventWrapper selecting event:", event);
     onSelect?.(event);
   };
 
   const handleClickCapture = (nativeEvent) => {
-    console.log("[Service Order Debug] CalendarEventWrapper onClickCapture:", {
+    debugLog("[Service Order Debug] CalendarEventWrapper onClickCapture:", {
       event,
       targetClassName: String(nativeEvent.target?.className || "")
     });
@@ -3801,7 +3807,7 @@ export default function DashboardPage() {
   authUserIdRef.current = authUserId;
 
   const fetchUserProfile = async (supabase, userId, reason = "unknown") => {
-    console.log("[Dashboard Refresh Debug] fetchUserProfile:", {
+    debugLog("[Dashboard Refresh Debug] fetchUserProfile:", {
       userId,
       reason,
       timestamp: new Date().toISOString()
@@ -3838,7 +3844,7 @@ export default function DashboardPage() {
       return null;
     }
 
-    console.log("[Dashboard Refresh Debug] fetchActiveCompany:", {
+    debugLog("[Dashboard Refresh Debug] fetchActiveCompany:", {
       companyId,
       reason,
       timestamp: new Date().toISOString()
@@ -4058,7 +4064,7 @@ export default function DashboardPage() {
     }
 
     setIsServiceOrdersLoading(true);
-    console.log("[Dashboard Refresh Debug] fetchServiceOrders:", {
+    debugLog("[Dashboard Refresh Debug] fetchServiceOrders:", {
       companyId,
       reason,
       timestamp: new Date().toISOString()
@@ -4166,7 +4172,7 @@ export default function DashboardPage() {
         : null;
 
       if (!nextSelectionExists) {
-        console.log(
+        debugLog(
           "[Service Order Debug] fetchServiceOrders cleared selectedServiceOrderId:",
           currentSelectionId
         );
@@ -4175,7 +4181,7 @@ export default function DashboardPage() {
       return nextSelectionExists;
     });
     setIsServiceOrdersLoading(false);
-    console.log("[Backlog DnD Debug] fetchServiceOrders complete:", {
+    debugLog("[Backlog DnD Debug] fetchServiceOrders complete:", {
       count: (serviceOrders || []).length
     });
   };
@@ -4194,7 +4200,7 @@ export default function DashboardPage() {
     }
 
     setIsTechnicianOrdersLoading(true);
-    console.log("[Dashboard Refresh Debug] fetchTechnicianOrders:", {
+    debugLog("[Dashboard Refresh Debug] fetchTechnicianOrders:", {
       companyId,
       technicianName,
       reason,
@@ -4255,7 +4261,7 @@ export default function DashboardPage() {
     }
 
     setIsClientsLoading(true);
-    console.log("[Dashboard Refresh Debug] fetchClients:", {
+    debugLog("[Dashboard Refresh Debug] fetchClients:", {
       companyId,
       reason,
       timestamp: new Date().toISOString()
@@ -4373,7 +4379,7 @@ export default function DashboardPage() {
     }
 
     setIsTechniciansLoading(true);
-    console.log("[Dashboard Refresh Debug] fetchTechnicians:", {
+    debugLog("[Dashboard Refresh Debug] fetchTechnicians:", {
       companyId,
       reason,
       timestamp: new Date().toISOString()
@@ -4552,7 +4558,7 @@ export default function DashboardPage() {
           : currentTechnicianOrders;
       });
 
-      console.log("[Service Order Status Debug] replaceServiceOrderRecord:", {
+      debugLog("[Service Order Status Debug] replaceServiceOrderRecord:", {
         serviceOrderId: nextServiceOrder.id,
         status: nextServiceOrder.status,
         didReplace
@@ -4873,7 +4879,7 @@ export default function DashboardPage() {
     excludeOrderId = null
   }) => {
     if (!companyId || !technicianName || !serviceDate || !serviceTime) {
-      console.log("[Backlog DnD Debug] conflict check skipped:", {
+      debugLog("[Backlog DnD Debug] conflict check skipped:", {
         companyId,
         technicianName,
         serviceDate,
@@ -4939,7 +4945,7 @@ export default function DashboardPage() {
       return rangesOverlap(candidateStart, candidateEnd, existingStart, existingEnd);
     });
 
-    console.log("[Backlog DnD Debug] conflict check result:", {
+    debugLog("[Backlog DnD Debug] conflict check result:", {
       technicianName,
       serviceDate,
       serviceTime,
@@ -5004,7 +5010,7 @@ export default function DashboardPage() {
       }
     }
 
-    console.log("[Backlog DnD Debug] updateServiceOrderSchedule normalized input:", {
+    debugLog("[Backlog DnD Debug] updateServiceOrderSchedule normalized input:", {
       serviceOrderId,
       currentStatus:
         existingOrder?.status ||
@@ -5111,12 +5117,12 @@ export default function DashboardPage() {
     }
 
     applyOptimisticServiceOrderPatch(serviceOrderId, optimisticPatch);
-    console.log("[Backlog DnD Debug] updateServiceOrderSchedule optimistic patch applied:", {
+    debugLog("[Backlog DnD Debug] updateServiceOrderSchedule optimistic patch applied:", {
       serviceOrderId,
       payload: optimisticPatch
     });
 
-    console.log("[Backlog DnD Debug] updateServiceOrderSchedule Supabase payload:", {
+    debugLog("[Backlog DnD Debug] updateServiceOrderSchedule Supabase payload:", {
       serviceOrderId,
       payload: persistencePayload
     });
@@ -5162,7 +5168,7 @@ export default function DashboardPage() {
       throw new Error(updateError.message || uiText.dashboard.detailError);
     }
 
-    console.log("[Backlog DnD Debug] updateServiceOrderSchedule Supabase success:", {
+    debugLog("[Backlog DnD Debug] updateServiceOrderSchedule Supabase success:", {
       serviceOrderId,
       returnedStatus: updatedServiceOrder?.status || null
     });
@@ -5171,7 +5177,7 @@ export default function DashboardPage() {
       replaceServiceOrderRecord(updatedServiceOrder);
     }
 
-    console.log("[Service Order Status Debug] updateServiceOrderSchedule success:", {
+    debugLog("[Service Order Status Debug] updateServiceOrderSchedule success:", {
       serviceOrderId,
       optimisticStatus: optimisticPatch.status,
       snapshotStatus:
@@ -5530,7 +5536,7 @@ export default function DashboardPage() {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("[Dashboard Refresh Debug] auth state change:", {
+      debugLog("[Dashboard Refresh Debug] auth state change:", {
         event,
         hasUser: Boolean(session?.user),
         nextUserId: session?.user?.id || null,
@@ -5595,7 +5601,7 @@ export default function DashboardPage() {
     }
 
     if (lastLoadedActiveCompanyIdRef.current === activeCompanyId) {
-      console.log("[Dashboard Refresh Debug] skip fetchActiveCompany same company:", {
+      debugLog("[Dashboard Refresh Debug] skip fetchActiveCompany same company:", {
         companyId: activeCompanyId,
         timestamp: new Date().toISOString()
       });
@@ -5627,7 +5633,7 @@ export default function DashboardPage() {
     }
 
     if (lastLoadedCompanyIdRef.current === activeCompanyId) {
-      console.log("[Dashboard Refresh Debug] skip fetchServiceOrders same company:", {
+      debugLog("[Dashboard Refresh Debug] skip fetchServiceOrders same company:", {
         companyId: activeCompanyId,
         timestamp: new Date().toISOString()
       });
@@ -5878,7 +5884,7 @@ export default function DashboardPage() {
   }, [selectedAppointment, selectedServiceOrder]);
 
   useEffect(() => {
-    console.log("[Service Order Debug] Selection state:", {
+    debugLog("[Service Order Debug] Selection state:", {
       selectedServiceOrderId,
       selectedServiceOrderSnapshot,
       selectedServiceOrder
@@ -5886,7 +5892,7 @@ export default function DashboardPage() {
   }, [selectedServiceOrderId, selectedServiceOrderSnapshot, selectedServiceOrder]);
 
   useEffect(() => {
-    console.log("[Service Order Debug] Detail panel render gate:", {
+    debugLog("[Service Order Debug] Detail panel render gate:", {
       hasSelectedServiceOrder: Boolean(selectedServiceOrder),
       selectedServiceOrderId,
       selectedServiceOrderSnapshot,
@@ -6157,7 +6163,7 @@ export default function DashboardPage() {
     setActiveParentClientId(null);
     setActiveMode("edit");
     setActiveClientDrawerTab(clientDrawerTabs.client);
-    console.log("Edit client", client);
+    debugLog("Edit client", client);
   };
 
   const handleOpenClientDrawerDetail = (client) => {
@@ -6175,7 +6181,7 @@ export default function DashboardPage() {
     setActiveParentClientId(client.id);
     setActiveMode("create");
     setActiveClientDrawerTab(clientDrawerTabs.branches);
-    console.log("Create branch for client", client);
+    debugLog("Create branch for client", client);
   };
 
   const handleClientHierarchyEditBranch = (branch) => {
@@ -6184,7 +6190,7 @@ export default function DashboardPage() {
     setActiveParentClientId(branch.client_id || null);
     setActiveMode("edit");
     setActiveClientDrawerTab(clientDrawerTabs.branches);
-    console.log("Edit branch", branch);
+    debugLog("Edit branch", branch);
   };
 
   const handleCloseClientsDrawer = () => {
@@ -7580,10 +7586,10 @@ export default function DashboardPage() {
   };
 
   const handleSelectServiceOrder = (event) => {
-    console.log("[Service Order Debug] Clicked calendar event:", event);
+    debugLog("[Service Order Debug] Clicked calendar event:", event);
 
     if (event?.type === "projected_appointment") {
-      console.log("[Appointments Debug] Projected appointment selected:", {
+      debugLog("[Appointments Debug] Projected appointment selected:", {
         seriesId: event.seriesId,
         date: event.serviceDate,
         time: event.serviceTime
@@ -7605,7 +7611,7 @@ export default function DashboardPage() {
         return;
       }
 
-      console.log("[Appointments Debug] Read-only appointment selected:", {
+      debugLog("[Appointments Debug] Read-only appointment selected:", {
         appointmentId: resolvedAppointment.id,
         serviceOrderId: event.serviceOrderId || null,
         status: event.appointmentStatus || event.status
@@ -7632,12 +7638,12 @@ export default function DashboardPage() {
       return;
     }
 
-    console.log("[Service Order Debug] Resolved order candidate:", resolvedServiceOrder);
+    debugLog("[Service Order Debug] Resolved order candidate:", resolvedServiceOrder);
     setSelectedAppointment(null);
     setSelectedServiceOrderId(resolvedServiceOrder.id);
     setSelectedServiceOrderSnapshot(resolvedServiceOrder);
     setRightPanelMode(rightPanelModes.detail);
-    console.log("[Service Order Debug] Saving selection:", {
+    debugLog("[Service Order Debug] Saving selection:", {
       selectedServiceOrderId: resolvedServiceOrder.id,
       selectedServiceOrderSnapshot: resolvedServiceOrder
     });
@@ -7689,7 +7695,7 @@ export default function DashboardPage() {
       isResizeHandle
     };
 
-    console.log("[Service Order Debug] Calendar shell mouseDownCapture:", {
+    debugLog("[Service Order Debug] Calendar shell mouseDownCapture:", {
       calendarEventId: calendarPointerStateRef.current.calendarEventId,
       isResizeHandle,
       targetClassName
@@ -7708,7 +7714,7 @@ export default function DashboardPage() {
     const isResizeHandle =
       pointerState.isResizeHandle || targetClassName.includes("rbc-addons-dnd-resize");
 
-    console.log("[Service Order Debug] Calendar shell mouseUpCapture:", {
+    debugLog("[Service Order Debug] Calendar shell mouseUpCapture:", {
       currentCalendarEventId,
       pointerCalendarEventId: pointerState.calendarEventId,
       movedDistance,
@@ -7732,7 +7738,7 @@ export default function DashboardPage() {
       calendarEvents.find((calendarEvent) => String(calendarEvent.id) === currentCalendarEventId) ||
       null;
 
-    console.log("[Service Order Debug] VISIBLE EVENT CLICK WORKED", {
+    debugLog("[Service Order Debug] VISIBLE EVENT CLICK WORKED", {
       currentCalendarEventId,
       resolvedCalendarEvent
     });
@@ -7770,7 +7776,7 @@ export default function DashboardPage() {
 
     try {
       const nextStatus = detailFormState.status;
-      console.log("[Service Order Status Debug] edit save requested:", {
+      debugLog("[Service Order Status Debug] edit save requested:", {
         serviceOrderId: selectedServiceOrderId,
         currentStatus: selectedServiceOrder?.status || null,
         nextStatus
@@ -7812,7 +7818,7 @@ export default function DashboardPage() {
             }
           : currentSnapshot
       );
-      console.log("[Service Order Status Debug] edit save completed:", {
+      debugLog("[Service Order Status Debug] edit save completed:", {
         serviceOrderId: selectedServiceOrderId,
         returnedStatus: updatedServiceOrder?.status || null
       });
@@ -7874,10 +7880,10 @@ export default function DashboardPage() {
   };
 
   const handleMoveServiceOrder = async ({ event, start }) => {
-    console.log("[Service Order Debug] onEventDrop:", { event, start });
+    debugLog("[Service Order Debug] onEventDrop:", { event, start });
 
     if (event?.type === "projected_appointment") {
-      console.log("[Appointments Debug] Ignoring projected appointment drag:", {
+      debugLog("[Appointments Debug] Ignoring projected appointment drag:", {
         seriesId: event.seriesId || null
       });
       return;
@@ -7998,7 +8004,7 @@ export default function DashboardPage() {
 
     draggedBacklogServiceOrderRef.current = serviceOrder;
     setDraggedBacklogServiceOrder(serviceOrder);
-    console.log("[Backlog DnD Debug] drag start:", {
+    debugLog("[Backlog DnD Debug] drag start:", {
       serviceOrderId: serviceOrder?.id,
       technicianName: serviceOrder?.technician_name,
       serviceDate: serviceOrder?.service_date,
@@ -8008,7 +8014,7 @@ export default function DashboardPage() {
   };
 
   const handleBacklogDragEnd = () => {
-    console.log("[Backlog DnD Debug] drag end fired:", {
+    debugLog("[Backlog DnD Debug] drag end fired:", {
       serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null
     });
 
@@ -8017,7 +8023,7 @@ export default function DashboardPage() {
     }
 
     externalDragCleanupTimeoutRef.current = setTimeout(() => {
-      console.log("[Backlog DnD Debug] drag cleanup after dragend:", {
+      debugLog("[Backlog DnD Debug] drag cleanup after dragend:", {
         serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null
       });
       clearDraggedBacklogServiceOrder();
@@ -8093,7 +8099,7 @@ export default function DashboardPage() {
   const handleDropBacklogServiceOrder = async ({ start, end }) => {
     const pendingDraggedServiceOrder = draggedBacklogServiceOrderRef.current;
 
-    console.log("[Backlog DnD Debug] drop received:", {
+    debugLog("[Backlog DnD Debug] drop received:", {
       serviceOrderId: pendingDraggedServiceOrder?.id || null,
       start,
       end
@@ -8121,7 +8127,7 @@ export default function DashboardPage() {
       serviceTimeOptions
     );
 
-    console.log("[Backlog DnD Debug] drop normalized target:", {
+    debugLog("[Backlog DnD Debug] drop normalized target:", {
       serviceOrderId: pendingDraggedServiceOrder.id,
       serviceDate: nextServiceDate,
       serviceTime: nextServiceTime,
@@ -8146,7 +8152,7 @@ export default function DashboardPage() {
         excludeOrderId: pendingDraggedServiceOrder.id
       });
 
-      console.log("[Backlog DnD Debug] drop update completed:", {
+      debugLog("[Backlog DnD Debug] drop update completed:", {
         serviceOrderId: pendingDraggedServiceOrder.id
       });
 
@@ -8167,10 +8173,10 @@ export default function DashboardPage() {
   };
 
   const handleResizeServiceOrder = async ({ event, end }) => {
-    console.log("[Service Order Debug] onEventResize:", { event, end });
+    debugLog("[Service Order Debug] onEventResize:", { event, end });
 
     if (event?.type === "appointment" || event?.type === "projected_appointment") {
-      console.log("[Appointments Debug] Ignoring read-only appointment resize:", {
+      debugLog("[Appointments Debug] Ignoring read-only appointment resize:", {
         appointmentId: event.appointmentId,
         seriesId: event.seriesId || null
       });
@@ -8255,7 +8261,7 @@ export default function DashboardPage() {
 
   const handleQuickCompleteServiceOrder = async (event) => {
     if (event?.type === "appointment" || event?.type === "projected_appointment") {
-      console.log("[Appointments Debug] Ignoring quick complete for read-only appointment:", {
+      debugLog("[Appointments Debug] Ignoring quick complete for read-only appointment:", {
         appointmentId: event.appointmentId,
         seriesId: event.seriesId || null
       });
@@ -8277,7 +8283,7 @@ export default function DashboardPage() {
     const currentStatus = currentOrder.status || "scheduled";
     const nextStatus = currentStatus === "completed" ? "scheduled" : "completed";
 
-    console.log("[Service Order Status Debug] quick toggle requested:", {
+    debugLog("[Service Order Status Debug] quick toggle requested:", {
       serviceOrderId: event.id,
       currentStatus,
       nextStatus
@@ -8306,7 +8312,7 @@ export default function DashboardPage() {
           status: updatedServiceOrder?.status || nextStatus
         }));
       }
-      console.log("[Service Order Status Debug] quick toggle completed:", {
+      debugLog("[Service Order Status Debug] quick toggle completed:", {
         serviceOrderId: currentOrder.id,
         returnedStatus: updatedServiceOrder?.status || null
       });
@@ -8817,7 +8823,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    console.log("[Service Order Debug] Selected service order:", selectedServiceOrder);
+    debugLog("[Service Order Debug] Selected service order:", selectedServiceOrder);
   }, [selectedServiceOrder]);
 
   useEffect(() => {
@@ -9854,7 +9860,7 @@ export default function DashboardPage() {
                       draggedBacklogServiceOrderRef.current
                     );
 
-                    console.log("[Backlog DnD Debug] dragFromOutsideItem:", {
+                    debugLog("[Backlog DnD Debug] dragFromOutsideItem:", {
                       serviceOrderId: draggedBacklogServiceOrderRef.current?.id || null,
                       previewItem
                     });

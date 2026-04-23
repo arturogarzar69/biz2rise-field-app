@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { getSupabaseClient, getSupabaseConfig } from "../lib/supabaseClient";
 import { uiText } from "../lib/uiText";
 
+const DEBUG = process.env.NODE_ENV === "development";
+const debugLog = (...args) => {
+  if (DEBUG) {
+    console.log(...args);
+  }
+};
+
 function getLoginErrorMessage(error) {
   const message = error?.message || "";
 
@@ -33,17 +40,17 @@ export default function LoginPage() {
       ? `${config.supabaseUrl}/auth/v1/token?grant_type=password`
       : "";
 
-    console.log("[Supabase Debug] NEXT_PUBLIC_SUPABASE_URL exists:", config.hasUrl);
-    console.log(
+    debugLog("[Supabase Debug] NEXT_PUBLIC_SUPABASE_URL exists:", config.hasUrl);
+    debugLog(
       "[Supabase Debug] NEXT_PUBLIC_SUPABASE_ANON_KEY exists:",
       config.hasAnonKey
     );
-    console.log("[Supabase Debug] Supabase URL:", config.supabaseUrl || "(missing)");
-    console.log(
+    debugLog("[Supabase Debug] Supabase URL:", config.supabaseUrl || "(missing)");
+    debugLog(
       "[Supabase Debug] Supabase anon key prefix:",
       config.supabaseAnonKey ? config.supabaseAnonKey.slice(0, 8) : "(missing)"
     );
-    console.log("[Supabase Debug] Token endpoint:", tokenUrl || "(missing)");
+    debugLog("[Supabase Debug] Token endpoint:", tokenUrl || "(missing)");
 
     const supabase = getSupabaseClient();
 
@@ -94,7 +101,7 @@ export default function LoginPage() {
       return;
     }
 
-    console.log(
+    debugLog(
       "[Supabase Debug] Attempting sign-in against:",
       `${config.supabaseUrl}/auth/v1/token?grant_type=password`
     );
