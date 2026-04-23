@@ -2807,6 +2807,17 @@ textarea {
   border-radius: 6px;
 }
 
+.rbc-day-bg.calendar-day-past {
+  background: #f7f8fa;
+}
+
+.rbc-time-view .rbc-time-slot.calendar-slot-past,
+.rbc-time-view .rbc-day-slot .rbc-time-slot.calendar-slot-past {
+  background: #fafafa;
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
 .rbc-calendar {
   font-family: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }

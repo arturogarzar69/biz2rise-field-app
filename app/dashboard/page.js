@@ -5211,6 +5211,35 @@ export default function DashboardPage() {
     };
   };
 
+  const getCalendarDayStyle = (date) => {
+    if (!(date instanceof Date) || !isValid(date)) {
+      return {};
+    }
+
+    if (calendarView !== "week" && calendarView !== "month") {
+      return {};
+    }
+
+    return startOfDay(date).getTime() < startOfDay(new Date()).getTime()
+      ? { className: "calendar-day-past" }
+      : {};
+  };
+
+  const getCalendarSlotStyle = (date) => {
+    if (!(date instanceof Date) || !isValid(date) || calendarView !== "week") {
+      return {};
+    }
+
+    const now = new Date();
+    const isTodaySlot = startOfDay(date).getTime() === startOfDay(now).getTime();
+
+    if (!isTodaySlot || date.getTime() >= now.getTime()) {
+      return {};
+    }
+
+    return { className: "calendar-slot-past" };
+  };
+
   const handleCalendarViewChange = (nextView) => {
     setCalendarView(nextView);
 
@@ -6469,6 +6498,16 @@ export default function DashboardPage() {
 
   const handleOpenQuickCreate = (slotInfo) => {
     const slotStart = slotInfo?.start instanceof Date ? slotInfo.start : new Date();
+    const isPastCreateSlot =
+      (calendarView === "week" || calendarView === "month") &&
+      startOfDay(slotStart).getTime() < startOfDay(new Date()).getTime();
+
+    if (isPastCreateSlot) {
+      setCalendarActionMessage("");
+      setCalendarActionError("No puedes crear una cita en una fecha pasada");
+      return;
+    }
+
     const preferredTechnicianName =
       selectedCalendarTechnicians.length === 1
         ? selectedCalendarTechnicians[0]
@@ -6481,6 +6520,7 @@ export default function DashboardPage() {
     );
 
     if (rightPanelMode === rightPanelModes.create) {
+      setCalendarActionError("");
       setFormError("");
       setFormMessage("");
       setFormState((currentState) => ({
@@ -6494,6 +6534,7 @@ export default function DashboardPage() {
     setSelectedServiceOrderId(null);
     setSelectedServiceOrderSnapshot(null);
     setSelectedAppointment(null);
+    setCalendarActionError("");
     setFormError("");
     setFormMessage("");
     setFormState({
@@ -9719,6 +9760,8 @@ export default function DashboardPage() {
                   resizableAccessor={(event) =>
                     event?.type !== "appointment" && event?.type !== "projected_appointment"
                   }
+                  dayPropGetter={getCalendarDayStyle}
+                  slotPropGetter={getCalendarSlotStyle}
                   eventPropGetter={getCalendarEventStyle}
                   style={{ height: 640 }}
                   components={{
