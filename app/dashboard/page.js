@@ -3045,6 +3045,7 @@ export default function DashboardPage() {
   const [calendarError, setCalendarError] = useState("");
   const [calendarActionMessage, setCalendarActionMessage] = useState("");
   const [calendarActionError, setCalendarActionError] = useState("");
+  const [pastDateAlertMessage, setPastDateAlertMessage] = useState("");
   const [isServiceOrdersLoading, setIsServiceOrdersLoading] = useState(false);
   const [calendarView, setCalendarView] = useState(operationalCalendarView);
   const [calendarDate, setCalendarDate] = useState(() => startOfDay(new Date()));
@@ -5221,7 +5222,13 @@ export default function DashboardPage() {
     }
 
     return startOfDay(date).getTime() < startOfDay(new Date()).getTime()
-      ? { className: "calendar-day-past" }
+      ? {
+          className: "calendar-day-past",
+          style: {
+            backgroundColor: "#f7f8fa",
+            color: "#94a3b8"
+          }
+        }
       : {};
   };
 
@@ -5237,7 +5244,13 @@ export default function DashboardPage() {
       return {};
     }
 
-    return { className: "calendar-slot-past" };
+    return {
+      className: "calendar-slot-past",
+      style: {
+        backgroundColor: "#fafafa",
+        opacity: 0.62
+      }
+    };
   };
 
   const handleCalendarViewChange = (nextView) => {
@@ -6504,7 +6517,8 @@ export default function DashboardPage() {
 
     if (isPastCreateSlot) {
       setCalendarActionMessage("");
-      setCalendarActionError("No puedes crear una cita en una fecha pasada");
+      setCalendarActionError("");
+      setPastDateAlertMessage("No puedes crear una cita en una fecha pasada");
       return;
     }
 
@@ -12704,6 +12718,39 @@ export default function DashboardPage() {
               )}
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {pastDateAlertMessage ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setPastDateAlertMessage("")}
+        >
+          <section
+            className="quick-create-modal quick-create-modal-compact quick-alert-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="past-date-alert-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-copy">
+              <h3 id="past-date-alert-title">Fecha no disponible</h3>
+              <p>{pastDateAlertMessage}</p>
+            </div>
+
+            <div className="workspace-form-footer quick-alert-modal-footer">
+              <div className="workspace-actions">
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => setPastDateAlertMessage("")}
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       ) : null}
     </main>

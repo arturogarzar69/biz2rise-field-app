@@ -2807,13 +2807,16 @@ textarea {
   border-radius: 6px;
 }
 
-.rbc-day-bg.calendar-day-past {
-  background: #f7f8fa;
+.rbc-month-view .rbc-day-bg.calendar-day-past,
+.rbc-time-view .rbc-day-bg.calendar-day-past,
+.rbc-time-header-content .rbc-header.calendar-day-past {
+  background-color: #f7f8fa !important;
+  color: #94a3b8;
 }
 
-.rbc-time-view .rbc-time-slot.calendar-slot-past,
-.rbc-time-view .rbc-day-slot .rbc-time-slot.calendar-slot-past {
-  background: #fafafa;
+.rbc-time-view .rbc-day-slot .rbc-time-slot.calendar-slot-past,
+.rbc-time-view .rbc-time-slot.calendar-slot-past {
+  background-color: #fafafa !important;
   opacity: 0.62;
   cursor: not-allowed;
 }
