@@ -7,7 +7,6 @@
   --drawer-width-operational: clamp(440px, 34vw, 540px);
   --sidebar-width-expanded: 276px;
   --sidebar-width-collapsed: 92px;
-  --calendar-workspace-max-width: 1240px;
   --bg: #f6f7fb;
   --panel: rgba(255, 255, 255, 0.96);
   --panel-strong: #ffffff;
@@ -160,11 +159,24 @@ textarea {
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.01em;
   box-shadow: 0 10px 22px rgba(29, 79, 162, 0.2);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background-color 0.16s ease,
+    filter 0.16s ease,
+    border-color 0.16s ease;
 }
 
 .button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 14px 26px rgba(29, 79, 162, 0.22);
+  filter: saturate(1.03) brightness(1.01);
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 7px 16px rgba(29, 79, 162, 0.16);
+  filter: saturate(0.99) brightness(0.99);
 }
 
 .button-secondary {
@@ -175,7 +187,15 @@ textarea {
 }
 
 .button-secondary:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #d1d5db;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.button-secondary:active:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #cbd5e1;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
 }
 
 .button-danger {
@@ -725,11 +745,22 @@ textarea {
   color: color-mix(in srgb, var(--text-muted) 88%, #7b889b 12%);
   text-align: left;
   font-size: var(--font-size-base);
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
 .workspace-sidebar-nav-item:hover {
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.82);
   color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(229, 231, 235, 0.78);
+}
+
+.workspace-sidebar-nav-item:active {
+  background: rgba(243, 246, 250, 0.96);
+  transform: translateY(0.5px);
 }
 
 .workspace-sidebar-nav-item-active {
@@ -738,6 +769,13 @@ textarea {
   font-weight: var(--font-weight-semibold);
   box-shadow: inset 0 0 0 1px rgba(215, 228, 251, 0.9);
   position: relative;
+}
+
+.workspace-sidebar-nav-item-active:hover {
+  background: rgba(235, 241, 250, 0.98);
+  box-shadow:
+    inset 0 0 0 1px rgba(203, 213, 225, 0.92),
+    0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .workspace-sidebar-nav-item-active::before {
@@ -1246,24 +1284,12 @@ textarea {
 }
 
 .calendar-panel {
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   width: 100%;
   padding: 0;
   overflow: visible;
-}
-
-.calendar-panel-workspace {
-  flex: 0 1 var(--calendar-workspace-max-width);
-  width: min(100%, var(--calendar-workspace-max-width));
-  max-width: 1240px;
-  margin-left: auto;
-  margin-right: auto;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
 }
 
 .calendar-panel-top {
@@ -1331,16 +1357,26 @@ textarea {
 
 .calendar-panel-row-1 {
   min-height: 36px;
-  align-items: flex-start;
+  align-items: center;
+}
+
+.calendar-panel-row-left,
+.calendar-panel-row-center,
+.calendar-panel-row-right {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .calendar-panel-row-left,
 .calendar-panel-row-right {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
+  flex: 0 0 auto;
+}
+
+.calendar-panel-row-center {
+  flex: 1 1 auto;
+  justify-content: center;
 }
 
 .calendar-panel-row-right {
@@ -1495,10 +1531,11 @@ textarea {
 
 .calendar-legend-inline {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   min-width: 0;
   width: 100%;
+  max-width: 100%;
   flex: 1 1 auto;
   justify-content: center;
 }
@@ -1521,15 +1558,18 @@ textarea {
 }
 
 .calendar-legend-inline .calendar-legend-items {
-  flex-wrap: wrap;
-  overflow: hidden;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
   min-width: 0;
   flex: 1 1 auto;
-  width: 100%;
-  padding-bottom: 0;
-  align-items: flex-start;
+  max-width: 100%;
+  padding-bottom: 4px;
+  align-items: center;
   justify-content: center;
   gap: 8px;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
 }
 
 .calendar-legend-inline .calendar-legend-items::-webkit-scrollbar {
@@ -1561,7 +1601,8 @@ textarea {
     border-color 0.16s ease,
     background-color 0.16s ease,
     color 0.16s ease,
-    box-shadow 0.16s ease;
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
   flex: 0 0 auto;
 }
 
@@ -1570,6 +1611,7 @@ textarea {
   background: rgba(255, 255, 255, 0.8);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transform: translateY(-0.5px);
 }
 
 .calendar-legend-item-active {
@@ -1583,7 +1625,7 @@ textarea {
   border-color: rgba(148, 163, 184, 0.62);
   background: rgba(248, 251, 255, 0.98);
   color: var(--text);
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
 }
 
 .calendar-legend-item:focus-visible {
@@ -2284,6 +2326,9 @@ textarea {
 .operational-backlog-card-body:hover {
   background: rgba(180, 35, 24, 0.08);
   border-color: rgba(180, 35, 24, 0.22);
+  box-shadow:
+    0 8px 18px rgba(15, 23, 42, 0.07),
+    0 0 0 1px rgba(255, 255, 255, 0.65);
 }
 
 .operational-backlog-card-body:active {
@@ -2331,6 +2376,12 @@ textarea {
   border-color: var(--accent-border);
   background: #f8fbff;
   color: var(--accent);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.operational-backlog-action:active {
+  background: #f3f6fb;
+  transform: translateY(0.5px);
 }
 
 .operational-backlog-action-complete {
@@ -2413,6 +2464,11 @@ textarea {
   transform: none;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
   border-color: rgba(229, 231, 235, 0.92);
+}
+
+.detail-sidebar:hover,
+.detail-sidebar-create-mode:hover {
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
 }
 
 .detail-sidebar-header-create {
@@ -2756,12 +2812,18 @@ textarea {
   align-items: center;
   justify-content: center;
   box-shadow: none;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
 
 .calendar-segmented-control-option:hover:not(:disabled),
 .calendar-segmented-control-option:focus-visible {
   background: rgba(243, 246, 250, 0.96);
   color: #374151;
+  transform: translateY(-0.5px);
 }
 
 .calendar-segmented-control-option.segmented-control-option-active,
@@ -2770,6 +2832,19 @@ textarea {
   color: #334155;
   box-shadow:
     inset 0 0 0 1px rgba(203, 213, 225, 0.96);
+}
+
+.calendar-segmented-control-option.segmented-control-option-active:hover,
+.calendar-toolbar .segmented-control-option-active:hover {
+  background: rgba(232, 238, 245, 0.98);
+  color: #1f2937;
+  box-shadow:
+    inset 0 0 0 1px rgba(191, 203, 218, 0.96),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.calendar-segmented-control-option:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .calendar-segmented-control-option-icon {

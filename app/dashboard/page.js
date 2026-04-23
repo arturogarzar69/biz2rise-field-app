@@ -9468,7 +9468,6 @@ export default function DashboardPage() {
         >
           {activeTopLevelTab === dashboardTabs.calendar ? (
           <section className="calendar-panel">
-          <div className="calendar-panel-workspace">
           <div className="calendar-panel-top">
           <div className="calendar-panel-header">
             <div className="calendar-panel-row calendar-panel-row-1">
@@ -9479,50 +9478,51 @@ export default function DashboardPage() {
                       ? uiText.dashboard.calendarTitle
                       : uiText.serviceList.title}
                   </h2>
-
-                  {activeAdminView === adminViewTabs.calendar && technicianLegendItems.length > 0 ? (
-                    <div
-                      className="calendar-legend calendar-legend-header calendar-legend-inline"
-                      aria-label={uiText.dashboard.calendarLegendTitle}
-                    >
-                      <div className="calendar-legend-items control-group-body">
-                        {technicianLegendItems.map((item) => {
-                          const isActive = selectedCalendarTechnicianSet.has(item.technicianName);
-
-                          return (
-                            <button
-                              key={item.key}
-                              type="button"
-                              className={
-                                isActive
-                                  ? "calendar-legend-item calendar-legend-item-active"
-                                  : "calendar-legend-item"
-                              }
-                              aria-pressed={isActive}
-                              onClick={() => toggleCalendarTechnicianFilter(item.technicianName)}
-                            >
-                              <span
-                                className="calendar-legend-dot"
-                                style={{ backgroundColor: item.color.accent }}
-                              />
-                              <span>{item.displayName}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {hasActiveTechnicianFilter ? (
-                        <button
-                          type="button"
-                          className="calendar-legend-clear"
-                          onClick={() => setSelectedCalendarTechnicians([])}
-                        >
-                          Mostrar todos
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
+              </div>
+              <div className="calendar-panel-row-center">
+                {activeAdminView === adminViewTabs.calendar && technicianLegendItems.length > 0 ? (
+                  <div
+                    className="calendar-legend calendar-legend-header calendar-legend-inline"
+                    aria-label={uiText.dashboard.calendarLegendTitle}
+                  >
+                    <div className="calendar-legend-items control-group-body">
+                      {technicianLegendItems.map((item) => {
+                        const isActive = selectedCalendarTechnicianSet.has(item.technicianName);
+
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            className={
+                              isActive
+                                ? "calendar-legend-item calendar-legend-item-active"
+                                : "calendar-legend-item"
+                            }
+                            aria-pressed={isActive}
+                            onClick={() => toggleCalendarTechnicianFilter(item.technicianName)}
+                          >
+                            <span
+                              className="calendar-legend-dot"
+                              style={{ backgroundColor: item.color.accent }}
+                            />
+                            <span>{item.displayName}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {hasActiveTechnicianFilter ? (
+                      <button
+                        type="button"
+                        className="calendar-legend-clear"
+                        onClick={() => setSelectedCalendarTechnicians([])}
+                      >
+                        Mostrar todos
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="calendar-panel-row-right">
                 <div
@@ -9724,7 +9724,6 @@ export default function DashboardPage() {
               formatServiceDate={formatServiceDate}
             />
           ) : null}
-          </div>
           </div>
           </section>
           ) : null}
