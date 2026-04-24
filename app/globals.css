@@ -3596,6 +3596,54 @@ textarea {
   gap: 12px;
 }
 
+.client-summary-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.client-summary-table-wrapper {
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.client-summary-table th,
+.client-summary-table td {
+  white-space: nowrap;
+}
+
+.client-progress-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  border: 1px solid rgba(215, 223, 234, 0.9);
+  background: rgba(244, 247, 251, 0.92);
+  color: var(--text);
+}
+
+.client-progress-status-pendiente {
+  background: rgba(239, 246, 255, 0.96);
+  border-color: rgba(191, 219, 254, 0.92);
+  color: #1d4ed8;
+}
+
+.client-progress-status-completado {
+  background: rgba(236, 253, 245, 0.96);
+  border-color: rgba(187, 247, 208, 0.92);
+  color: #15803d;
+}
+
+.client-progress-status-vencido {
+  background: rgba(254, 242, 242, 0.96);
+  border-color: rgba(254, 205, 211, 0.92);
+  color: #b42318;
+}
+
 .entity-drawer-tabs {
   display: flex;
   flex-wrap: wrap;

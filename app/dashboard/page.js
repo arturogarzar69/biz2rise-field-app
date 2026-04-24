@@ -176,9 +176,11 @@ const initialQuickBranchState = {
 };
 
 const clientDrawerTabs = {
+  summary: "summary",
   client: "client",
   contacts: "contacts",
-  branches: "branches"
+  branches: "branches",
+  services: "services"
 };
 
 const initialClientDrawerForm = {
@@ -1497,6 +1499,17 @@ function formatServiceDate(serviceDate) {
   }
 
   return format(parsedDate, "d MMM yyyy", { locale: es });
+}
+
+function formatServiceDateTimeSummary(serviceDate, serviceTime) {
+  if (!serviceDate) {
+    return "-";
+  }
+
+  const formattedDate = formatServiceDate(serviceDate);
+  const formattedTime = formatDisplayTime(serviceTime);
+
+  return formattedTime ? `${formattedDate} · ${formattedTime}` : formattedDate;
 }
 
 function buildDefaultBranchPayload(client, companyId) {
@@ -3583,6 +3596,237 @@ export default function DashboardPage() {
       : null) ||
     null;
   const activeDrawerClientId = activeClient?.id || null;
+  const activeClientAppointments = useMemo(
+    () =>
+      appointments.filter((appointment) => appointment.client_id === activeDrawerClientId),
+    [activeDrawerClientId, appointments]
+  );
+  const activeClientServiceOrders = useMemo(
+    () =>
+      serviceOrders.filter((serviceOrder) => serviceOrder.client_id === activeDrawerClientId),
+    [activeDrawerClientId, serviceOrders]
+  );
+  const activeClientProgressOverview = useMemo(() => {
+    if (!activeDrawerClientId) {
+      return {
+        scheduled: 0,
+        completed: 0,
+        pending: 0,
+        overdue: 0,
+        progressPercent: 0
+      };
+    }
+
+    const currentMonthKey = format(new Date(), "yyyy-MM");
+    const currentTime = Date.now();
+    const currentMonthAppointments = activeClientAppointments.filter((appointment) => {
+      if (isConvertedAppointmentRecord(appointment)) {
+        return false;
+      }
+
+      return String(appointment.appointment_date || "").slice(0, 7) === currentMonthKey;
+    });
+    const currentMonthServiceOrders = activeClientServiceOrders.filter(
+      (serviceOrder) => String(serviceOrder.service_date || "").slice(0, 7) === currentMonthKey
+    );
+
+    const scheduled = currentMonthAppointments.length + currentMonthServiceOrders.length;
+    const completed = currentMonthServiceOrders.filter((serviceOrder) =>
+      isCompletedStatus(serviceOrder.status)
+    ).length;
+    const pendingAppointments = currentMonthAppointments.filter((appointment) => {
+      const appointmentEnd = addMinutes(
+        parseServiceOrderStart(appointment.appointment_date, appointment.appointment_time),
+        resolveDurationMinutes(appointment.duration_minutes)
+      );
+
+      return appointmentEnd.getTime() >= currentTime;
+    }).length;
+    const pendingServiceOrders = currentMonthServiceOrders.filter((serviceOrder) => {
+      if (
+        isCompletedStatus(serviceOrder.status) ||
+        String(serviceOrder.status || "").trim().toLowerCase() === "cancelled"
+      ) {
+        return false;
+      }
+
+      const serviceEnd = addMinutes(
+        parseServiceOrderStart(serviceOrder.service_date, serviceOrder.service_time),
+        resolveDurationMinutes(serviceOrder.duration_minutes)
+      );
+
+      return serviceEnd.getTime() >= currentTime;
+    }).length;
+    const overdueAppointments = currentMonthAppointments.filter((appointment) => {
+      const appointmentEnd = addMinutes(
+        parseServiceOrderStart(appointment.appointment_date, appointment.appointment_time),
+        resolveDurationMinutes(appointment.duration_minutes)
+      );
+
+      return appointmentEnd.getTime() < currentTime;
+    }).length;
+    const overdueServiceOrders = currentMonthServiceOrders.filter((serviceOrder) =>
+      isOverdueServiceOrder(
+        serviceOrder.service_date,
+        serviceOrder.service_time,
+        serviceOrder.status,
+        serviceOrder.duration_minutes
+      )
+    ).length;
+    const pending = pendingAppointments + pendingServiceOrders;
+    const overdue = overdueAppointments + overdueServiceOrders;
+
+    return {
+      scheduled,
+      completed,
+      pending,
+      overdue,
+      progressPercent: scheduled > 0 ? Math.round((completed / scheduled) * 100) : 0
+    };
+  }, [activeClientAppointments, activeClientServiceOrders, activeDrawerClientId]);
+  const activeClientBranchProgress = useMemo(() => {
+    const clientBranches = branchesByClientId[activeDrawerClientId] || [];
+    const currentTime = Date.now();
+
+    return clientBranches.map((branch) => {
+      const branchAppointments = activeClientAppointments.filter(
+        (appointment) =>
+          appointment.branch_id === branch.id && !isConvertedAppointmentRecord(appointment)
+      );
+      const branchServiceOrders = activeClientServiceOrders.filter(
+        (serviceOrder) => serviceOrder.branch_id === branch.id
+      );
+      const completedServiceOrders = branchServiceOrders
+        .filter((serviceOrder) => isCompletedStatus(serviceOrder.status))
+        .sort(
+          (leftOrder, rightOrder) =>
+            parseServiceOrderStart(rightOrder.service_date, rightOrder.service_time).getTime() -
+            parseServiceOrderStart(leftOrder.service_date, leftOrder.service_time).getTime()
+        );
+      const latestCompletedServiceOrder = completedServiceOrders[0] || null;
+      const upcomingItems = [
+        ...branchAppointments.map((appointment) => ({
+          type: "appointment",
+          item: appointment,
+          start: parseServiceOrderStart(
+            appointment.appointment_date,
+            appointment.appointment_time
+          )
+        })),
+        ...branchServiceOrders
+          .filter(
+            (serviceOrder) =>
+              !isCompletedStatus(serviceOrder.status) &&
+              String(serviceOrder.status || "").trim().toLowerCase() !== "cancelled"
+          )
+          .map((serviceOrder) => ({
+            type: "service_order",
+            item: serviceOrder,
+            start: parseServiceOrderStart(serviceOrder.service_date, serviceOrder.service_time)
+          }))
+      ]
+        .filter((entry) => entry.start.getTime() >= currentTime)
+        .sort((leftEntry, rightEntry) => leftEntry.start.getTime() - rightEntry.start.getTime());
+      const nextServiceEntry = upcomingItems[0] || null;
+      const hasOverdueServiceOrder = branchServiceOrders.some((serviceOrder) =>
+        isOverdueServiceOrder(
+          serviceOrder.service_date,
+          serviceOrder.service_time,
+          serviceOrder.status,
+          serviceOrder.duration_minutes
+        )
+      );
+      const hasOverdueAppointment = branchAppointments.some((appointment) => {
+        const appointmentEnd = addMinutes(
+          parseServiceOrderStart(appointment.appointment_date, appointment.appointment_time),
+          resolveDurationMinutes(appointment.duration_minutes)
+        );
+
+        return appointmentEnd.getTime() < currentTime;
+      });
+      const status = hasOverdueServiceOrder || hasOverdueAppointment
+        ? "Vencido"
+        : nextServiceEntry
+          ? "Pendiente"
+          : latestCompletedServiceOrder
+            ? "Completado"
+            : "Pendiente";
+      const technicianName =
+        nextServiceEntry?.item?.technician_name ||
+        latestCompletedServiceOrder?.technician_name ||
+        uiText.dashboard.calendarTechnicianFallback;
+
+      return {
+        id: branch.id,
+        name: getBranchDisplayName(branch),
+        lastService: latestCompletedServiceOrder
+          ? formatServiceDateTimeSummary(
+              latestCompletedServiceOrder.service_date,
+              latestCompletedServiceOrder.service_time
+            )
+          : "-",
+        nextService: nextServiceEntry
+          ? formatServiceDateTimeSummary(
+              nextServiceEntry.type === "appointment"
+                ? nextServiceEntry.item.appointment_date
+                : nextServiceEntry.item.service_date,
+              nextServiceEntry.type === "appointment"
+                ? nextServiceEntry.item.appointment_time
+                : nextServiceEntry.item.service_time
+            )
+          : "-",
+        status,
+        technicianName
+      };
+    });
+  }, [activeClientAppointments, activeClientServiceOrders, activeDrawerClientId, branchesByClientId]);
+  const activeClientTimelineRows = useMemo(() => {
+    const appointmentRows = activeClientAppointments
+      .filter((appointment) => !isConvertedAppointmentRecord(appointment))
+      .map((appointment) => ({
+        id: `appointment-${appointment.id}`,
+        typeLabel: "Cita",
+        date: appointment.appointment_date,
+        time: appointment.appointment_time,
+        status:
+          parseServiceOrderStart(appointment.appointment_date, appointment.appointment_time).getTime() <
+          Date.now()
+            ? "Vencido"
+            : "Pendiente",
+        location:
+          resolveEffectiveServiceLocation(appointment).name || uiText.dashboard.branchEmpty,
+        technicianName:
+          appointment.technician_name || uiText.dashboard.calendarTechnicianFallback
+      }));
+    const serviceOrderRows = activeClientServiceOrders.map((serviceOrder) => ({
+      id: `service-order-${serviceOrder.id}`,
+      typeLabel: "Orden",
+      date: serviceOrder.service_date,
+      time: serviceOrder.service_time,
+      status: isCompletedStatus(serviceOrder.status)
+        ? "Completado"
+        : isOverdueServiceOrder(
+            serviceOrder.service_date,
+            serviceOrder.service_time,
+            serviceOrder.status,
+            serviceOrder.duration_minutes
+          )
+          ? "Vencido"
+          : "Pendiente",
+      location:
+        resolveEffectiveServiceLocation(serviceOrder).name || uiText.dashboard.branchEmpty,
+      technicianName:
+        serviceOrder.technician_name || uiText.dashboard.calendarTechnicianFallback
+    }));
+
+    return [...appointmentRows, ...serviceOrderRows]
+      .sort(
+        (leftRow, rightRow) =>
+          parseServiceOrderStart(rightRow.date, rightRow.time).getTime() -
+          parseServiceOrderStart(leftRow.date, leftRow.time).getTime()
+      )
+      .slice(0, 12);
+  }, [activeClientAppointments, activeClientServiceOrders]);
   const activeClientContacts = activeDrawerClientId
     ? contactsByClientId[activeDrawerClientId] || []
     : [];
@@ -5801,7 +6045,15 @@ export default function DashboardPage() {
     }
 
     if (activeEntityType === "client") {
-      setActiveClientDrawerTab(clientDrawerTabs.client);
+      setActiveClientDrawerTab((currentTab) => {
+        if (activeMode === "detail") {
+          return clientDrawerTabs.summary;
+        }
+
+        return currentTab === clientDrawerTabs.summary
+          ? clientDrawerTabs.client
+          : currentTab;
+      });
       setActiveContactId(null);
       setActiveBranchFormId(null);
       setClientDrawerForm(
@@ -5850,7 +6102,7 @@ export default function DashboardPage() {
     setContactDrawerError("");
     setDrawerBranchError("");
     setDrawerBranchMessage("");
-  }, [activeBranch, activeClient, activeEntityType]);
+  }, [activeBranch, activeClient, activeEntityType, activeMode]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -6263,7 +6515,7 @@ export default function DashboardPage() {
     setActiveEntityId(client.id);
     setActiveParentClientId(null);
     setActiveMode("detail");
-    setActiveClientDrawerTab(clientDrawerTabs.client);
+    setActiveClientDrawerTab(clientDrawerTabs.summary);
   };
 
   const handleClientHierarchyCreateBranch = (client) => {
@@ -6309,7 +6561,7 @@ export default function DashboardPage() {
   const handleReturnClientDrawerToDetail = () => {
     if (activeEntityType === "client" && activeEntityId) {
       setActiveMode("detail");
-      setActiveClientDrawerTab(clientDrawerTabs.client);
+      setActiveClientDrawerTab(clientDrawerTabs.summary);
       setClientDrawerError("");
       setIsConfirmingDeleteClient(false);
       setClientDeleteImpact({ branches: 0, contacts: 0 });
@@ -12477,30 +12729,236 @@ export default function DashboardPage() {
                       </div>
                     </section>
 
-                    <section className="drawer-section detail-section-card">
-                      <div className="entity-drawer-section-header">
-                        <h4 className="drawer-section-title">Resumen</h4>
-                      </div>
+                    <div className="entity-drawer-tabs">
+                      <button
+                        type="button"
+                        className={
+                          activeClientDrawerTab === clientDrawerTabs.summary
+                            ? "entity-drawer-tab entity-drawer-tab-active"
+                            : "entity-drawer-tab"
+                        }
+                        onClick={() => setActiveClientDrawerTab(clientDrawerTabs.summary)}
+                      >
+                        Resumen
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          activeClientDrawerTab === clientDrawerTabs.branches
+                            ? "entity-drawer-tab entity-drawer-tab-active"
+                            : "entity-drawer-tab"
+                        }
+                        onClick={() => setActiveClientDrawerTab(clientDrawerTabs.branches)}
+                        disabled={!activeDrawerClientId}
+                      >
+                        Sucursales
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          activeClientDrawerTab === clientDrawerTabs.services
+                            ? "entity-drawer-tab entity-drawer-tab-active"
+                            : "entity-drawer-tab"
+                        }
+                        onClick={() => setActiveClientDrawerTab(clientDrawerTabs.services)}
+                        disabled={!activeDrawerClientId}
+                      >
+                        Servicios / ordenes
+                      </button>
+                    </div>
 
-                      <div className="detail-section-grid">
-                        <div className="detail-row">
-                          <span>Contacto principal</span>
-                          <strong>{activeClient?.main_contact || "-"}</strong>
+                    {activeClientDrawerTab === clientDrawerTabs.summary ? (
+                      <>
+                        <section className="drawer-section detail-section-card">
+                          <div className="entity-drawer-section-header">
+                            <h4 className="drawer-section-title">Resumen</h4>
+                          </div>
+
+                          <div className="detail-section-grid">
+                            <div className="detail-row">
+                              <span>Contacto principal</span>
+                              <strong>{activeClient?.main_contact || "-"}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>Razon social</span>
+                              <strong>{activeClient?.business_name || "-"}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>RFC</span>
+                              <strong>{activeClient?.tax_id || "-"}</strong>
+                            </div>
+                            <div className="detail-row">
+                              <span>Sucursales</span>
+                              <strong>{(branchesByClientId[activeDrawerClientId] || []).length}</strong>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section className="drawer-section detail-section-card">
+                          <div className="entity-drawer-section-header">
+                            <h4 className="drawer-section-title">Cliente 360</h4>
+                            <p className="detail-subcopy">Vista del mes actual</p>
+                          </div>
+
+                          <div className="client-summary-kpis">
+                            <div className="detail-static-field">
+                              <span>Servicios programados</span>
+                              <strong>{activeClientProgressOverview.scheduled}</strong>
+                            </div>
+                            <div className="detail-static-field">
+                              <span>Completados</span>
+                              <strong>{activeClientProgressOverview.completed}</strong>
+                            </div>
+                            <div className="detail-static-field">
+                              <span>Pendientes</span>
+                              <strong>{activeClientProgressOverview.pending}</strong>
+                            </div>
+                            <div className="detail-static-field">
+                              <span>Vencidos</span>
+                              <strong>{activeClientProgressOverview.overdue}</strong>
+                            </div>
+                            <div className="detail-static-field">
+                              <span>% avance</span>
+                              <strong>{activeClientProgressOverview.progressPercent}%</strong>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section className="drawer-section detail-section-card">
+                          <div className="entity-drawer-section-header">
+                            <h4 className="drawer-section-title">Progreso por sucursal</h4>
+                          </div>
+
+                          {activeClientBranchProgress.length === 0 ? (
+                            <p className="detail-subcopy">
+                              Todavia no hay sucursales registradas para este cliente.
+                            </p>
+                          ) : (
+                            <div className="workspace-table-wrapper client-summary-table-wrapper">
+                              <table className="workspace-table client-summary-table">
+                                <thead>
+                                  <tr>
+                                    <th>Sucursal</th>
+                                    <th>Ultimo servicio</th>
+                                    <th>Proximo servicio</th>
+                                    <th>Estado</th>
+                                    <th>Tecnico</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {activeClientBranchProgress.map((branchProgress) => (
+                                    <tr key={branchProgress.id}>
+                                      <td>{branchProgress.name}</td>
+                                      <td>{branchProgress.lastService}</td>
+                                      <td>{branchProgress.nextService}</td>
+                                      <td>
+                                        <span
+                                          className={`client-progress-status client-progress-status-${branchProgress.status.toLowerCase()}`}
+                                        >
+                                          {branchProgress.status}
+                                        </span>
+                                      </td>
+                                      <td>{branchProgress.technicianName}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </section>
+                      </>
+                    ) : null}
+
+                    {activeClientDrawerTab === clientDrawerTabs.branches ? (
+                      <section className="drawer-section detail-section-card">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">Sucursales</h4>
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            onClick={() => {
+                              setActiveClientDrawerTab(clientDrawerTabs.branches);
+                              setActiveMode("edit");
+                            }}
+                          >
+                            Gestionar sucursales
+                          </button>
                         </div>
-                        <div className="detail-row">
-                          <span>Razon social</span>
-                          <strong>{activeClient?.business_name || "-"}</strong>
+
+                        {branchesByClientId[activeDrawerClientId]?.length ? (
+                          <div className="entity-drawer-list">
+                            {branchesByClientId[activeDrawerClientId].map((branch) => (
+                              <div
+                                key={branch.id}
+                                className="entity-drawer-list-item drawer-card-row"
+                              >
+                                <div className="drawer-card-row-heading">
+                                  <strong>{branch.name}</strong>
+                                </div>
+                                {branch.address ? <span>{branch.address}</span> : null}
+                                {branch.phone ? <span>Telefono: {branch.phone}</span> : null}
+                                {branch.contact ? <span>Contacto: {branch.contact}</span> : null}
+                                {!branch.address && !branch.phone && !branch.contact ? (
+                                  <span>Sin datos operativos</span>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="detail-subcopy">{uiText.clients.branchesEmptyState}</p>
+                        )}
+                      </section>
+                    ) : null}
+
+                    {activeClientDrawerTab === clientDrawerTabs.services ? (
+                      <section className="drawer-section detail-section-card">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">Servicios / ordenes</h4>
                         </div>
-                        <div className="detail-row">
-                          <span>RFC</span>
-                          <strong>{activeClient?.tax_id || "-"}</strong>
-                        </div>
-                        <div className="detail-row">
-                          <span>Sucursales</span>
-                          <strong>{(branchesByClientId[activeDrawerClientId] || []).length}</strong>
-                        </div>
-                      </div>
-                    </section>
+
+                        {activeClientTimelineRows.length === 0 ? (
+                          <p className="detail-subcopy">
+                            No hay citas ni ordenes registradas para este cliente.
+                          </p>
+                        ) : (
+                          <div className="workspace-table-wrapper client-summary-table-wrapper">
+                            <table className="workspace-table client-summary-table">
+                              <thead>
+                                <tr>
+                                  <th>Tipo</th>
+                                  <th>Fecha</th>
+                                  <th>Estado</th>
+                                  <th>Ubicacion</th>
+                                  <th>Tecnico</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {activeClientTimelineRows.map((timelineRow) => (
+                                  <tr key={timelineRow.id}>
+                                    <td>{timelineRow.typeLabel}</td>
+                                    <td>
+                                      {formatServiceDateTimeSummary(
+                                        timelineRow.date,
+                                        timelineRow.time
+                                      )}
+                                    </td>
+                                    <td>
+                                      <span
+                                        className={`client-progress-status client-progress-status-${timelineRow.status.toLowerCase()}`}
+                                      >
+                                        {timelineRow.status}
+                                      </span>
+                                    </td>
+                                    <td>{timelineRow.location}</td>
+                                    <td>{timelineRow.technicianName}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+                    ) : null}
 
                     <div className="detail-panel-footer detail-panel-footer-detail">
                       <div className="workspace-form-messages">
