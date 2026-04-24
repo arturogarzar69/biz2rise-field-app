@@ -128,6 +128,10 @@ const initialDetailFormState = {
   status: "scheduled",
   serviceInstructions: "",
   serviceReport: "",
+  serviceSummary: "",
+  findings: "",
+  recommendations: "",
+  materialsUsed: "",
   completionNotes: ""
 };
 
@@ -282,6 +286,10 @@ const serviceOrderSelectQuery = `
   created_at,
   service_instructions,
   service_report,
+  service_summary,
+  findings,
+  recommendations,
+  materials_used,
   started_at,
   completed_at,
   actual_start_at,
@@ -4951,6 +4959,10 @@ export default function DashboardPage() {
     status,
     serviceInstructions = undefined,
     serviceReport = undefined,
+    serviceSummary = undefined,
+    findings = undefined,
+    recommendations = undefined,
+    materialsUsed = undefined,
     executionStatus = undefined,
     startedAt = undefined,
     completedAt = undefined,
@@ -5033,6 +5045,22 @@ export default function DashboardPage() {
 
     if (serviceReport !== undefined) {
       persistencePayload.service_report = serviceReport;
+    }
+
+    if (serviceSummary !== undefined) {
+      persistencePayload.service_summary = serviceSummary;
+    }
+
+    if (findings !== undefined) {
+      persistencePayload.findings = findings;
+    }
+
+    if (recommendations !== undefined) {
+      persistencePayload.recommendations = recommendations;
+    }
+
+    if (materialsUsed !== undefined) {
+      persistencePayload.materials_used = materialsUsed;
     }
 
     if (executionStatus !== undefined) {
@@ -5878,6 +5906,10 @@ export default function DashboardPage() {
       durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
       serviceInstructions: selectedServiceOrder.service_instructions || "",
       serviceReport: selectedServiceOrder.service_report || "",
+      serviceSummary: selectedServiceOrder.service_summary || "",
+      findings: selectedServiceOrder.findings || "",
+      recommendations: selectedServiceOrder.recommendations || "",
+      materialsUsed: selectedServiceOrder.materials_used || "",
       completionNotes: selectedServiceOrder.completion_notes || "",
       ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
@@ -8459,6 +8491,13 @@ export default function DashboardPage() {
         durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
         status: "completed",
         serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || "",
+        serviceSummary:
+          detailFormState.serviceSummary?.trim() || selectedServiceOrder.service_summary || "",
+        findings: detailFormState.findings?.trim() || selectedServiceOrder.findings || "",
+        recommendations:
+          detailFormState.recommendations?.trim() || selectedServiceOrder.recommendations || "",
+        materialsUsed:
+          detailFormState.materialsUsed?.trim() || selectedServiceOrder.materials_used || "",
         existingOrder: selectedServiceOrder,
         branchId: selectedServiceOrder.branch_id || null,
         excludeOrderId: selectedServiceOrder.id,
@@ -8560,7 +8599,14 @@ export default function DashboardPage() {
         actualEndAt: now,
         completedBy: completedByLabel,
         completionNotes: detailFormState.completionNotes.trim() || null,
-        serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || ""
+        serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || "",
+        serviceSummary:
+          detailFormState.serviceSummary?.trim() || selectedServiceOrder.service_summary || "",
+        findings: detailFormState.findings?.trim() || selectedServiceOrder.findings || "",
+        recommendations:
+          detailFormState.recommendations?.trim() || selectedServiceOrder.recommendations || "",
+        materialsUsed:
+          detailFormState.materialsUsed?.trim() || selectedServiceOrder.materials_used || ""
       });
       setDetailFormMessage("Servicio finalizado correctamente.");
       setRightPanelMode(rightPanelModes.detail);
@@ -11692,10 +11738,16 @@ export default function DashboardPage() {
                   </section>
                 ) : null}
 
-                {selectedOrder.status === "completed" && selectedOrder.service_report ? (
+                {selectedOrder.status === "completed" &&
+                (selectedOrder.service_summary ||
+                  selectedOrder.findings ||
+                  selectedOrder.recommendations ||
+                  selectedOrder.materials_used ||
+                  selectedOrder.completion_notes ||
+                  selectedOrder.service_report) ? (
                   <section className="drawer-section detail-section-card">
                     <div className="entity-drawer-section-header">
-                      <h4 className="drawer-section-title">Reporte del servicio</h4>
+                      <h4 className="drawer-section-title">Reporte de servicio</h4>
                     </div>
 
                     <div className="detail-section-grid">
@@ -11706,9 +11758,52 @@ export default function DashboardPage() {
                         </div>
                       ) : null}
 
-                      <div className="detail-row detail-row-notes">
-                        <strong>{selectedOrder.service_report}</strong>
-                      </div>
+                      {selectedOrder.service_summary ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Qué se hizo</span>
+                          <strong>{selectedOrder.service_summary}</strong>
+                        </div>
+                      ) : null}
+
+                      {selectedOrder.findings ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Hallazgos</span>
+                          <strong>{selectedOrder.findings}</strong>
+                        </div>
+                      ) : null}
+
+                      {selectedOrder.recommendations ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Recomendaciones</span>
+                          <strong>{selectedOrder.recommendations}</strong>
+                        </div>
+                      ) : null}
+
+                      {selectedOrder.materials_used ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Productos utilizados</span>
+                          <strong>{selectedOrder.materials_used}</strong>
+                        </div>
+                      ) : null}
+
+                      {selectedOrder.completion_notes ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Notas adicionales</span>
+                          <strong>{selectedOrder.completion_notes}</strong>
+                        </div>
+                      ) : null}
+
+                      {!selectedOrder.service_summary &&
+                      !selectedOrder.findings &&
+                      !selectedOrder.recommendations &&
+                      !selectedOrder.materials_used &&
+                      !selectedOrder.completion_notes &&
+                      selectedOrder.service_report ? (
+                        <div className="detail-row detail-row-notes">
+                          <span>Notas adicionales</span>
+                          <strong>{selectedOrder.service_report}</strong>
+                        </div>
+                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -11750,8 +11845,60 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="detail-edit-grid">
+                    <div className="workspace-field-wide">
+                      <span className="drawer-section-title">Reporte de servicio</span>
+                    </div>
+
                     <label className="workspace-input-group workspace-field-wide">
-                      <span>Notas de cierre</span>
+                      <span>Qué se hizo</span>
+                      <textarea
+                        name="serviceSummary"
+                        value={detailFormState.serviceSummary}
+                        onChange={handleDetailFormChange}
+                        placeholder="Describe brevemente qué se hizo durante el servicio"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Hallazgos</span>
+                      <textarea
+                        name="findings"
+                        value={detailFormState.findings}
+                        onChange={handleDetailFormChange}
+                        placeholder="Anota hallazgos u observaciones relevantes"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Recomendaciones</span>
+                      <textarea
+                        name="recommendations"
+                        value={detailFormState.recommendations}
+                        onChange={handleDetailFormChange}
+                        placeholder="Agrega recomendaciones de seguimiento si aplica"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Productos utilizados</span>
+                      <textarea
+                        name="materialsUsed"
+                        value={detailFormState.materialsUsed}
+                        onChange={handleDetailFormChange}
+                        placeholder="Lista materiales o productos utilizados"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Notas adicionales</span>
                       <textarea
                         name="completionNotes"
                         value={detailFormState.completionNotes}
