@@ -127,7 +127,16 @@ const initialDetailFormState = {
   recurrenceEndDate: "",
   status: "scheduled",
   serviceInstructions: "",
-  serviceReport: ""
+  serviceReport: "",
+  completionNotes: ""
+};
+
+const initialAppointmentConversionForm = {
+  technicianName: "",
+  serviceDate: "",
+  serviceTime: "9:00 AM",
+  durationMinutes: 60,
+  serviceInstructions: ""
 };
 
 const initialBranchFormState = {
@@ -275,6 +284,10 @@ const serviceOrderSelectQuery = `
   service_report,
   started_at,
   completed_at,
+  actual_start_at,
+  actual_end_at,
+  completed_by,
+  completion_notes,
   client_id,
   branch_id,
   service_location_name,
@@ -537,13 +550,13 @@ function getAppointmentOccurrenceKey(seriesId, appointmentDate, appointmentTime)
   ].join("::");
 }
 
-function getDeletedAppointmentOccurrenceKeys(appointmentSeriesExceptions = []) {
+function getSuppressedAppointmentOccurrenceKeys(appointmentSeriesExceptions = []) {
   return new Set(
     (appointmentSeriesExceptions || [])
       .filter(
         (appointmentSeriesException) =>
           appointmentSeriesException?.series_id &&
-          appointmentSeriesException?.exception_type === "deleted"
+          ["deleted", "moved"].includes(appointmentSeriesException?.exception_type)
       )
       .map((appointmentSeriesException) =>
         getAppointmentOccurrenceKey(
@@ -776,7 +789,7 @@ function buildAppointmentBasePayload({
     series_id: recurrenceSeriesId,
     client_id: orderState.clientId,
     branch_id: resolvedBranchId,
-    technician_name: orderState.technicianName.trim(),
+    technician_name: null,
     title: getClientDisplayName(selectedClient),
     notes: orderState.serviceInstructions || orderState.notes || null,
     appointment_date: appointmentDate || orderState.serviceDate,
@@ -804,7 +817,7 @@ function buildAppointmentSeriesPayload({
     company_id: activeCompanyId,
     client_id: orderState.clientId,
     branch_id: resolvedBranchId,
-    technician_name: orderState.technicianName.trim(),
+    technician_name: null,
     title: getClientDisplayName(selectedClient),
     notes: orderState.serviceInstructions || orderState.notes || null,
     start_date: orderState.serviceDate,
@@ -827,7 +840,7 @@ function buildAppointmentPayloadFromSeries({ activeCompanyId, series, appointmen
     series_id: series.id,
     client_id: series.client_id,
     branch_id: series.branch_id || null,
-    technician_name: series.technician_name || "",
+    technician_name: series.technician_name || null,
     title: series.title || getClientDisplayName(series.clients),
     notes: series.notes || null,
     appointment_date: appointmentDate,
@@ -1069,7 +1082,7 @@ function transformProjectedAppointmentSeriesToEvents({
           )
       )
   );
-  const deletedOccurrenceKeys = getDeletedAppointmentOccurrenceKeys(appointmentSeriesExceptions);
+  const deletedOccurrenceKeys = getSuppressedAppointmentOccurrenceKeys(appointmentSeriesExceptions);
 
   return (appointmentSeries || []).flatMap((series) => {
     if (series.status && series.status !== "active") {
@@ -1169,7 +1182,7 @@ function mergeCalendarEvents(
         )
       )
   );
-  const deletedOccurrenceKeys = getDeletedAppointmentOccurrenceKeys(appointmentSeriesExceptions);
+  const deletedOccurrenceKeys = getSuppressedAppointmentOccurrenceKeys(appointmentSeriesExceptions);
   const visibleProjectedAppointmentEvents = (projectedAppointmentEvents || []).filter(
     (projectedEvent) => {
       const occurrenceKey = getAppointmentOccurrenceKey(
@@ -1847,7 +1860,6 @@ function WorkspacePanel({
         formState.serviceLocationAddress.trim() ||
         formState.serviceLocationPhone.trim() ||
         formState.serviceLocationContact.trim() ||
-        formState.technicianName ||
         formState.serviceDate ||
         formState.serviceInstructions.trim() ||
         formState.notes.trim() ||
@@ -1867,7 +1879,6 @@ function WorkspacePanel({
         !preferredResidentialBranch,
       serviceLocationAddress:
         formState.isOneOffLocation && !formState.serviceLocationAddress.trim(),
-      technicianName: !formState.technicianName,
       serviceDate: !formState.serviceDate,
       serviceTime: !formState.serviceTime,
       durationMinutes: !formState.durationMinutes,
@@ -2007,29 +2018,6 @@ function WorkspacePanel({
                 {renderRequiredHint("branchId")}
               </label>
             ) : null}
-
-                <label className={getRequiredFieldClassName("technicianName")}>
-                  <span>{uiText.serviceOrder.fields.technician}</span>
-                  <select
-                    name="technicianName"
-                    value={formState.technicianName}
-                    onChange={onFormChange}
-                    disabled={isSavingOrder || isTechniciansLoading}
-                    required
-                  >
-                    <option value="">
-                      {isTechniciansLoading
-                        ? uiText.serviceOrder.placeholders.technicianLoading
-                        : uiText.serviceOrder.placeholders.technician}
-                    </option>
-                    {activeTechnicians.map((technician) => (
-                      <option key={technician.id} value={technician.full_name}>
-                        {technician.full_name}
-                      </option>
-                ))}
-                  </select>
-                  {renderRequiredHint("technicianName")}
-                </label>
 
                 <label className={getRequiredFieldClassName("serviceDate")}>
               <span>{uiText.serviceOrder.fields.serviceDate}</span>
@@ -2297,9 +2285,6 @@ function WorkspacePanel({
               {!isClientsLoading && !clientsError && clients.length === 0 ? (
                 <p className="empty-hint">{uiText.serviceOrder.clientEmpty}</p>
               ) : null}
-              {!isTechniciansLoading && activeTechnicians.length === 0 ? (
-                <p className="empty-hint">{uiText.serviceOrder.technicianEmpty}</p>
-              ) : null}
               {formState.clientId &&
               !formState.isOneOffLocation &&
               isResidentialFormClient &&
@@ -2337,15 +2322,12 @@ function WorkspacePanel({
                 disabled={
                   isSavingOrder ||
                   isClientsLoading ||
-                  isTechniciansLoading ||
                   clients.length === 0 ||
                   (!formState.isOneOffLocation &&
                     ((!isResidentialFormClient && !formState.branchId) ||
                       (isResidentialFormClient && !preferredResidentialBranch))) ||
                   (formState.isOneOffLocation &&
-                    !formState.serviceLocationAddress.trim()) ||
-                  activeTechnicians.length === 0 ||
-                  !formState.technicianName
+                    !formState.serviceLocationAddress.trim())
                 }
               >
                 {isSavingOrder ? "Guardando cita..." : "Crear cita"}
@@ -3135,7 +3117,6 @@ export default function DashboardPage() {
   const [isBranchesLoading, setIsBranchesLoading] = useState(false);
   const [isSavingBranch, setIsSavingBranch] = useState(false);
   const [formState, setFormState] = useState(initialFormState);
-  const [lastUsedTechnicianName, setLastUsedTechnicianName] = useState("");
   const [formMessage, setFormMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [isSavingOrder, setIsSavingOrder] = useState(false);
@@ -3158,6 +3139,10 @@ export default function DashboardPage() {
   const [detailFormError, setDetailFormError] = useState("");
   const [isSavingDetail, setIsSavingDetail] = useState(false);
   const [isConfirmingAppointment, setIsConfirmingAppointment] = useState(false);
+  const [isPreparingAppointmentConversion, setIsPreparingAppointmentConversion] = useState(false);
+  const [appointmentConversionForm, setAppointmentConversionForm] = useState(
+    initialAppointmentConversionForm
+  );
   const [isDeletingAppointment, setIsDeletingAppointment] = useState(false);
   const [isChoosingRecurringAppointmentDelete, setIsChoosingRecurringAppointmentDelete] =
     useState(false);
@@ -3340,7 +3325,7 @@ export default function DashboardPage() {
             )
           )
       );
-      const deletedOccurrenceKeys = getDeletedAppointmentOccurrenceKeys(
+      const deletedOccurrenceKeys = getSuppressedAppointmentOccurrenceKeys(
         appointmentSeriesExceptions
       );
 
@@ -3944,7 +3929,7 @@ export default function DashboardPage() {
           )
       )
     );
-    const deletedOccurrenceKeys = getDeletedAppointmentOccurrenceKeys(
+    const deletedOccurrenceKeys = getSuppressedAppointmentOccurrenceKeys(
       appointmentSeriesExceptions
     );
     const occurrencePayloads = occurrenceDates
@@ -4969,6 +4954,10 @@ export default function DashboardPage() {
     executionStatus = undefined,
     startedAt = undefined,
     completedAt = undefined,
+    actualStartAt = undefined,
+    actualEndAt = undefined,
+    completedBy = undefined,
+    completionNotes = undefined,
     isOneOffLocation = undefined,
     serviceLocationName = undefined,
     serviceLocationAddress = undefined,
@@ -5068,6 +5057,22 @@ export default function DashboardPage() {
       persistencePayload.completed_at = currentOrder?.completed_at || new Date().toISOString();
     } else if (currentOrder?.status === "completed" && status !== "completed") {
       persistencePayload.completed_at = null;
+    }
+
+    if (actualStartAt !== undefined) {
+      persistencePayload.actual_start_at = actualStartAt;
+    }
+
+    if (actualEndAt !== undefined) {
+      persistencePayload.actual_end_at = actualEndAt;
+    }
+
+    if (completedBy !== undefined) {
+      persistencePayload.completed_by = completedBy;
+    }
+
+    if (completionNotes !== undefined) {
+      persistencePayload.completion_notes = completionNotes;
     }
 
     if (recurrenceState) {
@@ -5873,6 +5878,7 @@ export default function DashboardPage() {
       durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
       serviceInstructions: selectedServiceOrder.service_instructions || "",
       serviceReport: selectedServiceOrder.service_report || "",
+      completionNotes: selectedServiceOrder.completion_notes || "",
       ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
     });
@@ -5907,6 +5913,23 @@ export default function DashboardPage() {
   useEffect(() => {
     setIsChoosingRecurringAppointmentDelete(false);
   }, [selectedAppointment?.id, rightPanelMode]);
+
+  useEffect(() => {
+    if (!selectedAppointment) {
+      setIsPreparingAppointmentConversion(false);
+      setAppointmentConversionForm(initialAppointmentConversionForm);
+      return;
+    }
+
+    setIsPreparingAppointmentConversion(false);
+    setAppointmentConversionForm({
+      technicianName: "",
+      serviceDate: selectedAppointment.appointment_date || "",
+      serviceTime: selectedAppointment.appointment_time || "9:00 AM",
+      durationMinutes: resolveDurationMinutes(selectedAppointment.duration_minutes),
+      serviceInstructions: selectedAppointment.notes || ""
+    });
+  }, [selectedAppointment?.id]);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -6603,7 +6626,6 @@ export default function DashboardPage() {
       setSaving: setIsSavingOrder,
       resetState: () => setFormState(initialFormState),
       onSuccess: () => {
-        setLastUsedTechnicianName(formState.technicianName.trim());
         setRightPanelMode(rightPanelModes.detail);
       }
     });
@@ -6622,10 +6644,6 @@ export default function DashboardPage() {
       return;
     }
 
-    const preferredTechnicianName =
-      selectedCalendarTechnicians.length === 1
-        ? selectedCalendarTechnicians[0]
-        : lastUsedTechnicianName;
     const nextServiceDate = getServiceDateFromCalendarSlot(slotStart);
     const nextServiceTime = getServiceTimeFromCalendarSlot(
       slotStart,
@@ -6653,7 +6671,6 @@ export default function DashboardPage() {
     setFormMessage("");
     setFormState({
       ...initialFormState,
-      technicianName: preferredTechnicianName,
       serviceDate: nextServiceDate,
       serviceTime: nextServiceTime
     });
@@ -7906,6 +7923,11 @@ export default function DashboardPage() {
         return;
       }
 
+      const currentAppointment =
+        event?.appointment ||
+        event?.resource ||
+        appointments.find((appointment) => appointment.id === event?.appointmentId) ||
+        null;
       const nextAppointmentDate = getServiceDateFromCalendarSlot(start);
       const nextAppointmentTime = getServiceTimeFromDropTarget(
         start,
@@ -7913,9 +7935,94 @@ export default function DashboardPage() {
         calendarView,
         serviceTimeOptions
       );
+      const hasRecurringSeries = Boolean(currentAppointment?.series_id);
+      const originalOccurrenceDate = currentAppointment?.appointment_date || event.serviceDate;
+      const originalOccurrenceTime = currentAppointment?.appointment_time || event.serviceTime;
+      const originalOccurrenceKey = hasRecurringSeries
+        ? getAppointmentOccurrenceKey(
+            currentAppointment.series_id,
+            originalOccurrenceDate,
+            originalOccurrenceTime
+          )
+        : "";
+      const nextOccurrenceKey = hasRecurringSeries
+        ? getAppointmentOccurrenceKey(
+            currentAppointment.series_id,
+            nextAppointmentDate,
+            nextAppointmentTime
+          )
+        : "";
+      const previousAppointment = currentAppointment;
+      const optimisticAppointment = currentAppointment
+        ? {
+            ...currentAppointment,
+            appointment_date: nextAppointmentDate,
+            appointment_time: nextAppointmentTime
+          }
+        : null;
+      const shouldSuppressOriginalProjectedOccurrence =
+        hasRecurringSeries &&
+        originalOccurrenceKey &&
+        nextOccurrenceKey &&
+        originalOccurrenceKey !== nextOccurrenceKey;
+      const normalizedOccurrenceDate = normalizeAppointmentOccurrenceDateKey(
+        originalOccurrenceDate
+      );
+      const normalizedOccurrenceTime = normalizeAppointmentOccurrenceTimeKey(
+        originalOccurrenceTime
+      );
+      const previousMatchingException = shouldSuppressOriginalProjectedOccurrence
+        ? appointmentSeriesExceptions.find(
+            (appointmentSeriesException) =>
+              getAppointmentOccurrenceKey(
+                appointmentSeriesException.series_id,
+                appointmentSeriesException.occurrence_date,
+                appointmentSeriesException.occurrence_time
+              ) === originalOccurrenceKey
+          ) || null
+        : null;
+      const optimisticException =
+        shouldSuppressOriginalProjectedOccurrence && currentAppointment?.series_id
+          ? {
+              id: previousMatchingException?.id || `optimistic-moved-${originalOccurrenceKey}`,
+              company_id: activeCompanyId,
+              series_id: currentAppointment.series_id,
+              occurrence_date: normalizedOccurrenceDate,
+              occurrence_time: normalizedOccurrenceTime,
+              exception_type: "moved",
+              replacement_appointment_id: currentAppointment.id
+            }
+          : null;
 
       setCalendarActionError("");
       setCalendarActionMessage("");
+
+      if (optimisticAppointment) {
+        setAppointments((currentAppointments) =>
+          currentAppointments.map((appointment) =>
+            appointment.id === optimisticAppointment.id ? optimisticAppointment : appointment
+          )
+        );
+
+        if (selectedAppointment?.id === optimisticAppointment.id) {
+          setSelectedAppointment(optimisticAppointment);
+        }
+      }
+
+      if (optimisticException) {
+        setAppointmentSeriesExceptions((currentExceptions) => {
+          const nextExceptions = currentExceptions.filter(
+            (appointmentSeriesException) =>
+              getAppointmentOccurrenceKey(
+                appointmentSeriesException.series_id,
+                appointmentSeriesException.occurrence_date,
+                appointmentSeriesException.occurrence_time
+              ) !== originalOccurrenceKey
+          );
+
+          return [...nextExceptions, optimisticException];
+        });
+      }
 
       try {
         const { data: updatedAppointment, error } = await supabase
@@ -7934,6 +8041,88 @@ export default function DashboardPage() {
           throw error;
         }
 
+        if (shouldSuppressOriginalProjectedOccurrence) {
+          const { data: existingException, error: existingExceptionError } = await supabase
+            .from("appointment_series_exceptions")
+            .select(appointmentSeriesExceptionSelectQuery)
+            .eq("company_id", activeCompanyId)
+            .eq("series_id", currentAppointment.series_id)
+            .eq("occurrence_date", normalizedOccurrenceDate)
+            .eq("occurrence_time", normalizedOccurrenceTime)
+            .maybeSingle();
+
+          if (existingExceptionError) {
+            console.error(
+              "[Appointments Debug] appointment drag exception lookup error:",
+              existingExceptionError
+            );
+            throw existingExceptionError;
+          }
+
+          let persistedException = existingException || null;
+
+          if (persistedException?.id) {
+            const { data: updatedException, error: updateExceptionError } = await supabase
+              .from("appointment_series_exceptions")
+              .update({
+                exception_type: "moved",
+                replacement_appointment_id: updatedAppointment.id
+              })
+              .eq("id", persistedException.id)
+              .eq("company_id", activeCompanyId)
+              .select(appointmentSeriesExceptionSelectQuery)
+              .single();
+
+            if (updateExceptionError) {
+              console.error(
+                "[Appointments Debug] appointment drag exception update error:",
+                updateExceptionError
+              );
+              throw updateExceptionError;
+            }
+
+            persistedException = updatedException || persistedException;
+          } else {
+            const { data: createdException, error: createExceptionError } = await supabase
+              .from("appointment_series_exceptions")
+              .insert({
+                company_id: activeCompanyId,
+                series_id: currentAppointment.series_id,
+                occurrence_date: normalizedOccurrenceDate,
+                occurrence_time: normalizedOccurrenceTime,
+                exception_type: "moved",
+                replacement_appointment_id: updatedAppointment.id
+              })
+              .select(appointmentSeriesExceptionSelectQuery)
+              .single();
+
+            if (createExceptionError) {
+              console.error(
+                "[Appointments Debug] appointment drag exception create error:",
+                createExceptionError
+              );
+              throw createExceptionError;
+            }
+
+            persistedException = createdException || null;
+          }
+
+          if (persistedException) {
+            setAppointmentSeriesExceptions((currentExceptions) => {
+              const nextExceptions = currentExceptions.filter(
+                (appointmentSeriesException) =>
+                  getAppointmentOccurrenceKey(
+                    appointmentSeriesException.series_id,
+                    appointmentSeriesException.occurrence_date,
+                    appointmentSeriesException.occurrence_time
+                  ) !== originalOccurrenceKey
+              );
+
+              return [...nextExceptions, persistedException];
+            });
+          }
+        }
+
         setAppointments((currentAppointments) =>
           currentAppointments.map((appointment) =>
             appointment.id === updatedAppointment.id ? updatedAppointment : appointment
@@ -7946,6 +8135,35 @@ export default function DashboardPage() {
 
         setCalendarActionMessage(uiText.dashboard.detailSuccess);
       } catch (error) {
+        if (previousAppointment) {
+          setAppointments((currentAppointments) =>
+            currentAppointments.map((appointment) =>
+              appointment.id === previousAppointment.id ? previousAppointment : appointment
+            )
+          );
+
+          if (selectedAppointment?.id === previousAppointment.id) {
+            setSelectedAppointment(previousAppointment);
+          }
+        }
+
+        if (optimisticException) {
+          setAppointmentSeriesExceptions((currentExceptions) => {
+            const withoutOptimisticException = currentExceptions.filter(
+              (appointmentSeriesException) =>
+                getAppointmentOccurrenceKey(
+                  appointmentSeriesException.series_id,
+                  appointmentSeriesException.occurrence_date,
+                  appointmentSeriesException.occurrence_time
+                ) !== originalOccurrenceKey
+            );
+
+            return previousMatchingException
+              ? [...withoutOptimisticException, previousMatchingException]
+              : withoutOptimisticException;
+          });
+        }
+
         setCalendarActionError(error.message || uiText.dashboard.calendarMoveError);
       }
 
@@ -8259,6 +8477,100 @@ export default function DashboardPage() {
     setIsSavingDetail(false);
   };
 
+  const handleStartSelectedServiceOrder = async () => {
+    if (!selectedServiceOrder) {
+      return;
+    }
+
+    if (selectedServiceOrder.actual_start_at) {
+      setDetailFormError("");
+      setDetailFormMessage("El servicio ya tiene un inicio real registrado.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setIsSavingDetail(true);
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: selectedServiceOrder.id,
+        technicianName: selectedServiceOrder.technician_name || detailFormState.technicianName,
+        serviceDate: selectedServiceOrder.service_date,
+        serviceTime: selectedServiceOrder.service_time,
+        durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
+        status: selectedServiceOrder.status || "scheduled",
+        existingOrder: selectedServiceOrder,
+        branchId: selectedServiceOrder.branch_id ?? null,
+        excludeOrderId: selectedServiceOrder.id,
+        skipConflictCheck: true,
+        executionStatus:
+          selectedServiceOrder.execution_status === "completed"
+            ? "completed"
+            : "in_progress",
+        startedAt: selectedServiceOrder.started_at || now,
+        actualStartAt: now
+      });
+      setDetailFormMessage("Servicio iniciado correctamente.");
+    } catch (error) {
+      setDetailFormError(error.message || "No fue posible iniciar el servicio.");
+    }
+
+    setIsSavingDetail(false);
+  };
+
+  const handleFinalizeSelectedServiceOrder = async () => {
+    if (!selectedServiceOrder) {
+      return;
+    }
+
+    const resolvedActualStart =
+      selectedServiceOrder.actual_start_at || selectedServiceOrder.started_at || null;
+
+    if (!resolvedActualStart) {
+      setDetailFormError("");
+      setDetailFormMessage("");
+      setDetailFormError("Debes iniciar el servicio antes de finalizarlo.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const completedByLabel = userProfile?.full_name || userEmail || null;
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setIsSavingDetail(true);
+
+    try {
+      await updateServiceOrderSchedule({
+        serviceOrderId: selectedServiceOrder.id,
+        technicianName: selectedServiceOrder.technician_name || detailFormState.technicianName,
+        serviceDate: selectedServiceOrder.service_date,
+        serviceTime: selectedServiceOrder.service_time,
+        durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
+        status: "completed",
+        existingOrder: selectedServiceOrder,
+        branchId: selectedServiceOrder.branch_id ?? null,
+        excludeOrderId: selectedServiceOrder.id,
+        skipConflictCheck: true,
+        executionStatus: "completed",
+        startedAt: selectedServiceOrder.started_at || resolvedActualStart,
+        completedAt: selectedServiceOrder.completed_at || now,
+        actualStartAt: resolvedActualStart,
+        actualEndAt: now,
+        completedBy: completedByLabel,
+        completionNotes: detailFormState.completionNotes.trim() || null,
+        serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || ""
+      });
+      setDetailFormMessage("Servicio finalizado correctamente.");
+      setRightPanelMode(rightPanelModes.detail);
+    } catch (error) {
+      setDetailFormError(error.message || "No fue posible finalizar el servicio.");
+    }
+
+    setIsSavingDetail(false);
+  };
+
   const handleQuickCompleteServiceOrder = async (event) => {
     if (event?.type === "appointment" || event?.type === "projected_appointment") {
       debugLog("[Appointments Debug] Ignoring quick complete for read-only appointment:", {
@@ -8324,6 +8636,15 @@ export default function DashboardPage() {
     }
   };
 
+  const handleAppointmentConversionFormChange = (event) => {
+    const { name, value } = event.target;
+
+    setAppointmentConversionForm((currentState) => ({
+      ...currentState,
+      [name]: name === "durationMinutes" ? Number(value) : value
+    }));
+  };
+
   const handleConfirmAppointment = async () => {
     if (!selectedAppointment?.id) {
       return;
@@ -8361,13 +8682,13 @@ export default function DashboardPage() {
       appointment_id: selectedAppointment.id,
       client_id: selectedAppointment.client_id,
       branch_id: selectedAppointment.branch_id || null,
-      technician_name: selectedAppointment.technician_name,
-      service_date: selectedAppointment.appointment_date,
-      service_time: selectedAppointment.appointment_time,
-      duration_minutes: resolveDurationMinutes(selectedAppointment.duration_minutes),
+      technician_name: appointmentConversionForm.technicianName.trim(),
+      service_date: appointmentConversionForm.serviceDate,
+      service_time: appointmentConversionForm.serviceTime.trim(),
+      duration_minutes: resolveDurationMinutes(appointmentConversionForm.durationMinutes),
       status: "scheduled",
       execution_status: defaultExecutionStatus,
-      service_instructions: selectedAppointment.notes || null,
+      service_instructions: appointmentConversionForm.serviceInstructions.trim() || null,
       is_one_off_location: appointmentUsesOneOffLocation,
       service_location_name: appointmentUsesOneOffLocation
         ? selectedAppointment.service_location_name || null
@@ -8382,6 +8703,11 @@ export default function DashboardPage() {
         ? selectedAppointment.service_location_contact || null
         : null
     };
+
+    if (!appointmentConversionForm.technicianName.trim()) {
+      setDetailFormError("Técnico requerido para la orden.");
+      return;
+    }
 
     setIsConfirmingAppointment(true);
     setDetailFormError("");
@@ -8448,6 +8774,7 @@ export default function DashboardPage() {
       }
 
       setSelectedAppointment(updatedAppointment || selectedAppointment);
+      setIsPreparingAppointmentConversion(false);
       setDetailFormMessage("Cita confirmada y orden de servicio creada.");
       await fetchServiceOrders(supabase, activeCompanyId);
     } catch (error) {
@@ -10439,10 +10766,16 @@ export default function DashboardPage() {
                   <button
                     className="button button-secondary"
                     type="button"
-                    onClick={handleCompleteSelectedServiceOrder}
+                    onClick={
+                      selectedOrder.actual_start_at || selectedOrder.started_at
+                        ? handleFinalizeSelectedServiceOrder
+                        : handleStartSelectedServiceOrder
+                    }
                     disabled={isSavingDetail || isDeletingServiceOrder}
                   >
-                    Completar
+                    {selectedOrder.actual_start_at || selectedOrder.started_at
+                      ? "Finalizar servicio"
+                      : "Iniciar servicio"}
                   </button>
                   <button
                     className="button button-secondary"
@@ -10658,6 +10991,146 @@ export default function DashboardPage() {
                   </section>
                 ) : null}
 
+                {!isSelectedAppointmentConverted ? (
+                  <section className="drawer-section detail-section-card">
+                    <div className="entity-drawer-section-header">
+                      <div>
+                        <h4 className="drawer-section-title">Crear orden de servicio</h4>
+                        <p className="detail-subcopy">
+                          Asigna un técnico para convertir esta cita en una orden.
+                        </p>
+                      </div>
+                    </div>
+
+                    {isPreparingAppointmentConversion ? (
+                      <div className="detail-edit-grid detail-edit-grid-2">
+                        <label className="workspace-input-group">
+                          <span>Técnico requerido para la orden</span>
+                          <select
+                            name="technicianName"
+                            value={appointmentConversionForm.technicianName}
+                            onChange={handleAppointmentConversionFormChange}
+                            disabled={isConfirmingAppointment || isTechniciansLoading}
+                            required
+                          >
+                            <option value="">
+                              {isTechniciansLoading
+                                ? uiText.serviceOrder.placeholders.technicianLoading
+                                : uiText.serviceOrder.placeholders.technician}
+                            </option>
+                            {activeTechnicians.map((technician) => (
+                              <option key={technician.id} value={technician.full_name}>
+                                {technician.full_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>Fecha planificada</span>
+                          <input
+                            name="serviceDate"
+                            type="date"
+                            value={appointmentConversionForm.serviceDate}
+                            onChange={handleAppointmentConversionFormChange}
+                            disabled={isConfirmingAppointment}
+                            required
+                          />
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>Hora planificada</span>
+                          <select
+                            name="serviceTime"
+                            value={appointmentConversionForm.serviceTime}
+                            onChange={handleAppointmentConversionFormChange}
+                            disabled={isConfirmingAppointment}
+                            required
+                          >
+                            {serviceTimeOptions.map((timeOption) => (
+                              <option key={timeOption.value} value={timeOption.value}>
+                                {timeOption.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="workspace-input-group">
+                          <span>Duración planificada</span>
+                          <select
+                            name="durationMinutes"
+                            value={appointmentConversionForm.durationMinutes}
+                            onChange={handleAppointmentConversionFormChange}
+                            disabled={isConfirmingAppointment}
+                            required
+                          >
+                            {durationOptions.map((durationOption) => (
+                              <option key={durationOption} value={durationOption}>
+                                {durationOption} min
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Instrucciones de servicio</span>
+                          <textarea
+                            name="serviceInstructions"
+                            value={appointmentConversionForm.serviceInstructions}
+                            onChange={handleAppointmentConversionFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.serviceInstructions}
+                            disabled={isConfirmingAppointment}
+                            rows={4}
+                          />
+                        </label>
+
+                        <div className="detail-delete-actions workspace-field-wide">
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            onClick={() => setIsPreparingAppointmentConversion(false)}
+                            disabled={isConfirmingAppointment}
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            className={isConfirmingAppointment ? "button is-loading" : "button"}
+                            type="button"
+                            onClick={handleConfirmAppointment}
+                            disabled={
+                              isConfirmingAppointment ||
+                              isDeletingAppointment ||
+                              !appointmentConversionForm.technicianName.trim() ||
+                              !appointmentConversionForm.serviceDate ||
+                              !appointmentConversionForm.serviceTime ||
+                              !appointmentConversionForm.durationMinutes
+                            }
+                          >
+                            {isConfirmingAppointment
+                              ? "Creando..."
+                              : "Crear orden de servicio"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="detail-delete-actions">
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={() => {
+                            setDetailFormError("");
+                            setDetailFormMessage("");
+                            setIsPreparingAppointmentConversion(true);
+                          }}
+                          disabled={isDeletingAppointment}
+                        >
+                          Confirmar y crear orden de servicio
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                ) : null}
+
                 <div className="workspace-form-messages">
                   {detailFormError ? <p className="error">{detailFormError}</p> : null}
                   {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
@@ -10724,22 +11197,6 @@ export default function DashboardPage() {
                       La eliminacion esta bloqueada porque esta cita ya tiene una orden vinculada.
                     </p>
                   )}
-                  <button
-                    className={isConfirmingAppointment ? "button is-loading" : "button"}
-                    type="button"
-                    onClick={handleConfirmAppointment}
-                    disabled={
-                      isConfirmingAppointment ||
-                      isDeletingAppointment ||
-                      isSelectedAppointmentConverted
-                    }
-                  >
-                    {isConfirmingAppointment
-                      ? "Confirmando..."
-                      : isSelectedAppointmentConverted
-                        ? "Esta cita ya genero una orden de servicio"
-                        : "Confirmar y crear orden de servicio"}
-                  </button>
                 </div>
               </div>
             ) : !selectedOrder ? (
@@ -11255,6 +11712,84 @@ export default function DashboardPage() {
                     </div>
                   </section>
                 ) : null}
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Ejecución real</h4>
+                  </div>
+
+                  <div className="detail-section-grid detail-section-grid-2">
+                    <div className="detail-row">
+                      <span>Inicio real</span>
+                      <strong>
+                        {selectedOrder.actual_start_at || selectedOrder.started_at
+                          ? formatCompletedAt(
+                              selectedOrder.actual_start_at || selectedOrder.started_at
+                            )
+                          : "Sin registrar"}
+                      </strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>Fin real</span>
+                      <strong>
+                        {selectedOrder.actual_end_at || selectedOrder.completed_at
+                          ? formatCompletedAt(
+                              selectedOrder.actual_end_at || selectedOrder.completed_at
+                            )
+                          : "Sin registrar"}
+                      </strong>
+                    </div>
+                    <div className="detail-row">
+                      <span>Completado por</span>
+                      <strong>{selectedOrder.completed_by || "Sin registrar"}</strong>
+                    </div>
+                    <div className="detail-row detail-row-notes">
+                      <span>Notas de cierre</span>
+                      <strong>{selectedOrder.completion_notes || "Sin registrar"}</strong>
+                    </div>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Notas de cierre</span>
+                      <textarea
+                        name="completionNotes"
+                        value={detailFormState.completionNotes}
+                        onChange={handleDetailFormChange}
+                        placeholder="Agrega notas breves sobre el cierre del servicio"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="detail-delete-actions">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={handleStartSelectedServiceOrder}
+                      disabled={
+                        isSavingDetail ||
+                        isDeletingServiceOrder ||
+                        Boolean(selectedOrder.actual_start_at)
+                      }
+                    >
+                      Iniciar servicio
+                    </button>
+                    <button
+                      className="button"
+                      type="button"
+                      onClick={handleFinalizeSelectedServiceOrder}
+                      disabled={
+                        isSavingDetail ||
+                        isDeletingServiceOrder ||
+                        !(selectedOrder.actual_start_at || selectedOrder.started_at)
+                      }
+                    >
+                      Finalizar servicio
+                    </button>
+                  </div>
+                </section>
 
                 <section className="drawer-section detail-section-card">
                   <div className="entity-drawer-section-header">
