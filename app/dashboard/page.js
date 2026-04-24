@@ -132,6 +132,8 @@ const initialDetailFormState = {
   findings: "",
   recommendations: "",
   materialsUsed: "",
+  actualStartAt: "",
+  actualEndAt: "",
   completionNotes: ""
 };
 
@@ -1449,6 +1451,34 @@ function formatCompletedAt(completedAt) {
   }
 
   return format(parsedDate, "d MMM yyyy, h:mm a", { locale: es });
+}
+
+function formatDateTimeLocalValue(dateTimeValue) {
+  if (!dateTimeValue) {
+    return "";
+  }
+
+  const parsedDate = new Date(dateTimeValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  return format(parsedDate, "yyyy-MM-dd'T'HH:mm");
+}
+
+function parseDateTimeLocalValue(dateTimeValue) {
+  if (!dateTimeValue) {
+    return null;
+  }
+
+  const parsedDate = new Date(dateTimeValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate.toISOString();
 }
 
 function getTodayDateString() {
@@ -5910,6 +5940,12 @@ export default function DashboardPage() {
       findings: selectedServiceOrder.findings || "",
       recommendations: selectedServiceOrder.recommendations || "",
       materialsUsed: selectedServiceOrder.materials_used || "",
+      actualStartAt: formatDateTimeLocalValue(
+        selectedServiceOrder.actual_start_at || selectedServiceOrder.started_at
+      ),
+      actualEndAt: formatDateTimeLocalValue(
+        selectedServiceOrder.actual_end_at || selectedServiceOrder.completed_at
+      ),
       completionNotes: selectedServiceOrder.completion_notes || "",
       ...getRecurrenceFormState(selectedServiceOrder),
       status: selectedServiceOrder.status || "scheduled"
@@ -8564,18 +8600,19 @@ export default function DashboardPage() {
       return;
     }
 
-    const resolvedActualStart =
-      selectedServiceOrder.actual_start_at || selectedServiceOrder.started_at || null;
-
-    if (!resolvedActualStart) {
-      setDetailFormError("");
-      setDetailFormMessage("");
-      setDetailFormError("Debes iniciar el servicio antes de finalizarlo.");
-      return;
-    }
-
     const now = new Date().toISOString();
+    const manualActualEnd = parseDateTimeLocalValue(detailFormState.actualEndAt);
+    const resolvedActualEnd = manualActualEnd || now;
+    const manualActualStart = parseDateTimeLocalValue(detailFormState.actualStartAt);
+    const resolvedActualStart =
+      manualActualStart ||
+      selectedServiceOrder.actual_start_at ||
+      selectedServiceOrder.started_at ||
+      resolvedActualEnd;
     const completedByLabel = userProfile?.full_name || userEmail || null;
+    const autoFilledStart = !manualActualStart &&
+      !selectedServiceOrder.actual_start_at &&
+      !selectedServiceOrder.started_at;
     setDetailFormError("");
     setDetailFormMessage("");
     setIsSavingDetail(true);
@@ -8594,9 +8631,9 @@ export default function DashboardPage() {
         skipConflictCheck: true,
         executionStatus: "completed",
         startedAt: selectedServiceOrder.started_at || resolvedActualStart,
-        completedAt: selectedServiceOrder.completed_at || now,
+        completedAt: selectedServiceOrder.completed_at || resolvedActualEnd,
         actualStartAt: resolvedActualStart,
-        actualEndAt: now,
+        actualEndAt: resolvedActualEnd,
         completedBy: completedByLabel,
         completionNotes: detailFormState.completionNotes.trim() || null,
         serviceReport: detailFormState.serviceReport?.trim() || selectedServiceOrder.service_report || "",
@@ -8608,7 +8645,11 @@ export default function DashboardPage() {
         materialsUsed:
           detailFormState.materialsUsed?.trim() || selectedServiceOrder.materials_used || ""
       });
-      setDetailFormMessage("Servicio finalizado correctamente.");
+      setDetailFormMessage(
+        autoFilledStart
+          ? "No registraste inicio. Se guardó automáticamente."
+          : "Servicio finalizado correctamente."
+      );
       setRightPanelMode(rightPanelModes.detail);
     } catch (error) {
       setDetailFormError(error.message || "No fue posible finalizar el servicio.");
@@ -11845,6 +11886,35 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="detail-edit-grid">
+                    <label className="workspace-input-group">
+                      <span>Inicio real</span>
+                      <input
+                        name="actualStartAt"
+                        type="datetime-local"
+                        value={detailFormState.actualStartAt}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>Fin real</span>
+                      <input
+                        name="actualEndAt"
+                        type="datetime-local"
+                        value={detailFormState.actualEndAt}
+                        onChange={handleDetailFormChange}
+                        disabled={isSavingDetail}
+                      />
+                    </label>
+
+                    {!detailFormState.actualStartAt &&
+                    !(selectedOrder.actual_start_at || selectedOrder.started_at) ? (
+                      <p className="detail-subcopy workspace-field-wide">
+                        Si finalizas sin inicio, se guardará automáticamente usando la hora de fin.
+                      </p>
+                    ) : null}
+
                     <div className="workspace-field-wide">
                       <span className="drawer-section-title">Reporte de servicio</span>
                     </div>
@@ -11927,11 +11997,7 @@ export default function DashboardPage() {
                       className="button"
                       type="button"
                       onClick={handleFinalizeSelectedServiceOrder}
-                      disabled={
-                        isSavingDetail ||
-                        isDeletingServiceOrder ||
-                        !(selectedOrder.actual_start_at || selectedOrder.started_at)
-                      }
+                      disabled={isSavingDetail || isDeletingServiceOrder}
                     >
                       Finalizar servicio
                     </button>
