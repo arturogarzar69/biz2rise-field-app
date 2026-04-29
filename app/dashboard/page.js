@@ -13403,7 +13403,7 @@ export default function DashboardPage() {
                               <strong>{activeClientProgressOverview.appointmentCount}</strong>
                             </div>
                             <div className="detail-static-field">
-                              <span>Órdenes activas</span>
+                              <span>Órdenes del mes</span>
                               <strong>{activeClientProgressOverview.serviceOrderCount}</strong>
                             </div>
                             <div className="detail-static-field">
