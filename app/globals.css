@@ -921,6 +921,33 @@ textarea {
   color: #8b4a3a;
 }
 
+.operations-inbox-copy-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.operations-inbox-group {
+  display: grid;
+  gap: 10px;
+}
+
+.operations-inbox-group-header {
+  display: grid;
+  gap: 2px;
+}
+
+.operations-inbox-group-header strong {
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.operations-inbox-group-header span {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  line-height: 1.45;
+}
+
 .operations-divider {
   display: flex;
   align-items: center;
@@ -2490,6 +2517,11 @@ textarea {
 .operational-backlog-card-overdue .operational-backlog-card-body {
   background: rgba(180, 35, 24, 0.07);
   border-color: rgba(180, 35, 24, 0.2);
+}
+
+.operational-backlog-card-followup .operational-backlog-card-body {
+  background: rgba(100, 116, 139, 0.05);
+  border-color: rgba(100, 116, 139, 0.16);
 }
 
 .operational-backlog-card-today .operational-backlog-card-body {

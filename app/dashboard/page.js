@@ -3628,6 +3628,46 @@ export default function DashboardPage() {
         }),
     [hasActiveTechnicianFilter, selectedCalendarTechnicianSet, serviceOrders]
   );
+  const pastUnconvertedAppointments = useMemo(
+    () => {
+      const now = Date.now();
+
+      return appointments
+        .filter((appointment) => {
+          const matchesTechnician = hasActiveTechnicianFilter
+            ? selectedCalendarTechnicianSet.has(appointment.technician_name)
+            : true;
+          const normalizedStatus = String(appointment?.status || "").trim().toLowerCase();
+          const appointmentStart = parseServiceOrderStart(
+            appointment.appointment_date,
+            appointment.appointment_time
+          );
+
+          return (
+            matchesTechnician &&
+            !appointment.service_order_id &&
+            normalizedStatus !== "cancelled" &&
+            !isConvertedAppointmentRecord(appointment) &&
+            isValid(appointmentStart) &&
+            appointmentStart.getTime() < now
+          );
+        })
+        .sort((appointmentA, appointmentB) => {
+          const startA = parseServiceOrderStart(
+            appointmentA.appointment_date,
+            appointmentA.appointment_time
+          );
+          const startB = parseServiceOrderStart(
+            appointmentB.appointment_date,
+            appointmentB.appointment_time
+          );
+
+          return startA.getTime() - startB.getTime();
+        });
+    },
+    [appointments, hasActiveTechnicianFilter, selectedCalendarTechnicianSet]
+  );
+  const operationalAttentionCount = backlogServiceOrders.length + pastUnconvertedAppointments.length;
   const hasExistingServiceOrderData =
     serviceOrders.length > 0 || appointments.length > 0 || calendarEvents.length > 0;
   const shouldKeepCalendarVisibleDuringRefresh =
@@ -8418,6 +8458,29 @@ export default function DashboardPage() {
     handleSelectServiceOrder(serviceOrder);
   };
 
+  const handleSelectPastAppointmentAttention = (appointment) => {
+    const appointmentStart = parseServiceOrderStart(
+      appointment?.appointment_date,
+      appointment?.appointment_time
+    );
+
+    setActiveAdminView(adminViewTabs.calendar);
+    setCalendarView(operationalCalendarView);
+
+    if (isValid(appointmentStart)) {
+      setCalendarDate(startOfDay(appointmentStart));
+    }
+
+    setCalendarActionError("");
+    setCalendarActionMessage("");
+    setDetailFormError("");
+    setDetailFormMessage("");
+    setSelectedServiceOrderId(null);
+    setSelectedServiceOrderSnapshot(null);
+    setSelectedAppointment(appointment);
+    setRightPanelMode(rightPanelModes.detail);
+  };
+
   const handleCalendarMouseDownCapture = (nativeEvent) => {
     const eventCardNode = nativeEvent.target.closest?.("[data-calendar-event-id]");
     const targetClassName = String(nativeEvent.target?.className || "");
@@ -10342,80 +10405,150 @@ export default function DashboardPage() {
                 <span className="control-group-label">Inbox operativo</span>
                 <h2>Requiere atencion</h2>
               </div>
-              <span>{pendingOrders.length}</span>
+              <span>{operationalAttentionCount}</span>
             </div>
-            <p className="operations-inbox-copy">{uiText.dashboard.backlogBody}</p>
+            <div className="operations-inbox-copy-stack">
+              <p className="operations-inbox-copy">
+                <strong>Servicios vencidos:</strong> {pendingOrders.length}
+              </p>
+              <p className="operations-inbox-copy">
+                <strong>{uiText.dashboard.pastAppointmentsLabel}:</strong>{" "}
+                {pastUnconvertedAppointments.length}
+              </p>
+            </div>
 
             <div className="operations-pending-list">
-              {pendingOrders.length === 0 ? (
-                <p className="operational-backlog-empty">{uiText.dashboard.backlogEmpty}</p>
+              {operationalAttentionCount === 0 ? (
+                <p className="operational-backlog-empty">{uiText.dashboard.operationalInboxEmpty}</p>
               ) : (
-                pendingOrders.map((serviceOrder) => {
-                  const isPendingToday = serviceOrder.service_date === getTodayDateString();
-                  const serviceLocation = resolveEffectiveServiceLocation(serviceOrder);
-
-                  return (
-                    <div
-                      key={serviceOrder.id}
-                      className={
-                        serviceOrder.id === selectedServiceOrderId
-                          ? `operational-backlog-card-shell operational-backlog-card-selected ${
-                              isPendingToday
-                                ? "operational-backlog-card-today"
-                                : "operational-backlog-card-overdue"
-                            }`
-                          : `operational-backlog-card-shell ${
-                              isPendingToday
-                                ? "operational-backlog-card-today"
-                                : "operational-backlog-card-overdue"
-                            }`
-                      }
-                    >
-                      <button
-                        type="button"
-                        draggable
-                        className="operational-backlog-card-body"
-                        onClick={() => handleSelectBacklogServiceOrder(serviceOrder)}
-                        onDragStart={(event) => handleBacklogDragStart(serviceOrder, event)}
-                        onDragEnd={handleBacklogDragEnd}
-                      >
-                        <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
-                        <span>{serviceLocation.name || uiText.dashboard.branchEmpty}</span>
-                        <span>
-                          {formatDisplayTime(serviceOrder.service_time)} ·{" "}
-                          {getTechnicianDisplayName(serviceOrder.technician_name)}
-                        </span>
-                      </button>
-
-                      <div className="operational-backlog-actions">
-                        <button
-                          type="button"
-                          className="operational-backlog-action"
-                          draggable={false}
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleBacklogQuickReschedule(serviceOrder, 0);
-                          }}
-                        >
-                          {uiText.dashboard.backlogActionToday}
-                        </button>
-                        <button
-                          type="button"
-                          className="operational-backlog-action operational-backlog-action-complete"
-                          draggable={false}
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleBacklogQuickComplete(serviceOrder);
-                          }}
-                        >
-                          {uiText.dashboard.backlogActionComplete}
-                        </button>
+                <>
+                  {pendingOrders.length > 0 ? (
+                    <div className="operations-inbox-group">
+                      <div className="operations-inbox-group-header">
+                        <strong>{uiText.dashboard.backlogTitle}</strong>
+                        <span>{uiText.dashboard.backlogBody}</span>
                       </div>
+
+                      {pendingOrders.map((serviceOrder) => {
+                        const isPendingToday = serviceOrder.service_date === getTodayDateString();
+                        const serviceLocation = resolveEffectiveServiceLocation(serviceOrder);
+
+                        return (
+                          <div
+                            key={serviceOrder.id}
+                            className={
+                              serviceOrder.id === selectedServiceOrderId
+                                ? `operational-backlog-card-shell operational-backlog-card-selected ${
+                                    isPendingToday
+                                      ? "operational-backlog-card-today"
+                                      : "operational-backlog-card-overdue"
+                                  }`
+                                : `operational-backlog-card-shell ${
+                                    isPendingToday
+                                      ? "operational-backlog-card-today"
+                                      : "operational-backlog-card-overdue"
+                                  }`
+                            }
+                          >
+                            <button
+                              type="button"
+                              draggable
+                              className="operational-backlog-card-body"
+                              onClick={() => handleSelectBacklogServiceOrder(serviceOrder)}
+                              onDragStart={(event) => handleBacklogDragStart(serviceOrder, event)}
+                              onDragEnd={handleBacklogDragEnd}
+                            >
+                              <strong>{getClientDisplayName(serviceOrder.clients)}</strong>
+                              <span>{serviceLocation.name || uiText.dashboard.branchEmpty}</span>
+                              <span>
+                                {formatDisplayTime(serviceOrder.service_time)} ·{" "}
+                                {getTechnicianDisplayName(serviceOrder.technician_name)}
+                              </span>
+                            </button>
+
+                            <div className="operational-backlog-actions">
+                              <button
+                                type="button"
+                                className="operational-backlog-action"
+                                draggable={false}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleBacklogQuickReschedule(serviceOrder, 0);
+                                }}
+                              >
+                                {uiText.dashboard.backlogActionToday}
+                              </button>
+                              <button
+                                type="button"
+                                className="operational-backlog-action operational-backlog-action-complete"
+                                draggable={false}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleBacklogQuickComplete(serviceOrder);
+                                }}
+                              >
+                                {uiText.dashboard.backlogActionComplete}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })
+                  ) : null}
+
+                  {pastUnconvertedAppointments.length > 0 ? (
+                    <div className="operations-inbox-group">
+                      <div className="operations-inbox-group-header">
+                        <strong>{uiText.dashboard.pastAppointmentsLabel}</strong>
+                        <span>{uiText.dashboard.pastAppointmentsBody}</span>
+                      </div>
+
+                      {pastUnconvertedAppointments.map((appointment) => {
+                        const appointmentLocation = resolveEffectiveServiceLocation(appointment);
+
+                        return (
+                          <div
+                            key={appointment.id}
+                            className={
+                              appointment.id === selectedAppointment?.id
+                                ? "operational-backlog-card-shell operational-backlog-card-selected operational-backlog-card-followup"
+                                : "operational-backlog-card-shell operational-backlog-card-followup"
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="operational-backlog-card-body"
+                              onClick={() => handleSelectPastAppointmentAttention(appointment)}
+                            >
+                              <strong>{getClientDisplayName(appointment.clients)}</strong>
+                              <span>{appointmentLocation.name || uiText.dashboard.branchEmpty}</span>
+                              <span>
+                                {formatServiceDate(appointment.appointment_date)} ·{" "}
+                                {formatDisplayTime(appointment.appointment_time)}
+                              </span>
+                            </button>
+
+                            <div className="operational-backlog-actions">
+                              <button
+                                type="button"
+                                className="operational-backlog-action"
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleSelectPastAppointmentAttention(appointment);
+                                }}
+                              >
+                                {uiText.dashboard.pastAppointmentsActionOpen}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
