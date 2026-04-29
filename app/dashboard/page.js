@@ -3433,6 +3433,9 @@ export default function DashboardPage() {
     rightPanelMode === rightPanelModes.detail &&
     Boolean(selectedAppointment);
   const isFocusedServiceOrderPanel = isCreateServiceOrderMode || isEditingServiceOrder;
+  const isOperationalDrawerExpanded =
+    isEditingServiceOrder ||
+    (isAppointmentDetailMode && isPreparingAppointmentConversion);
   const serviceOrderPanelStage = isFocusedServiceOrderPanel
     ? "operational"
     : isServiceOrderDetailMode || isAppointmentDetailMode
@@ -8524,6 +8527,11 @@ export default function DashboardPage() {
         status: nextStatus,
         serviceInstructions: detailFormState.serviceInstructions.trim(),
         serviceReport: detailFormState.serviceReport.trim(),
+        serviceSummary: detailFormState.serviceSummary.trim(),
+        findings: detailFormState.findings.trim(),
+        recommendations: detailFormState.recommendations.trim(),
+        materialsUsed: detailFormState.materialsUsed.trim(),
+        completionNotes: detailFormState.completionNotes.trim(),
         isOneOffLocation: detailFormState.isOneOffLocation,
         serviceLocationName: detailFormState.serviceLocationName,
         serviceLocationAddress: detailFormState.serviceLocationAddress,
@@ -8539,7 +8547,14 @@ export default function DashboardPage() {
       setDetailFormState((currentState) => ({
         ...currentState,
         status: updatedServiceOrder?.status || nextStatus,
-        serviceReport: updatedServiceOrder?.service_report || currentState.serviceReport
+        serviceReport: updatedServiceOrder?.service_report || currentState.serviceReport,
+        serviceSummary: updatedServiceOrder?.service_summary || currentState.serviceSummary,
+        findings: updatedServiceOrder?.findings || currentState.findings,
+        recommendations:
+          updatedServiceOrder?.recommendations || currentState.recommendations,
+        materialsUsed: updatedServiceOrder?.materials_used || currentState.materialsUsed,
+        completionNotes:
+          updatedServiceOrder?.completion_notes || currentState.completionNotes
       }));
       setSelectedServiceOrderSnapshot((currentSnapshot) =>
         currentSnapshot?.id === selectedServiceOrderId
@@ -10677,9 +10692,13 @@ export default function DashboardPage() {
           className={
             activeTopLevelTab === dashboardTabs.calendar
               ? serviceOrderPanelStage === "operational"
-                ? "main-workspace-surface main-workspace-surface-operational-edit"
+                ? `main-workspace-surface main-workspace-surface-operational-edit${
+                    isOperationalDrawerExpanded ? " main-workspace-surface-drawer-expanded" : ""
+                  }`
                 : serviceOrderPanelStage === "detail"
-                  ? "main-workspace-surface main-workspace-surface-operational-detail"
+                  ? `main-workspace-surface main-workspace-surface-operational-detail${
+                      isOperationalDrawerExpanded ? " main-workspace-surface-drawer-expanded" : ""
+                    }`
                   : "main-workspace-surface main-workspace-surface-operational-idle"
               : "main-workspace-surface main-workspace-surface-two-column"
           }
@@ -11625,8 +11644,10 @@ export default function DashboardPage() {
             serviceOrderPanelStage === "idle"
               ? "detail-sidebar detail-sidebar-idle"
               : isFocusedServiceOrderPanel
-              ? "detail-sidebar detail-sidebar-create-mode"
-              : "detail-sidebar"
+              ? `detail-sidebar detail-sidebar-create-mode${
+                  isOperationalDrawerExpanded ? " detail-sidebar-expanded" : ""
+                }`
+              : `detail-sidebar${isOperationalDrawerExpanded ? " detail-sidebar-expanded" : ""}`
           }
           aria-hidden={serviceOrderPanelStage === "idle"}
         >
@@ -12431,21 +12452,6 @@ export default function DashboardPage() {
                       />
                     </label>
 
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>{uiText.serviceOrder.fields.serviceReport}</span>
-                      <textarea
-                        name="serviceReport"
-                        value={detailFormState.serviceReport}
-                        onChange={handleDetailFormChange}
-                        placeholder={uiText.serviceOrder.placeholders.serviceReport}
-                        disabled={isSavingDetail}
-                        rows={5}
-                      />
-                      <small className="detail-subcopy">
-                        Describe brevemente lo que se hizo, observaciones o hallazgos relevantes.
-                      </small>
-                    </label>
-
                     {selectedOrder.completed_at ? (
                       <div className="service-order-inline-row workspace-field-wide">
                         <div className="service-order-inline-meta">
@@ -12456,6 +12462,74 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="entity-drawer-section-header">
+                    <h4 className="drawer-section-title">Reporte del servicio</h4>
+                  </div>
+
+                  <div className="detail-edit-grid">
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Qué se hizo</span>
+                      <textarea
+                        name="serviceSummary"
+                        value={detailFormState.serviceSummary}
+                        onChange={handleDetailFormChange}
+                        placeholder="Describe brevemente qué se hizo durante el servicio"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Hallazgos</span>
+                      <textarea
+                        name="findings"
+                        value={detailFormState.findings}
+                        onChange={handleDetailFormChange}
+                        placeholder="Anota hallazgos u observaciones relevantes"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Recomendaciones</span>
+                      <textarea
+                        name="recommendations"
+                        value={detailFormState.recommendations}
+                        onChange={handleDetailFormChange}
+                        placeholder="Agrega recomendaciones de seguimiento si aplica"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Productos utilizados</span>
+                      <textarea
+                        name="materialsUsed"
+                        value={detailFormState.materialsUsed}
+                        onChange={handleDetailFormChange}
+                        placeholder="Lista materiales o productos utilizados"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group workspace-field-wide">
+                      <span>Notas adicionales</span>
+                      <textarea
+                        name="completionNotes"
+                        value={detailFormState.completionNotes}
+                        onChange={handleDetailFormChange}
+                        placeholder="Agrega notas breves sobre el cierre del servicio"
+                        disabled={isSavingDetail}
+                        rows={3}
+                      />
+                    </label>
                   </div>
                 </section>
 
@@ -12660,75 +12734,7 @@ export default function DashboardPage() {
                     <h4 className="drawer-section-title">Reporte del servicio</h4>
                   </div>
 
-                  <div className="detail-edit-grid">
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Qué se hizo</span>
-                      <textarea
-                        name="serviceSummary"
-                        value={detailFormState.serviceSummary}
-                        onChange={handleDetailFormChange}
-                        placeholder="Describe brevemente qué se hizo durante el servicio"
-                        disabled={isSavingDetail}
-                        rows={3}
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Hallazgos</span>
-                      <textarea
-                        name="findings"
-                        value={detailFormState.findings}
-                        onChange={handleDetailFormChange}
-                        placeholder="Anota hallazgos u observaciones relevantes"
-                        disabled={isSavingDetail}
-                        rows={3}
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Recomendaciones</span>
-                      <textarea
-                        name="recommendations"
-                        value={detailFormState.recommendations}
-                        onChange={handleDetailFormChange}
-                        placeholder="Agrega recomendaciones de seguimiento si aplica"
-                        disabled={isSavingDetail}
-                        rows={3}
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Productos utilizados</span>
-                      <textarea
-                        name="materialsUsed"
-                        value={detailFormState.materialsUsed}
-                        onChange={handleDetailFormChange}
-                        placeholder="Lista materiales o productos utilizados"
-                        disabled={isSavingDetail}
-                        rows={3}
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Notas adicionales</span>
-                      <textarea
-                        name="completionNotes"
-                        value={detailFormState.completionNotes}
-                        onChange={handleDetailFormChange}
-                        placeholder="Agrega notas breves sobre el cierre del servicio"
-                        disabled={isSavingDetail}
-                        rows={3}
-                      />
-                    </label>
-                  </div>
-
-                  {selectedOrder.status === "completed" &&
-                  (selectedOrder.service_summary ||
-                    selectedOrder.findings ||
-                    selectedOrder.recommendations ||
-                    selectedOrder.materials_used ||
-                    selectedOrder.completion_notes ||
-                    selectedOrder.service_report) ? (
+                  {selectedOrder.status === "completed" ? (
                     <div className="detail-section-grid detail-report-readback">
                       {selectedOrder.completed_at ? (
                         <div className="detail-row">
@@ -12758,14 +12764,78 @@ export default function DashboardPage() {
                         <strong>
                           {selectedOrder.completion_notes ||
                             selectedOrder.service_report ||
-                            "Sin notas adicionales."}
+                          "Sin notas adicionales."}
                         </strong>
                       </div>
                     </div>
                   ) : (
-                    <p className="detail-subcopy">
-                      Completa este reporte durante o al finalizar el servicio para dejar trazabilidad clara del trabajo realizado.
-                    </p>
+                    <>
+                      <div className="detail-edit-grid">
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Qué se hizo</span>
+                          <textarea
+                            name="serviceSummary"
+                            value={detailFormState.serviceSummary}
+                            onChange={handleDetailFormChange}
+                            placeholder="Describe brevemente qué se hizo durante el servicio"
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Hallazgos</span>
+                          <textarea
+                            name="findings"
+                            value={detailFormState.findings}
+                            onChange={handleDetailFormChange}
+                            placeholder="Anota hallazgos u observaciones relevantes"
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Recomendaciones</span>
+                          <textarea
+                            name="recommendations"
+                            value={detailFormState.recommendations}
+                            onChange={handleDetailFormChange}
+                            placeholder="Agrega recomendaciones de seguimiento si aplica"
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Productos utilizados</span>
+                          <textarea
+                            name="materialsUsed"
+                            value={detailFormState.materialsUsed}
+                            onChange={handleDetailFormChange}
+                            placeholder="Lista materiales o productos utilizados"
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+
+                        <label className="workspace-input-group workspace-field-wide">
+                          <span>Notas adicionales</span>
+                          <textarea
+                            name="completionNotes"
+                            value={detailFormState.completionNotes}
+                            onChange={handleDetailFormChange}
+                            placeholder="Agrega notas breves sobre el cierre del servicio"
+                            disabled={isSavingDetail}
+                            rows={3}
+                          />
+                        </label>
+                      </div>
+
+                      <p className="detail-subcopy">
+                        Completa este reporte durante o al finalizar el servicio para dejar trazabilidad clara del trabajo realizado.
+                      </p>
+                    </>
                   )}
                 </section>
 
