@@ -5405,6 +5405,16 @@ export default function DashboardPage() {
       return;
     }
 
+    const appointmentStart = parseServiceOrderStart(
+      orderState.serviceDate,
+      orderState.serviceTime.trim()
+    );
+
+    if (isValid(appointmentStart) && appointmentStart.getTime() < Date.now()) {
+      setError("No puedes crear una cita en una fecha pasada");
+      return;
+    }
+
     const supabase = getSupabaseClient();
 
     if (!supabase) {
