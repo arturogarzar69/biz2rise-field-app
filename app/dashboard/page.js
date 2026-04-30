@@ -177,6 +177,69 @@ const initialQuickTechnicianState = {
   email: ""
 };
 
+function buildClientFormStateFromRecord(clientRecord) {
+  return {
+    name: clientRecord?.name || clientRecord?.displayName || "",
+    clientType: clientRecord?.client_type || "commercial",
+    businessName: clientRecord?.business_name || "",
+    tradeName: clientRecord?.trade_name || "",
+    taxId: clientRecord?.tax_id || "",
+    mainAddress: clientRecord?.main_address || "",
+    mainPhone: clientRecord?.main_phone || "",
+    mainContact: clientRecord?.main_contact || "",
+    mainEmail: clientRecord?.main_email || ""
+  };
+}
+
+function buildDetailFormStateFromServiceOrderRecord(serviceOrder) {
+  if (!serviceOrder) {
+    return initialDetailFormState;
+  }
+
+  return {
+    clientId: serviceOrder.client_id || "",
+    branchId: serviceOrder.branch_id || "",
+    isOneOffLocation: hasServiceLocationOverride(serviceOrder),
+    serviceLocationName: serviceOrder.service_location_name || "",
+    serviceLocationAddress: serviceOrder.service_location_address || "",
+    serviceLocationPhone: serviceOrder.service_location_phone || "",
+    serviceLocationContact: serviceOrder.service_location_contact || "",
+    technicianName: serviceOrder.technician_name || "",
+    serviceDate: serviceOrder.service_date || "",
+    serviceTime: serviceOrder.service_time || "9:00 AM",
+    durationMinutes: resolveDurationMinutes(serviceOrder.duration_minutes),
+    serviceInstructions: serviceOrder.service_instructions || "",
+    serviceReport: serviceOrder.service_report || "",
+    serviceSummary: serviceOrder.service_summary || "",
+    findings: serviceOrder.findings || "",
+    recommendations: serviceOrder.recommendations || "",
+    materialsUsed: serviceOrder.materials_used || "",
+    actualStartAt: formatDateTimeLocalValue(
+      serviceOrder.actual_start_at || serviceOrder.started_at
+    ),
+    actualEndAt: formatDateTimeLocalValue(
+      serviceOrder.actual_end_at || serviceOrder.completed_at
+    ),
+    completionNotes: serviceOrder.completion_notes || "",
+    ...getRecurrenceFormState(serviceOrder),
+    status: serviceOrder.status || "scheduled"
+  };
+}
+
+function buildAppointmentConversionFormFromAppointmentRecord(appointment) {
+  if (!appointment) {
+    return initialAppointmentConversionForm;
+  }
+
+  return {
+    technicianName: "",
+    serviceDate: appointment.appointment_date || "",
+    serviceTime: appointment.appointment_time || "9:00 AM",
+    durationMinutes: resolveDurationMinutes(appointment.duration_minutes),
+    serviceInstructions: appointment.notes || ""
+  };
+}
+
 const clientDrawerTabs = {
   summary: "summary",
   client: "client",
@@ -3659,6 +3722,9 @@ export default function DashboardPage() {
   const [isDeletingServiceOrder, setIsDeletingServiceOrder] = useState(false);
   const detailDateInputRef = useRef(null);
   const createServiceOrderClientSelectRef = useRef(null);
+  const clientModalInitialStateRef = useRef(initialQuickClientState);
+  const branchModalInitialStateRef = useRef(initialQuickBranchState);
+  const quickTechnicianInitialStateRef = useRef(initialQuickTechnicianState);
   const draggedBacklogServiceOrderRef = useRef(null);
   const externalDragCleanupTimeoutRef = useRef(null);
   const extendedAppointmentSeriesRef = useRef(new Set());
@@ -4709,6 +4775,16 @@ export default function DashboardPage() {
           })
       : Boolean(drawerBranchForm.name.trim() || drawerBranchForm.address.trim());
   const isContactDrawerDirty = Boolean(contactDrawerForm.fullName.trim());
+  const selectedWorkspaceClient =
+    clients.find((client) => client.id === selectedClientId) || null;
+  const isClientWorkspaceFormDirty =
+    clientSubTab === uiText.clients.subTabs.form &&
+    JSON.stringify(clientForm) !==
+      JSON.stringify(
+        selectedWorkspaceClient
+          ? buildClientFormStateFromRecord(selectedWorkspaceClient)
+          : initialClientFormState
+      );
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
   const isResidentialFormClient = isResidentialClient(selectedFormClient?.client_type);
@@ -4733,6 +4809,26 @@ export default function DashboardPage() {
     ? selectedOrder.status === "completed" ||
       getExecutionStatusValue(selectedOrder) === "completed"
     : false;
+  const isServiceOrderEditDirty =
+    rightPanelMode === rightPanelModes.edit &&
+    selectedServiceOrder &&
+    JSON.stringify(detailFormState) !==
+      JSON.stringify(buildDetailFormStateFromServiceOrderRecord(selectedServiceOrder));
+  const isAppointmentConversionDirty =
+    isPreparingAppointmentConversion &&
+    selectedAppointment &&
+    JSON.stringify(appointmentConversionForm) !==
+      JSON.stringify(buildAppointmentConversionFormFromAppointmentRecord(selectedAppointment));
+  const isClientQuickCreateDirty =
+    isClientModalOpen &&
+    JSON.stringify(clientModalState) !== JSON.stringify(clientModalInitialStateRef.current);
+  const isBranchQuickCreateDirty =
+    isBranchModalOpen &&
+    JSON.stringify(branchModalState) !== JSON.stringify(branchModalInitialStateRef.current);
+  const isQuickTechnicianCreateDirty =
+    isQuickTechnicianModalOpen &&
+    JSON.stringify(quickTechnicianState) !==
+      JSON.stringify(quickTechnicianInitialStateRef.current);
   const pendingOrders = backlogServiceOrders;
   const todayOrdersCount = useMemo(
     () =>
@@ -6999,34 +7095,7 @@ export default function DashboardPage() {
     }
 
     // Mirror the selected order into local form state so the side panel can edit it.
-    setDetailFormState({
-      clientId: selectedServiceOrder.client_id || "",
-      branchId: selectedServiceOrder.branch_id || "",
-      isOneOffLocation: hasServiceLocationOverride(selectedServiceOrder),
-      serviceLocationName: selectedServiceOrder.service_location_name || "",
-      serviceLocationAddress: selectedServiceOrder.service_location_address || "",
-      serviceLocationPhone: selectedServiceOrder.service_location_phone || "",
-      serviceLocationContact: selectedServiceOrder.service_location_contact || "",
-      technicianName: selectedServiceOrder.technician_name || "",
-      serviceDate: selectedServiceOrder.service_date || "",
-      serviceTime: selectedServiceOrder.service_time || "9:00 AM",
-      durationMinutes: resolveDurationMinutes(selectedServiceOrder.duration_minutes),
-      serviceInstructions: selectedServiceOrder.service_instructions || "",
-      serviceReport: selectedServiceOrder.service_report || "",
-      serviceSummary: selectedServiceOrder.service_summary || "",
-      findings: selectedServiceOrder.findings || "",
-      recommendations: selectedServiceOrder.recommendations || "",
-      materialsUsed: selectedServiceOrder.materials_used || "",
-      actualStartAt: formatDateTimeLocalValue(
-        selectedServiceOrder.actual_start_at || selectedServiceOrder.started_at
-      ),
-      actualEndAt: formatDateTimeLocalValue(
-        selectedServiceOrder.actual_end_at || selectedServiceOrder.completed_at
-      ),
-      completionNotes: selectedServiceOrder.completion_notes || "",
-      ...getRecurrenceFormState(selectedServiceOrder),
-      status: selectedServiceOrder.status || "scheduled"
-    });
+    setDetailFormState(buildDetailFormStateFromServiceOrderRecord(selectedServiceOrder));
     setDetailFormMessage("");
     setDetailFormError("");
     setIsConfirmingDeleteServiceOrder(false);
@@ -7068,13 +7137,9 @@ export default function DashboardPage() {
     }
 
     setIsPreparingAppointmentConversion(false);
-    setAppointmentConversionForm({
-      technicianName: "",
-      serviceDate: selectedAppointment.appointment_date || "",
-      serviceTime: selectedAppointment.appointment_time || "9:00 AM",
-      durationMinutes: resolveDurationMinutes(selectedAppointment.duration_minutes),
-      serviceInstructions: selectedAppointment.notes || ""
-    });
+    setAppointmentConversionForm(
+      buildAppointmentConversionFormFromAppointmentRecord(selectedAppointment)
+    );
     setAppointmentConversionTechnicianQuery("");
   }, [selectedAppointment?.id]);
 
@@ -7232,6 +7297,22 @@ export default function DashboardPage() {
     }));
   }, [supportsExtendedTechnicianFields]);
 
+  const confirmDiscardUnsavedChanges = () => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.confirm("Tienes cambios sin guardar. ¿Deseas descartarlos?");
+  };
+
+  const confirmDiscardOperationalDrawerChanges = () =>
+    (!isServiceOrderEditDirty && !isAppointmentConversionDirty) ||
+    confirmDiscardUnsavedChanges();
+
+  const confirmDiscardClientWorkspaceChanges = () =>
+    (!isClientDrawerDirty && !isBranchDrawerDirty && !isContactDrawerDirty) ||
+    confirmDiscardUnsavedChanges();
+
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
     setFormError("");
@@ -7343,6 +7424,10 @@ export default function DashboardPage() {
   };
 
   const handleClientHierarchyEdit = (client) => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setActiveEntityType("client");
     setActiveEntityId(client.id);
     setActiveParentClientId(null);
@@ -7352,6 +7437,10 @@ export default function DashboardPage() {
   };
 
   const handleOpenClientDrawerDetail = (client) => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setSelectedClientId(client.id);
     setActiveEntityType("client");
     setActiveEntityId(client.id);
@@ -7361,6 +7450,10 @@ export default function DashboardPage() {
   };
 
   const handleClientHierarchyCreateBranch = (client) => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setActiveEntityType("branch");
     setActiveEntityId(null);
     setActiveParentClientId(client.id);
@@ -7370,6 +7463,10 @@ export default function DashboardPage() {
   };
 
   const handleClientHierarchyEditBranch = (branch) => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setActiveEntityType("branch");
     setActiveEntityId(branch.id);
     setActiveParentClientId(branch.client_id || null);
@@ -7378,7 +7475,11 @@ export default function DashboardPage() {
     debugLog("Edit branch", branch);
   };
 
-  const handleCloseClientsDrawer = () => {
+  const handleCloseClientsDrawer = (skipConfirm = false) => {
+    if (!skipConfirm && !confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setActiveEntityType(null);
     setActiveEntityId(null);
     setActiveParentClientId(null);
@@ -7401,6 +7502,10 @@ export default function DashboardPage() {
   };
 
   const handleReturnClientDrawerToDetail = () => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     if (activeEntityType === "client" && activeEntityId) {
       setActiveMode("detail");
       setActiveClientDrawerTab(clientDrawerTabs.summary);
@@ -7410,10 +7515,14 @@ export default function DashboardPage() {
       return;
     }
 
-    handleCloseClientsDrawer();
+    handleCloseClientsDrawer(true);
   };
 
   const handleOpenClientDrawerCreate = () => {
+    if (!confirmDiscardClientWorkspaceChanges()) {
+      return;
+    }
+
     setActiveEntityType("client");
     setActiveEntityId(null);
     setActiveParentClientId(null);
@@ -7495,6 +7604,10 @@ export default function DashboardPage() {
   };
 
   const handleEditClient = (client) => {
+    if (isClientWorkspaceFormDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
     setSelectedClientId(client.id);
     setClientSubTab(uiText.clients.subTabs.form);
     setClientFormError("");
@@ -7516,6 +7629,10 @@ export default function DashboardPage() {
   };
 
   const handleNewClient = () => {
+    if (isClientWorkspaceFormDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
     setSelectedClientId(null);
     setClientSubTab(uiText.clients.subTabs.form);
     setClientForm(initialClientFormState);
@@ -7526,6 +7643,10 @@ export default function DashboardPage() {
   };
 
   const handleSelectClientBranches = (client) => {
+    if (isClientWorkspaceFormDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
     setSelectedBranchClientId(client.id);
     setSelectedBranchId(null);
     setClientSubTab(uiText.clients.subTabs.branches);
@@ -7598,6 +7719,35 @@ export default function DashboardPage() {
     setActiveAdminView(adminViewTabs.calendar);
     setSelectedCalendarTechnicians(technicianName === "all" ? [] : [technicianName]);
     setTechnicianDrawerMode(null);
+  };
+
+  const handleClientSubTabChange = (nextSubTab) => {
+    if (
+      nextSubTab !== clientSubTab &&
+      clientSubTab === uiText.clients.subTabs.form &&
+      isClientWorkspaceFormDirty &&
+      !confirmDiscardUnsavedChanges()
+    ) {
+      return;
+    }
+
+    setClientSubTab(nextSubTab);
+  };
+
+  const handleCancelServiceOrderEdit = () => {
+    if (isServiceOrderEditDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    setRightPanelMode(rightPanelModes.detail);
+  };
+
+  const handleCancelAppointmentConversion = () => {
+    if (isAppointmentConversionDirty && !confirmDiscardUnsavedChanges()) {
+      return;
+    }
+
+    setIsPreparingAppointmentConversion(false);
   };
 
   const handleCloseTechnicianDrawer = () => {
@@ -7809,6 +7959,10 @@ export default function DashboardPage() {
   };
 
   const handleOpenQuickCreate = (slotInfo) => {
+    if (!confirmDiscardOperationalDrawerChanges()) {
+      return;
+    }
+
     const slotStart = slotInfo?.start instanceof Date ? slotInfo.start : new Date();
     const isPastCreateSlot =
       (calendarView === "week" || calendarView === "month") &&
@@ -7862,6 +8016,10 @@ export default function DashboardPage() {
   };
 
   const handleCloseServiceOrderPanel = () => {
+    if (!confirmDiscardOperationalDrawerChanges()) {
+      return;
+    }
+
     setDetailFormError("");
     setDetailFormMessage("");
     setFormError("");
@@ -7880,16 +8038,22 @@ export default function DashboardPage() {
   };
 
   const handleOpenClientModal = (prefilledName = "") => {
-    setClientModalState({
+    const nextClientModalState = {
       ...initialQuickClientState,
       name: prefilledName
-    });
+    };
+    clientModalInitialStateRef.current = nextClientModalState;
+    setClientModalState(nextClientModalState);
     setClientModalError("");
     setIsClientModalOpen(true);
   };
 
   const handleCloseClientModal = () => {
     if (isSavingClientModal) {
+      return;
+    }
+
+    if (isClientQuickCreateDirty && !confirmDiscardUnsavedChanges()) {
       return;
     }
 
@@ -7900,6 +8064,10 @@ export default function DashboardPage() {
 
   const handleCloseBranchModal = () => {
     if (isSavingBranchModal) {
+      return;
+    }
+
+    if (isBranchQuickCreateDirty && !confirmDiscardUnsavedChanges()) {
       return;
     }
 
@@ -7915,25 +8083,33 @@ export default function DashboardPage() {
     }
 
     setPendingBranchClient(client);
-    setBranchModalState({
+    const nextBranchModalState = {
       ...initialQuickBranchState,
       name: "Principal"
-    });
+    };
+    branchModalInitialStateRef.current = nextBranchModalState;
+    setBranchModalState(nextBranchModalState);
     setBranchModalError("");
     setIsBranchModalOpen(true);
   };
 
   const handleOpenQuickTechnicianModal = (prefilledName = "") => {
-    setQuickTechnicianState({
+    const nextQuickTechnicianState = {
       ...initialQuickTechnicianState,
       fullName: prefilledName
-    });
+    };
+    quickTechnicianInitialStateRef.current = nextQuickTechnicianState;
+    setQuickTechnicianState(nextQuickTechnicianState);
     setQuickTechnicianError("");
     setIsQuickTechnicianModalOpen(true);
   };
 
   const handleCloseQuickTechnicianModal = () => {
     if (isSavingQuickTechnician) {
+      return;
+    }
+
+    if (isQuickTechnicianCreateDirty && !confirmDiscardUnsavedChanges()) {
       return;
     }
 
@@ -8858,6 +9034,10 @@ export default function DashboardPage() {
   };
 
   const handleSelectServiceOrder = (event) => {
+    if (!confirmDiscardOperationalDrawerChanges()) {
+      return;
+    }
+
     debugLog("[Service Order Debug] Clicked calendar event:", event);
 
     if (event?.type === "projected_appointment") {
@@ -8956,6 +9136,10 @@ export default function DashboardPage() {
   };
 
   const handleSelectPastAppointmentAttention = (appointment) => {
+    if (!confirmDiscardOperationalDrawerChanges()) {
+      return;
+    }
+
     const appointmentStart = parseServiceOrderStart(
       appointment?.appointment_date,
       appointment?.appointment_time
@@ -12390,7 +12574,7 @@ export default function DashboardPage() {
                 onOpenClientQuickCreate={handleOpenClientModal}
                 onClientEdit={handleEditClient}
                 onClientNew={handleNewClient}
-                onClientSubTabChange={setClientSubTab}
+                onClientSubTabChange={handleClientSubTabChange}
                 onSelectClientBranches={handleSelectClientBranches}
                 onBranchEdit={handleBranchEdit}
                 onBranchNew={handleNewBranch}
@@ -12559,7 +12743,7 @@ export default function DashboardPage() {
                           <button
                             className="button button-secondary"
                             type="button"
-                            onClick={() => setIsPreparingAppointmentConversion(false)}
+                            onClick={handleCancelAppointmentConversion}
                             disabled={isConfirmingAppointment}
                           >
                             Cancelar
@@ -13314,7 +13498,7 @@ export default function DashboardPage() {
                   <button
                     className="button button-secondary"
                     type="button"
-                    onClick={() => setRightPanelMode(rightPanelModes.detail)}
+                    onClick={handleCancelServiceOrderEdit}
                     disabled={isSavingDetail}
                   >
                     Cancelar
