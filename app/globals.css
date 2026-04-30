@@ -2055,6 +2055,10 @@ textarea {
   gap: 8px;
 }
 
+.workspace-inline-actions-start {
+  justify-content: flex-start;
+}
+
 .workspace-form-messages {
   display: grid;
   gap: 8px;

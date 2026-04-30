@@ -165,8 +165,16 @@ const initialQuickClientState = {
 const initialQuickBranchState = {
   name: "",
   address: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  notes: ""
+};
+
+const initialQuickTechnicianState = {
+  fullName: "",
   phone: "",
-  contact: ""
+  email: ""
 };
 
 const clientDrawerTabs = {
@@ -1605,6 +1613,12 @@ function buildStructuredAddress({
   return [primaryLine, localityLine, reference].filter(Boolean).join(" | ");
 }
 
+function buildQuickDirectionAddress({ address, city, state, postalCode }) {
+  return [address, [city, state, postalCode].filter(Boolean).join(", ")]
+    .filter(Boolean)
+    .join(" | ");
+}
+
 function buildCompanySettingsFormState(company) {
   return {
     name: company?.name || "",
@@ -1955,6 +1969,7 @@ function WorkspacePanel({
   onClientFormChange,
   onClientOptionalFieldAdd,
   onClientSubmit,
+  onOpenClientQuickCreate,
   onClientEdit,
   onClientNew,
   onClientSubTabChange,
@@ -1963,6 +1978,7 @@ function WorkspacePanel({
   onBranchNew,
   onBranchFormChange,
   onBranchSubmit,
+  onOpenBranchQuickCreate,
   onTechnicianEdit,
   onTechnicianNew,
   onTechnicianSubTabChange,
@@ -2039,7 +2055,7 @@ function WorkspacePanel({
               </div>
 
               <div className="workspace-grid service-order-grid">
-                <label className={getRequiredFieldClassName("clientId")}>
+            <label className={getRequiredFieldClassName("clientId")}>
               <span>{uiText.serviceOrder.fields.client}</span>
               <select
                 ref={clientSelectRef}
@@ -2062,6 +2078,17 @@ function WorkspacePanel({
               </select>
               {renderRequiredHint("clientId")}
             </label>
+
+                <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
+                  <button
+                    className="button button-secondary workspace-table-button"
+                    type="button"
+                    onClick={onOpenClientQuickCreate}
+                    disabled={isSavingOrder}
+                  >
+                    + Crear cliente
+                  </button>
+                </div>
 
                 <div className="workspace-field-wide service-order-location-type">
                   <span>{uiText.serviceOrder.fields.locationType}</span>
@@ -2139,6 +2166,23 @@ function WorkspacePanel({
                 {renderRequiredHint("branchId")}
               </label>
             ) : null}
+
+                {formState.clientId &&
+                !formState.isOneOffLocation &&
+                !isResidentialFormClient &&
+                !isBranchesLoading &&
+                availableBranches.length === 0 ? (
+                  <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
+                    <button
+                      className="button button-secondary workspace-table-button"
+                      type="button"
+                      onClick={() => onOpenBranchQuickCreate(selectedFormClient)}
+                      disabled={isSavingOrder}
+                    >
+                      + Crear dirección
+                    </button>
+                  </div>
+                ) : null}
 
                 <label className={getRequiredFieldClassName("serviceDate")}>
               <span>{uiText.serviceOrder.fields.serviceDate}</span>
@@ -3377,6 +3421,12 @@ export default function DashboardPage() {
   const [branchModalError, setBranchModalError] = useState("");
   const [isSavingBranchModal, setIsSavingBranchModal] = useState(false);
   const [pendingBranchClient, setPendingBranchClient] = useState(null);
+  const [isQuickTechnicianModalOpen, setIsQuickTechnicianModalOpen] = useState(false);
+  const [quickTechnicianState, setQuickTechnicianState] = useState(
+    initialQuickTechnicianState
+  );
+  const [quickTechnicianError, setQuickTechnicianError] = useState("");
+  const [isSavingQuickTechnician, setIsSavingQuickTechnician] = useState(false);
   const [branchForm, setBranchForm] = useState(initialBranchFormState);
   const [branchesByClientId, setBranchesByClientId] = useState({});
   const [allClientBranches, setAllClientBranches] = useState([]);
@@ -6289,6 +6339,58 @@ export default function DashboardPage() {
     return savedBranch;
   };
 
+  const saveTechnicianRecord = async ({ technicianState, technicianId = null }) => {
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      throw new Error(uiText.technicians.configError);
+    }
+
+    if (!activeCompanyId) {
+      throw new Error(uiText.dashboard.profileLoadError);
+    }
+
+    const payload = {
+      company_id: activeCompanyId,
+      full_name: technicianState.fullName.trim(),
+      is_active:
+        typeof technicianState.isActive === "boolean" ? technicianState.isActive : true
+    };
+
+    if (supportsExtendedTechnicianFields) {
+      payload.phone = (technicianState.phone || "").trim();
+      payload.address = (technicianState.address || "").trim();
+      // Keep quick-create lightweight without changing schema: persist optional email
+      // inside notes when the technicians table does not expose a dedicated email field.
+      payload.notes = technicianState.email?.trim()
+        ? `Email: ${technicianState.email.trim()}`
+        : (technicianState.notes || "").trim();
+    }
+
+    const technicianQuery = technicianId
+      ? supabase
+          .from("technicians")
+          .update(payload)
+          .eq("id", technicianId)
+          .eq("company_id", activeCompanyId)
+          .select("id, full_name, phone, address, notes, is_active, created_at")
+          .single()
+      : supabase
+          .from("technicians")
+          .insert(payload)
+          .select("id, full_name, phone, address, notes, is_active, created_at")
+          .single();
+
+    const { data: savedTechnician, error } = await technicianQuery;
+
+    if (error) {
+      throw new Error(error.message || uiText.technicians.createError);
+    }
+
+    await fetchTechnicians(supabase, activeCompanyId);
+    return savedTechnician;
+  };
+
   useEffect(() => {
     const supabase = getSupabaseClient();
 
@@ -7176,6 +7278,15 @@ export default function DashboardPage() {
     }));
   };
 
+  const handleQuickTechnicianChange = (event) => {
+    const { name, value } = event.target;
+    setQuickTechnicianError("");
+    setQuickTechnicianState((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
   const handleBranchFormChange = (event) => {
     const { name, value } = event.target;
     setBranchFormError("");
@@ -7597,6 +7708,36 @@ export default function DashboardPage() {
     setBranchModalState(initialQuickBranchState);
     setBranchModalError("");
     setPendingBranchClient(null);
+  };
+
+  const handleOpenBranchQuickCreate = (client) => {
+    if (!client) {
+      return;
+    }
+
+    setPendingBranchClient(client);
+    setBranchModalState({
+      ...initialQuickBranchState,
+      name: "Principal"
+    });
+    setBranchModalError("");
+    setIsBranchModalOpen(true);
+  };
+
+  const handleOpenQuickTechnicianModal = () => {
+    setQuickTechnicianState(initialQuickTechnicianState);
+    setQuickTechnicianError("");
+    setIsQuickTechnicianModalOpen(true);
+  };
+
+  const handleCloseQuickTechnicianModal = () => {
+    if (isSavingQuickTechnician) {
+      return;
+    }
+
+    setIsQuickTechnicianModalOpen(false);
+    setQuickTechnicianState(initialQuickTechnicianState);
+    setQuickTechnicianError("");
   };
 
   const handleClientDrawerFormChange = (event) => {
@@ -8253,15 +8394,27 @@ export default function DashboardPage() {
       setClientModalState(initialQuickClientState);
       setClientModalError("");
 
-      if (!isResidential && savedClient) {
-        setPendingBranchClient(savedClient);
-        setBranchModalState({
-          ...initialQuickBranchState,
-          name: "Principal",
-          phone: clientModalState.phone.trim()
+      if (savedClient?.id) {
+        const nextFormState = {
+          ...formState,
+          clientId: savedClient.id,
+          branchId: ""
+        };
+        let savedBranches = [];
+
+        if (primaryAddress) {
+          const supabase = getSupabaseClient();
+          if (supabase && activeCompanyId) {
+            savedBranches = await fetchBranchesForClient(supabase, savedClient.id, activeCompanyId);
+          }
+        }
+
+        const preferredBranch = resolvePreferredBranch(savedBranches);
+
+        setFormState({
+          ...nextFormState,
+          branchId: preferredBranch?.id || ""
         });
-        setBranchModalError("");
-        setIsBranchModalOpen(true);
       }
     } catch (error) {
       setClientModalError(error.message || uiText.clients.createError);
@@ -8276,13 +8429,20 @@ export default function DashboardPage() {
     setIsSavingBranchModal(true);
 
     try {
-      await saveBranchRecord({
+      const resolvedAddress = buildQuickDirectionAddress({
+        address: branchModalState.address.trim(),
+        city: branchModalState.city.trim(),
+        state: branchModalState.state.trim(),
+        postalCode: branchModalState.postalCode.trim()
+      });
+
+      const savedBranch = await saveBranchRecord({
         branchState: {
           name: branchModalState.name,
-          address: branchModalState.address,
-          phone: branchModalState.phone,
-          contact: branchModalState.contact,
-          notes: ""
+          address: resolvedAddress,
+          phone: "",
+          contact: "",
+          notes: branchModalState.notes
         },
         clientId: pendingBranchClient?.id,
         preserveOrderClient: true
@@ -8293,6 +8453,12 @@ export default function DashboardPage() {
       setIsBranchModalOpen(false);
       setBranchModalState(initialQuickBranchState);
       setBranchModalError("");
+      if (savedBranch?.client_id && formState.clientId === savedBranch.client_id) {
+        setFormState((currentState) => ({
+          ...currentState,
+          branchId: savedBranch.id
+        }));
+      }
       setPendingBranchClient(null);
     } catch (error) {
       setBranchModalError(error.message || uiText.clients.branchCreateError);
@@ -8424,59 +8590,68 @@ export default function DashboardPage() {
 
     setIsSavingTechnician(true);
 
-    const payload = {
-      company_id: activeCompanyId,
-      full_name: technicianForm.fullName.trim(),
-      is_active: technicianForm.isActive
-    };
+    try {
+      const savedTechnician = await saveTechnicianRecord({
+        technicianState: technicianForm,
+        technicianId: selectedTechnicianId
+      });
 
-    if (supportsExtendedTechnicianFields) {
-      payload.phone = technicianForm.phone.trim();
-      payload.address = technicianForm.address.trim();
-      payload.notes = technicianForm.notes.trim();
-    }
-
-    const technicianQuery = selectedTechnicianId
-      ? supabase
-          .from("technicians")
-          .update(payload)
-          .eq("id", selectedTechnicianId)
-          .eq("company_id", activeCompanyId)
-          .select("id, full_name, phone, address, notes, is_active, created_at")
-          .single()
-      : supabase
-          .from("technicians")
-          .insert(payload)
-          .select("id, full_name, phone, address, notes, is_active, created_at")
-          .single();
-    const { data: savedTechnician, error } = await technicianQuery;
-
-    if (error) {
+      setSelectedTechnicianId(savedTechnician?.id || selectedTechnicianId || null);
+      setTechnicianDrawerMode("detail");
+      setTechnicianForm({
+        fullName: savedTechnician?.full_name || technicianForm.fullName,
+        phone: savedTechnician?.phone || technicianForm.phone,
+        address: savedTechnician?.address || technicianForm.address,
+        notes: savedTechnician?.notes || technicianForm.notes,
+        isActive:
+          typeof savedTechnician?.is_active === "boolean"
+            ? savedTechnician.is_active
+            : technicianForm.isActive
+      });
+      setTechnicianFormMessage(
+        selectedTechnicianId
+          ? uiText.technicians.updateSuccess
+          : uiText.technicians.success
+      );
+    } catch (error) {
       setTechnicianFormError(error.message || uiText.technicians.createError);
       setIsSavingTechnician(false);
       return;
     }
 
-    // Refresh the roster after insert so the new technician appears immediately.
-    await fetchTechnicians(supabase, activeCompanyId);
-    setSelectedTechnicianId(savedTechnician?.id || selectedTechnicianId || null);
-    setTechnicianDrawerMode("detail");
-    setTechnicianForm({
-      fullName: savedTechnician?.full_name || technicianForm.fullName,
-      phone: savedTechnician?.phone || technicianForm.phone,
-      address: savedTechnician?.address || technicianForm.address,
-      notes: savedTechnician?.notes || technicianForm.notes,
-      isActive:
-        typeof savedTechnician?.is_active === "boolean"
-          ? savedTechnician.is_active
-          : technicianForm.isActive
-    });
-    setTechnicianFormMessage(
-      selectedTechnicianId
-        ? uiText.technicians.updateSuccess
-        : uiText.technicians.success
-    );
     setIsSavingTechnician(false);
+  };
+
+  const handleCreateQuickTechnician = async (event) => {
+    event.preventDefault();
+    setQuickTechnicianError("");
+    setIsSavingQuickTechnician(true);
+
+    try {
+      const savedTechnician = await saveTechnicianRecord({
+        technicianState: {
+          fullName: quickTechnicianState.fullName,
+          phone: quickTechnicianState.phone,
+          email: quickTechnicianState.email,
+          isActive: true
+        }
+      });
+
+      if (savedTechnician?.full_name) {
+        setAppointmentConversionForm((currentState) => ({
+          ...currentState,
+          technicianName: savedTechnician.full_name
+        }));
+      }
+
+      setIsQuickTechnicianModalOpen(false);
+      setQuickTechnicianState(initialQuickTechnicianState);
+      setQuickTechnicianError("");
+    } catch (error) {
+      setQuickTechnicianError(error.message || uiText.technicians.createError);
+    } finally {
+      setIsSavingQuickTechnician(false);
+    }
   };
 
   const handleSelectServiceOrder = (event) => {
@@ -12007,6 +12182,7 @@ export default function DashboardPage() {
                 onClientFormChange={handleClientFormChange}
                 onClientOptionalFieldAdd={handleClientOptionalFieldAdd}
                 onClientSubmit={handleCreateClient}
+                onOpenClientQuickCreate={handleOpenClientModal}
                 onClientEdit={handleEditClient}
                 onClientNew={handleNewClient}
                 onClientSubTabChange={setClientSubTab}
@@ -12015,6 +12191,7 @@ export default function DashboardPage() {
                 onBranchNew={handleNewBranch}
                 onBranchFormChange={handleBranchFormChange}
                 onBranchSubmit={handleCreateBranch}
+                onOpenBranchQuickCreate={handleOpenBranchQuickCreate}
                 onTechnicianEdit={handleTechnicianEdit}
                 onTechnicianNew={handleNewTechnician}
                 onTechnicianSubTabChange={setTechnicianSubTab}
@@ -12250,6 +12427,17 @@ export default function DashboardPage() {
                             ))}
                           </select>
                         </label>
+
+                        <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
+                          <button
+                            className="button button-secondary workspace-table-button"
+                            type="button"
+                            onClick={handleOpenQuickTechnicianModal}
+                            disabled={isConfirmingAppointment}
+                          >
+                            + Crear técnico
+                          </button>
+                        </div>
 
                         <label className="workspace-input-group">
                           <span>Fecha planificada</span>
@@ -13404,36 +13592,58 @@ export default function DashboardPage() {
                 </label>
 
                 <label className="workspace-input-group">
-                  <span>{uiText.clients.branchFields.phone}</span>
+                  <span>{uiText.clients.branchFields.address}</span>
                   <input
-                    name="phone"
+                    name="address"
                     type="text"
-                    value={branchModalState.phone}
+                    value={branchModalState.address}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                    required
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>Ciudad</span>
+                  <input
+                    name="city"
+                    type="text"
+                    value={branchModalState.city}
                     onChange={handleBranchModalChange}
                     disabled={isSavingBranchModal}
                   />
                 </label>
 
                 <label className="workspace-input-group">
-                  <span>{uiText.clients.branchFields.contact}</span>
+                  <span>Estado</span>
                   <input
-                    name="contact"
+                    name="state"
                     type="text"
-                    value={branchModalState.contact}
+                    value={branchModalState.state}
+                    onChange={handleBranchModalChange}
+                    disabled={isSavingBranchModal}
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>Código postal</span>
+                  <input
+                    name="postalCode"
+                    type="text"
+                    value={branchModalState.postalCode}
                     onChange={handleBranchModalChange}
                     disabled={isSavingBranchModal}
                   />
                 </label>
 
                 <label className="workspace-input-group workspace-field-wide">
-                  <span>{uiText.clients.branchFields.address}</span>
+                  <span>{uiText.clients.branchFields.notes}</span>
                   <textarea
-                    name="address"
-                    value={branchModalState.address}
+                    name="notes"
+                    value={branchModalState.notes}
                     onChange={handleBranchModalChange}
                     disabled={isSavingBranchModal}
                     rows={3}
-                    required
                   />
                 </label>
               </div>
@@ -13454,6 +13664,91 @@ export default function DashboardPage() {
                   </button>
                   <button className="button" type="submit" disabled={isSavingBranchModal}>
                     {isSavingBranchModal ? uiText.clients.branchSaving : uiText.clients.branchSave}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isQuickTechnicianModalOpen ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={handleCloseQuickTechnicianModal}
+        >
+          <section
+            className="quick-create-modal quick-create-modal-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quick-technician-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="workspace-copy">
+              <h3 id="quick-technician-modal-title">Crear técnico</h3>
+              <p>
+                Registra un técnico mínimo y vuelve de inmediato a la conversión de la cita.
+              </p>
+            </div>
+
+            <form className="workspace-form" onSubmit={handleCreateQuickTechnician}>
+              <div className="workspace-grid">
+                <label className="workspace-input-group">
+                  <span>Nombre del técnico</span>
+                  <input
+                    name="fullName"
+                    type="text"
+                    value={quickTechnicianState.fullName}
+                    onChange={handleQuickTechnicianChange}
+                    disabled={isSavingQuickTechnician}
+                    required
+                  />
+                </label>
+
+                <label className="workspace-input-group">
+                  <span>Teléfono</span>
+                  <input
+                    name="phone"
+                    type="tel"
+                    value={quickTechnicianState.phone}
+                    onChange={handleQuickTechnicianChange}
+                    disabled={isSavingQuickTechnician}
+                  />
+                </label>
+
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>Email</span>
+                  <input
+                    name="email"
+                    type="email"
+                    value={quickTechnicianState.email}
+                    onChange={handleQuickTechnicianChange}
+                    disabled={isSavingQuickTechnician}
+                  />
+                </label>
+              </div>
+
+              <div className="workspace-form-footer">
+                <div className="workspace-form-messages">
+                  {quickTechnicianError ? <p className="error">{quickTechnicianError}</p> : null}
+                </div>
+
+                <div className="workspace-actions">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={handleCloseQuickTechnicianModal}
+                    disabled={isSavingQuickTechnician}
+                  >
+                    {uiText.common.cancel}
+                  </button>
+                  <button
+                    className={isSavingQuickTechnician ? "button is-loading" : "button"}
+                    type="submit"
+                    disabled={isSavingQuickTechnician}
+                  >
+                    {isSavingQuickTechnician ? "Creando..." : "Crear técnico"}
                   </button>
                 </div>
               </div>
