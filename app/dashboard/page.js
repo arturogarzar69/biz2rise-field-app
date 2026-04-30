@@ -4729,6 +4729,10 @@ export default function DashboardPage() {
       )
     : false;
   const selectedOrder = selectedServiceOrder;
+  const isSelectedOrderCompleted = selectedOrder
+    ? selectedOrder.status === "completed" ||
+      getExecutionStatusValue(selectedOrder) === "completed"
+    : false;
   const pendingOrders = backlogServiceOrders;
   const todayOrdersCount = useMemo(
     () =>
@@ -12294,20 +12298,22 @@ export default function DashboardPage() {
               </button>
               {selectedOrder ? (
                 <div className="detail-action-bar">
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={
-                      selectedOrder.actual_start_at || selectedOrder.started_at
-                        ? handleFinalizeSelectedServiceOrder
-                        : handleStartSelectedServiceOrder
-                    }
-                    disabled={isSavingDetail || isDeletingServiceOrder}
-                  >
-                    {selectedOrder.actual_start_at || selectedOrder.started_at
-                      ? "Finalizar servicio"
-                      : "Iniciar servicio"}
-                  </button>
+                  {!isSelectedOrderCompleted ? (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={
+                        selectedOrder.actual_start_at || selectedOrder.started_at
+                          ? handleFinalizeSelectedServiceOrder
+                          : handleStartSelectedServiceOrder
+                      }
+                      disabled={isSavingDetail || isDeletingServiceOrder}
+                    >
+                      {selectedOrder.actual_start_at || selectedOrder.started_at
+                        ? "Finalizar servicio"
+                        : "Iniciar servicio"}
+                    </button>
+                  ) : null}
                   <button
                     className="button button-secondary"
                     type="button"
@@ -13577,59 +13583,63 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="detail-edit-grid">
-                    <label className="workspace-input-group">
-                      <span>Inicio real</span>
-                      <input
-                        name="actualStartAt"
-                        type="datetime-local"
-                        value={detailFormState.actualStartAt}
-                        onChange={handleDetailFormChange}
-                        disabled={isSavingDetail}
-                      />
-                    </label>
+                  {!isSelectedOrderCompleted ? (
+                    <>
+                      <div className="detail-edit-grid">
+                        <label className="workspace-input-group">
+                          <span>Inicio real</span>
+                          <input
+                            name="actualStartAt"
+                            type="datetime-local"
+                            value={detailFormState.actualStartAt}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
 
-                    <label className="workspace-input-group">
-                      <span>Fin real</span>
-                      <input
-                        name="actualEndAt"
-                        type="datetime-local"
-                        value={detailFormState.actualEndAt}
-                        onChange={handleDetailFormChange}
-                        disabled={isSavingDetail}
-                      />
-                    </label>
+                        <label className="workspace-input-group">
+                          <span>Fin real</span>
+                          <input
+                            name="actualEndAt"
+                            type="datetime-local"
+                            value={detailFormState.actualEndAt}
+                            onChange={handleDetailFormChange}
+                            disabled={isSavingDetail}
+                          />
+                        </label>
 
-                    {!detailFormState.actualStartAt &&
-                    !(selectedOrder.actual_start_at || selectedOrder.started_at) ? (
-                      <p className="detail-subcopy workspace-field-wide">
-                        Si finalizas sin inicio, se guardará automáticamente usando la hora de fin.
-                      </p>
-                    ) : null}
-                  </div>
+                        {!detailFormState.actualStartAt &&
+                        !(selectedOrder.actual_start_at || selectedOrder.started_at) ? (
+                          <p className="detail-subcopy workspace-field-wide">
+                            Si finalizas sin inicio, se guardará automáticamente usando la hora de fin.
+                          </p>
+                        ) : null}
+                      </div>
 
-                  <div className="detail-delete-actions">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={handleStartSelectedServiceOrder}
-                      disabled={
-                        isSavingDetail ||
-                        isDeletingServiceOrder ||
-                        Boolean(selectedOrder.actual_start_at)
-                      }
-                    >
-                      Iniciar servicio
-                    </button>
-                    <button
-                      className="button"
-                      type="button"
-                      onClick={handleFinalizeSelectedServiceOrder}
-                      disabled={isSavingDetail || isDeletingServiceOrder}
-                    >
-                      Finalizar servicio
-                    </button>
-                  </div>
+                      <div className="detail-delete-actions">
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={handleStartSelectedServiceOrder}
+                          disabled={
+                            isSavingDetail ||
+                            isDeletingServiceOrder ||
+                            Boolean(selectedOrder.actual_start_at)
+                          }
+                        >
+                          Iniciar servicio
+                        </button>
+                        <button
+                          className="button"
+                          type="button"
+                          onClick={handleFinalizeSelectedServiceOrder}
+                          disabled={isSavingDetail || isDeletingServiceOrder}
+                        >
+                          Finalizar servicio
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
                 </section>
 
                 <section className="drawer-section detail-section-card">
