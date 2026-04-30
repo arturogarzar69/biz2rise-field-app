@@ -101,6 +101,7 @@ const initialTechnicianFormState = {
 };
 
 const initialClientFormState = {
+  name: "",
   clientType: "commercial",
   businessName: "",
   tradeName: "",
@@ -158,15 +159,7 @@ const initialQuickClientState = {
   name: "",
   phone: "",
   clientType: "commercial",
-  businessName: "",
-  tradeName: "",
-  taxId: "",
-  street: "",
-  streetNumber: "",
-  city: "",
-  state: "",
-  postalCode: "",
-  reference: ""
+  mainAddress: ""
 };
 
 const initialQuickBranchState = {
@@ -187,6 +180,7 @@ const clientDrawerTabs = {
 const initialClientDrawerForm = {
   name: "",
   clientType: "commercial",
+  mainAddress: "",
   mainPhone: "",
   mainEmail: "",
   mainContact: "",
@@ -237,6 +231,12 @@ const serviceOrderStatusOptions = ["scheduled", "completed", "cancelled"].map((s
   value: status,
   label: getStatusLabel(status)
 }));
+const initialClientOptionalSections = {
+  address: false,
+  email: false,
+  contact: false,
+  business: false
+};
 const adminViewTabs = {
   calendar: "calendar",
   list: "list"
@@ -1269,6 +1269,32 @@ function getClientTypeLabel(clientType) {
   return uiText.clients.typeOptions[clientType] || uiText.clients.typeOptions.undefined;
 }
 
+function getClientOptionalSections(clientState) {
+  return {
+    address: Boolean(
+      (clientState?.mainAddress || clientState?.main_address || "").trim()
+    ),
+    email: Boolean((clientState?.mainEmail || clientState?.main_email || "").trim()),
+    contact: Boolean(
+      (clientState?.mainContact || clientState?.main_contact || "").trim()
+    ),
+    business: Boolean(
+      (clientState?.businessName || clientState?.business_name || "").trim() ||
+        (clientState?.tradeName || clientState?.trade_name || "").trim() ||
+        (clientState?.taxId || clientState?.tax_id || "").trim()
+    )
+  };
+}
+
+function getAvailableClientOptionalFieldOptions(optionalSections) {
+  return [
+    { value: "address", label: "Direccion" },
+    { value: "email", label: "Email" },
+    { value: "contact", label: "Contacto adicional" },
+    { value: "business", label: "Datos fiscales / comerciales" }
+  ].filter((option) => !optionalSections[option.value]);
+}
+
 function getTechnicianDisplayName(technicianName) {
   return technicianName || uiText.dashboard.calendarTechnicianFallback;
 }
@@ -1886,6 +1912,8 @@ function WorkspacePanel({
   clientsError,
   isClientsLoading,
   clientForm,
+  clientOptionalSections,
+  clientOptionalFieldSelection,
   selectedClientId,
   selectedBranchClientId,
   clientSubTab,
@@ -1925,6 +1953,7 @@ function WorkspacePanel({
   onFormChange,
   onSubmit,
   onClientFormChange,
+  onClientOptionalFieldAdd,
   onClientSubmit,
   onClientEdit,
   onClientNew,
@@ -2481,15 +2510,15 @@ function WorkspacePanel({
                   <strong>{clientsModuleSummary.totalClients}</strong>
                 </div>
                 <div className="detail-static-field">
-                  <span>Clientes comerciales</span>
-                  <strong>{clientsModuleSummary.commercialClients}</strong>
+                  <span>Clientes con una direccion</span>
+                  <strong>{clientsModuleSummary.singleAddressClients}</strong>
                 </div>
                 <div className="detail-static-field">
-                  <span>Clientes residenciales</span>
-                  <strong>{clientsModuleSummary.residentialClients}</strong>
+                  <span>Clientes con varias direcciones</span>
+                  <strong>{clientsModuleSummary.multiAddressClients}</strong>
                 </div>
                 <div className="detail-static-field">
-                  <span>Sucursales totales</span>
+                  <span>Direcciones totales</span>
                   <strong>{clientsModuleSummary.totalBranches}</strong>
                 </div>
                 <div className="detail-static-field">
@@ -2513,7 +2542,7 @@ function WorkspacePanel({
                   <strong>{clientsModuleSummary.overdueOrders}</strong>
                 </div>
                 <div className="detail-static-field">
-                  <span>Sucursales con actividad</span>
+                  <span>Direcciones con actividad</span>
                   <strong>{clientsModuleSummary.branchesWithActivity}</strong>
                 </div>
               </div>
@@ -2533,7 +2562,7 @@ function WorkspacePanel({
                       <strong>{clientsModuleSummary.clientsWithActivityThisMonth}</strong>
                     </div>
                     <div className="detail-row">
-                      <span>Sucursales con actividad del mes</span>
+                      <span>Direcciones con actividad del mes</span>
                       <strong>{clientsModuleSummary.branchesWithActivity}</strong>
                     </div>
                   </div>
@@ -2595,8 +2624,8 @@ function WorkspacePanel({
                   <thead>
                     <tr>
                       <th>{uiText.clients.headers.name}</th>
-                      <th>{uiText.clients.headers.type}</th>
                       <th>{uiText.clients.headers.phone}</th>
+                      <th>{uiText.clients.subTabs.branches}</th>
                       <th>{uiText.clients.headers.contact}</th>
                       <th>{uiText.clients.headers.actions}</th>
                     </tr>
@@ -2605,8 +2634,8 @@ function WorkspacePanel({
                     {clients.map((client) => (
                       <tr key={client.id}>
                         <td>{client.displayName}</td>
-                        <td>{getClientTypeLabel(client.client_type)}</td>
                         <td>{client.main_phone || "-"}</td>
+                        <td>{(branchesByClientId[client.id] || []).length}</td>
                         <td>{client.main_contact || "-"}</td>
                         <td>
                           <div className="workspace-inline-actions">
@@ -2648,61 +2677,16 @@ function WorkspacePanel({
 
             <form className="workspace-form" onSubmit={onClientSubmit}>
               <div className="workspace-grid">
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.clientType}</span>
-                  <select
-                    name="clientType"
-                    value={clientForm.clientType}
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>Nombre del cliente</span>
+                  <input
+                    name="name"
+                    type="text"
+                    value={clientForm.name}
                     onChange={onClientFormChange}
+                    placeholder={uiText.clients.placeholders.name}
                     disabled={isSavingClient}
                     required
-                  >
-                    <option value="" disabled>
-                      {uiText.clients.placeholders.clientType}
-                    </option>
-                    <option value="residential">
-                      {uiText.clients.typeOptions.residential}
-                    </option>
-                    <option value="commercial">
-                      {uiText.clients.typeOptions.commercial}
-                    </option>
-                  </select>
-                </label>
-
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.businessName}</span>
-                  <input
-                    name="businessName"
-                    type="text"
-                    value={clientForm.businessName}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.businessName}
-                    disabled={isSavingClient}
-                    required
-                  />
-                </label>
-
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.tradeName}</span>
-                  <input
-                    name="tradeName"
-                    type="text"
-                    value={clientForm.tradeName}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.tradeName}
-                    disabled={isSavingClient}
-                  />
-                </label>
-
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.taxId}</span>
-                  <input
-                    name="taxId"
-                    type="text"
-                    value={clientForm.taxId}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.taxId}
-                    disabled={isSavingClient}
                   />
                 </label>
 
@@ -2718,40 +2702,109 @@ function WorkspacePanel({
                   />
                 </label>
 
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.mainContact}</span>
-                  <input
-                    name="mainContact"
-                    type="text"
-                    value={clientForm.mainContact}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.mainContact}
-                    disabled={isSavingClient}
-                  />
-                </label>
+                {clientOptionalSections.address ? (
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.clients.fields.mainAddress}</span>
+                    <textarea
+                      name="mainAddress"
+                      value={clientForm.mainAddress}
+                      onChange={onClientFormChange}
+                      placeholder={uiText.clients.placeholders.mainAddress}
+                      disabled={isSavingClient}
+                      rows={4}
+                    />
+                  </label>
+                ) : null}
 
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.mainEmail}</span>
-                  <input
-                    name="mainEmail"
-                    type="email"
-                    value={clientForm.mainEmail}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.mainEmail}
-                    disabled={isSavingClient}
-                  />
-                </label>
+                {clientOptionalSections.email ? (
+                  <label className="workspace-input-group">
+                    <span>{uiText.clients.fields.mainEmail}</span>
+                    <input
+                      name="mainEmail"
+                      type="email"
+                      value={clientForm.mainEmail}
+                      onChange={onClientFormChange}
+                      placeholder={uiText.clients.placeholders.mainEmail}
+                      disabled={isSavingClient}
+                    />
+                  </label>
+                ) : null}
 
-                <label className="workspace-input-group workspace-field-wide">
-                  <span>{uiText.clients.fields.mainAddress}</span>
-                  <textarea
-                    name="mainAddress"
-                    value={clientForm.mainAddress}
-                    onChange={onClientFormChange}
-                    placeholder={uiText.clients.placeholders.mainAddress}
-                    disabled={isSavingClient}
-                    rows={4}
-                  />
+                {clientOptionalSections.contact ? (
+                  <label className="workspace-input-group">
+                    <span>{uiText.clients.fields.mainContact}</span>
+                    <input
+                      name="mainContact"
+                      type="text"
+                      value={clientForm.mainContact}
+                      onChange={onClientFormChange}
+                      placeholder={uiText.clients.placeholders.mainContact}
+                      disabled={isSavingClient}
+                    />
+                  </label>
+                ) : null}
+
+                {clientOptionalSections.business ? (
+                  <>
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.fields.businessName}</span>
+                      <input
+                        name="businessName"
+                        type="text"
+                        value={clientForm.businessName}
+                        onChange={onClientFormChange}
+                        placeholder={uiText.clients.placeholders.businessName}
+                        disabled={isSavingClient}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.fields.tradeName}</span>
+                      <input
+                        name="tradeName"
+                        type="text"
+                        value={clientForm.tradeName}
+                        onChange={onClientFormChange}
+                        placeholder={uiText.clients.placeholders.tradeName}
+                        disabled={isSavingClient}
+                      />
+                    </label>
+
+                    <label className="workspace-input-group">
+                      <span>{uiText.clients.fields.taxId}</span>
+                      <input
+                        name="taxId"
+                        type="text"
+                        value={clientForm.taxId}
+                        onChange={onClientFormChange}
+                        placeholder={uiText.clients.placeholders.taxId}
+                        disabled={isSavingClient}
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                <label className="workspace-input-group workspace-field-wide client-form-add-field-group">
+                  <span>+ Agregar campo</span>
+                  <select
+                    value={clientOptionalFieldSelection}
+                    onChange={handleClientOptionalFieldAdd}
+                    disabled={
+                      isSavingClient ||
+                      getAvailableClientOptionalFieldOptions(clientOptionalSections).length === 0
+                    }
+                  >
+                    <option value="">
+                      {getAvailableClientOptionalFieldOptions(clientOptionalSections).length === 0
+                        ? "Todos los campos opcionales ya estan visibles"
+                        : "Selecciona un campo opcional"}
+                    </option>
+                    {getAvailableClientOptionalFieldOptions(clientOptionalSections).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
@@ -3269,6 +3322,10 @@ export default function DashboardPage() {
   const [clientsModuleTab, setClientsModuleTab] = useState(defaultClientsModuleTab);
   const [clientSubTab, setClientSubTab] = useState(defaultClientSubTab);
   const [clientForm, setClientForm] = useState(initialClientFormState);
+  const [clientOptionalSections, setClientOptionalSections] = useState(
+    initialClientOptionalSections
+  );
+  const [clientOptionalFieldSelection, setClientOptionalFieldSelection] = useState("");
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [expandedClientIds, setExpandedClientIds] = useState({});
   const [activeEntityType, setActiveEntityType] = useState(null);
@@ -3277,6 +3334,11 @@ export default function DashboardPage() {
   const [activeMode, setActiveMode] = useState(null);
   const [activeClientDrawerTab, setActiveClientDrawerTab] = useState(clientDrawerTabs.client);
   const [clientDrawerForm, setClientDrawerForm] = useState(initialClientDrawerForm);
+  const [clientDrawerOptionalSections, setClientDrawerOptionalSections] = useState(
+    initialClientOptionalSections
+  );
+  const [clientDrawerOptionalFieldSelection, setClientDrawerOptionalFieldSelection] =
+    useState("");
   const [clientDrawerError, setClientDrawerError] = useState("");
   const [clientDrawerMessage, setClientDrawerMessage] = useState("");
   const [isSavingClientDrawer, setIsSavingClientDrawer] = useState(false);
@@ -3707,15 +3769,9 @@ export default function DashboardPage() {
 
     return clients.filter((client) => {
       const displayName = client.displayName || getClientDisplayName(client);
-      const matchesSearch = normalizedSearch
-        ? displayName.toLowerCase().includes(normalizedSearch)
-        : true;
-      const matchesType =
-        clientSidebarType === "all" ? true : client.client_type === clientSidebarType;
-
-      return matchesSearch && matchesType;
+      return normalizedSearch ? displayName.toLowerCase().includes(normalizedSearch) : true;
     });
-  }, [clientSidebarSearch, clientSidebarType, clients]);
+  }, [clientSidebarSearch, clients]);
   const activeClientHierarchyMessage = useMemo(() => {
     if (activeEntityType === "client" && activeMode === "edit" && activeEntityId) {
       const activeClient = clients.find((client) => client.id === activeEntityId);
@@ -3726,7 +3782,7 @@ export default function DashboardPage() {
     if (activeEntityType === "branch" && activeMode === "create" && activeParentClientId) {
       const parentClient = clients.find((client) => client.id === activeParentClientId);
 
-      return parentClient ? `Creando sucursal para: ${parentClient.displayName}` : "";
+      return parentClient ? `Creando direccion para: ${parentClient.displayName}` : "";
     }
 
     if (activeEntityType === "branch" && activeMode === "edit" && activeEntityId) {
@@ -3734,7 +3790,7 @@ export default function DashboardPage() {
         .flat()
         .find((branch) => branch.id === activeEntityId);
 
-      return activeBranch ? `Modo edicion sucursal: ${activeBranch.name}` : "";
+      return activeBranch ? `Modo edicion direccion: ${activeBranch.name}` : "";
     }
 
     return "";
@@ -4033,6 +4089,14 @@ export default function DashboardPage() {
   ]);
   const clientsModuleSummary = useMemo(() => {
     const currentMonthKey = format(new Date(), "yyyy-MM");
+    const branchCountByClientId = allClientBranches.reduce((accumulator, branch) => {
+      if (!branch.client_id) {
+        return accumulator;
+      }
+
+      accumulator[branch.client_id] = (accumulator[branch.client_id] || 0) + 1;
+      return accumulator;
+    }, {});
     const currentMonthAppointments = appointments.filter(
       (appointment) =>
         isClientSummaryActiveAppointment(appointment) &&
@@ -4080,8 +4144,8 @@ export default function DashboardPage() {
 
     return {
       totalClients: clients.length,
-      commercialClients: clients.filter((client) => client.client_type === "commercial").length,
-      residentialClients: clients.filter((client) => client.client_type === "residential").length,
+      singleAddressClients: clients.filter((client) => branchCountByClientId[client.id] === 1).length,
+      multiAddressClients: clients.filter((client) => branchCountByClientId[client.id] > 1).length,
       totalBranches: allClientBranches.length,
       activeAppointmentsThisMonth: currentMonthAppointments.length,
       serviceOrdersThisMonth: currentMonthServiceOrders.length,
@@ -4237,21 +4301,21 @@ export default function DashboardPage() {
         : activeEntityType === "client" && activeMode === "detail"
           ? activeClient?.displayName || activeClient?.name || "Detalle del cliente"
         : activeEntityType === "branch" && activeMode === "create"
-          ? "Nueva sucursal"
+          ? "Nueva direccion"
         : activeEntityType === "branch" && activeMode === "edit"
-            ? "Editar sucursal"
+            ? "Editar direccion"
             : "";
   const activeDrawerSubtitle =
     activeEntityType === "client" && activeMode === "edit"
-      ? "Actualiza la informacion comercial y operativa del cliente sin salir del modulo."
+      ? "Actualiza la informacion esencial del cliente y agrega solo los campos que hagan falta."
       : activeEntityType === "client" && activeMode === "create"
-        ? "Crea el cliente primero y despues agrega contactos o sucursales en el mismo panel."
+        ? "Crea el cliente con lo esencial y agrega direcciones o contactos despues si los necesitas."
         : activeEntityType === "client" && activeMode === "detail"
           ? "Consulta el resumen del cliente y entra a edicion solo cuando realmente necesites trabajar."
         : activeEntityType === "branch" && activeMode === "create"
-          ? "Registra una nueva sucursal para dejar lista la ubicacion operativa del cliente."
+          ? "Registra una nueva direccion para dejar lista la ubicacion operativa del cliente."
           : activeEntityType === "branch" && activeMode === "edit"
-            ? "Ajusta la informacion operativa de esta sucursal sin perder el contexto del cliente."
+            ? "Ajusta la informacion operativa de esta direccion sin perder el contexto del cliente."
             : "";
   const serviceOrderPanelKicker =
     rightPanelMode === rightPanelModes.create
@@ -4367,6 +4431,7 @@ export default function DashboardPage() {
         JSON.stringify({
           name: clientDrawerForm.name.trim(),
           clientType: clientDrawerForm.clientType,
+          mainAddress: clientDrawerForm.mainAddress.trim(),
           mainPhone: clientDrawerForm.mainPhone.trim(),
           mainEmail: clientDrawerForm.mainEmail.trim(),
           mainContact: clientDrawerForm.mainContact.trim(),
@@ -4377,6 +4442,7 @@ export default function DashboardPage() {
           JSON.stringify({
             name: activeClient?.name || activeClient?.displayName || "",
             clientType: activeClient?.client_type || "commercial",
+            mainAddress: activeClient?.main_address || "",
             mainPhone: activeClient?.main_phone || "",
             mainEmail: activeClient?.main_email || "",
             mainContact: activeClient?.main_contact || "",
@@ -6080,7 +6146,7 @@ export default function DashboardPage() {
     const payload = {
       company_id: activeCompanyId,
       name: explicitName || tradeName || businessName,
-      client_type: clientState.clientType,
+      client_type: clientState.clientType || "commercial",
       business_name: businessName,
       trade_name: tradeName,
       tax_id: clientState.taxId.trim(),
@@ -6519,6 +6585,7 @@ export default function DashboardPage() {
           ? {
               name: activeClient.name || activeClient.displayName || "",
               clientType: activeClient.client_type || "commercial",
+              mainAddress: activeClient.main_address || "",
               mainPhone: activeClient.main_phone || "",
               mainEmail: activeClient.main_email || "",
               mainContact: activeClient.main_contact || "",
@@ -6528,6 +6595,10 @@ export default function DashboardPage() {
             }
           : initialClientDrawerForm
       );
+      setClientDrawerOptionalSections(
+        activeClient ? getClientOptionalSections(activeClient) : initialClientOptionalSections
+      );
+      setClientDrawerOptionalFieldSelection("");
       setContactDrawerForm(initialContactDrawerForm);
       setDrawerBranchForm(initialBranchFormState);
       setClientDrawerError("");
@@ -6928,6 +6999,21 @@ export default function DashboardPage() {
     }));
   };
 
+  const handleClientOptionalFieldAdd = (event) => {
+    const { value } = event.target;
+    setClientOptionalFieldSelection(value);
+
+    if (!value) {
+      return;
+    }
+
+    setClientOptionalSections((currentState) => ({
+      ...currentState,
+      [value]: true
+    }));
+    setClientOptionalFieldSelection("");
+  };
+
   const handleClientModalChange = (event) => {
     const { name, value } = event.target;
     setClientModalError("");
@@ -7106,22 +7192,28 @@ export default function DashboardPage() {
     setClientSubTab(uiText.clients.subTabs.form);
     setClientFormError("");
     setClientFormMessage("");
-    setClientForm({
+    const nextClientForm = {
+      name: client.name || client.displayName || "",
       clientType: client.client_type || "commercial",
-      businessName: client.business_name || client.name || "",
+      businessName: client.business_name || "",
       tradeName: client.trade_name || "",
       taxId: client.tax_id || "",
       mainAddress: client.main_address || "",
       mainPhone: client.main_phone || "",
       mainContact: client.main_contact || "",
       mainEmail: client.main_email || ""
-    });
+    };
+    setClientForm(nextClientForm);
+    setClientOptionalSections(getClientOptionalSections(nextClientForm));
+    setClientOptionalFieldSelection("");
   };
 
   const handleNewClient = () => {
     setSelectedClientId(null);
     setClientSubTab(uiText.clients.subTabs.form);
     setClientForm(initialClientFormState);
+    setClientOptionalSections(initialClientOptionalSections);
+    setClientOptionalFieldSelection("");
     setClientFormError("");
     setClientFormMessage("");
   };
@@ -7518,6 +7610,21 @@ export default function DashboardPage() {
     }));
   };
 
+  const handleClientDrawerOptionalFieldAdd = (event) => {
+    const { value } = event.target;
+    setClientDrawerOptionalFieldSelection(value);
+
+    if (!value) {
+      return;
+    }
+
+    setClientDrawerOptionalSections((currentState) => ({
+      ...currentState,
+      [value]: true
+    }));
+    setClientDrawerOptionalFieldSelection("");
+  };
+
   const handleContactDrawerFormChange = (event) => {
     const { name, value, type, checked } = event.target;
     setContactDrawerError("");
@@ -7642,16 +7749,15 @@ export default function DashboardPage() {
         clientState: {
           name: clientDrawerForm.name,
           clientType: clientDrawerForm.clientType,
-          businessName: clientDrawerForm.businessName || clientDrawerForm.name,
+          businessName: clientDrawerForm.businessName,
           tradeName: clientDrawerForm.tradeName,
           taxId: clientDrawerForm.taxId,
-          mainAddress: "",
+          mainAddress: clientDrawerForm.mainAddress,
           mainPhone: clientDrawerForm.mainPhone,
           mainContact: clientDrawerForm.mainContact,
           mainEmail: clientDrawerForm.mainEmail
         },
-        clientId: activeMode === "edit" ? activeEntityId : null,
-        autoCreateDefaultBranch: false
+        clientId: activeMode === "edit" ? activeEntityId : null
       });
 
       setSelectedClientId(savedClient.id);
@@ -7921,7 +8027,7 @@ export default function DashboardPage() {
     const drawerClientId = activeEntityType === "branch" ? activeParentClientId : activeDrawerClientId;
 
     if (!drawerClientId) {
-      setDrawerBranchError("Guarda el cliente primero para agregar sucursales.");
+      setDrawerBranchError("Guarda el cliente primero para agregar direcciones.");
       return;
     }
 
@@ -8003,14 +8109,14 @@ export default function DashboardPage() {
 
       if ((relatedOrdersCount || 0) > 0) {
         throw new Error(
-          "No se puede eliminar esta sucursal porque tiene ordenes de servicio relacionadas."
+          "No se puede eliminar esta direccion porque tiene ordenes de servicio relacionadas."
         );
       }
 
       setIsConfirmingDeleteBranch(true);
     } catch (error) {
       setDrawerBranchError(
-        error.message || "No fue posible validar la eliminacion de la sucursal."
+        error.message || "No fue posible validar la eliminacion de la direccion."
       );
       setIsConfirmingDeleteBranch(false);
     }
@@ -8060,7 +8166,7 @@ export default function DashboardPage() {
 
       if ((relatedOrdersCount || 0) > 0) {
         throw new Error(
-          "No se puede eliminar esta sucursal porque tiene ordenes de servicio relacionadas."
+          "No se puede eliminar esta direccion porque tiene ordenes de servicio relacionadas."
         );
       }
 
@@ -8098,7 +8204,7 @@ export default function DashboardPage() {
 
       resetBranchDrawerEditor();
     } catch (error) {
-      setDrawerBranchError(error.message || "No fue posible eliminar la sucursal.");
+      setDrawerBranchError(error.message || "No fue posible eliminar la direccion.");
       setIsConfirmingDeleteBranch(false);
     } finally {
       setIsDeletingBranch(false);
@@ -8111,46 +8217,37 @@ export default function DashboardPage() {
     setIsSavingClientModal(true);
 
     try {
-      const isResidential = isResidentialClient(clientModalState.clientType);
-      const residentialAddress = buildStructuredAddress({
-        street: clientModalState.street.trim(),
-        streetNumber: clientModalState.streetNumber.trim(),
-        city: clientModalState.city.trim(),
-        state: clientModalState.state.trim(),
-        postalCode: clientModalState.postalCode.trim(),
-        reference: clientModalState.reference.trim()
-      });
-
-      if (isResidential && !residentialAddress) {
-        throw new Error("Ingresa una direccion valida para la sucursal principal.");
-      }
+      const primaryAddress = clientModalState.mainAddress.trim();
 
       const savedClient = await saveClientRecord({
         clientState: {
+          name: clientModalState.name.trim(),
           clientType: clientModalState.clientType,
-          businessName: (clientModalState.businessName || clientModalState.name).trim(),
-          tradeName: clientModalState.tradeName.trim(),
-          taxId: clientModalState.taxId.trim(),
-          mainAddress: isResidential ? residentialAddress : "",
+          businessName: "",
+          tradeName: "",
+          taxId: "",
+          mainAddress: primaryAddress,
           mainPhone: clientModalState.phone.trim(),
           mainContact: "",
           mainEmail: ""
         },
-        autoCreateDefaultBranch: isResidential,
-        defaultBranchPayload: isResidential
+        autoCreateDefaultBranch: Boolean(primaryAddress),
+        defaultBranchPayload: primaryAddress
           ? {
               name: "Principal",
-              address: residentialAddress,
+              address: primaryAddress,
               phone: clientModalState.phone.trim(),
               contact: "",
-              notes: clientModalState.reference.trim()
+              notes: ""
             }
           : null
       });
 
       setCalendarActionError("");
       setCalendarActionMessage(
-        isResidential ? uiText.clients.success : "Cliente creado. Agrega la primera sucursal."
+        primaryAddress
+          ? uiText.clients.success
+          : "Cliente creado. Agrega la primera direccion cuando la necesites."
       );
       setIsClientModalOpen(false);
       setClientModalState(initialQuickClientState);
@@ -8217,6 +8314,8 @@ export default function DashboardPage() {
         clientId: selectedClientId
       });
       setClientForm(initialClientFormState);
+      setClientOptionalSections(initialClientOptionalSections);
+      setClientOptionalFieldSelection("");
       setSelectedClientId(null);
       setClientFormMessage(
         selectedClientId ? uiText.clients.updateSuccess : uiText.clients.success
@@ -10687,7 +10786,7 @@ export default function DashboardPage() {
             <div className="operations-panel-header">
               <div>
                 <h2>{uiText.clients.title}</h2>
-                <p>Busca clientes, filtra por tipo y crea nuevos registros rapidamente.</p>
+                <p>Busca clientes, revisa sus direcciones y crea nuevos registros rapidamente.</p>
               </div>
               <div className="operations-panel-actions">
                 <button className="button" type="button" onClick={handleOpenClientDrawerCreate}>
@@ -10706,18 +10805,6 @@ export default function DashboardPage() {
                     onChange={(event) => setClientSidebarSearch(event.target.value)}
                     placeholder={uiText.serviceList.placeholders.clientSearch}
                   />
-                </label>
-
-                <label className="calendar-filter control-group-body context-panel-filter">
-                  <span className="control-group-label">{uiText.clients.fields.clientType}</span>
-                  <select
-                    value={clientSidebarType}
-                    onChange={(event) => setClientSidebarType(event.target.value)}
-                  >
-                    <option value="all">{uiText.dashboard.clientTypeAll}</option>
-                    <option value="residential">{uiText.clients.typeOptions.residential}</option>
-                    <option value="commercial">{uiText.clients.typeOptions.commercial}</option>
-                  </select>
                 </label>
               </div>
             ) : null}
@@ -11210,7 +11297,7 @@ export default function DashboardPage() {
                 <div className="clients-summary-header">
                   <div className="clients-summary-header-copy">
                     <h3>Resumen de clientes</h3>
-                    <p>Vista general de cartera, sucursales y actividad operativa.</p>
+                    <p>Vista general de cartera, direcciones y actividad operativa.</p>
                   </div>
                 </div>
 
@@ -11224,7 +11311,7 @@ export default function DashboardPage() {
                       <strong>{clientsModuleSummary.totalClients}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Sucursales totales</span>
+                      <span>Direcciones totales</span>
                       <strong>{clientsModuleSummary.totalBranches}</strong>
                     </div>
                     <div className="detail-static-field">
@@ -11250,12 +11337,12 @@ export default function DashboardPage() {
                   </div>
                   <div className="client-summary-kpis client-summary-kpis-secondary">
                     <div className="detail-static-field">
-                      <span>Clientes comerciales</span>
-                      <strong>{clientsModuleSummary.commercialClients}</strong>
+                      <span>Clientes con una direccion</span>
+                      <strong>{clientsModuleSummary.singleAddressClients}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Clientes residenciales</span>
-                      <strong>{clientsModuleSummary.residentialClients}</strong>
+                      <span>Clientes con varias direcciones</span>
+                      <strong>{clientsModuleSummary.multiAddressClients}</strong>
                     </div>
                     <div className="detail-static-field">
                       <span>Citas activas del mes</span>
@@ -11270,7 +11357,7 @@ export default function DashboardPage() {
                       <strong>{clientsModuleSummary.pendingOrders}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Sucursales con actividad</span>
+                      <span>Direcciones con actividad</span>
                       <strong>{clientsModuleSummary.branchesWithActivity}</strong>
                     </div>
                   </div>
@@ -11301,10 +11388,10 @@ export default function DashboardPage() {
                         </strong>
                       </div>
                       <div className="clients-summary-operational-row">
-                        <div className="clients-summary-operational-copy">
-                          <strong>Sucursales con actividad del mes</strong>
+                      <div className="clients-summary-operational-copy">
+                          <strong>Direcciones con actividad del mes</strong>
                           <span>Ubicaciones con trabajo planificado o ejecutado.</span>
-                        </div>
+                      </div>
                         <strong className="clients-summary-operational-count">
                           {clientsModuleSummary.branchesWithActivity}
                         </strong>
@@ -11319,7 +11406,7 @@ export default function DashboardPage() {
                     <p className="detail-subcopy">
                       Este resumen muestra la actividad global del módulo de clientes.
                       Usa Lista de clientes para abrir un cliente específico y revisar su
-                      Resumen, Sucursales y Servicios / órdenes.
+                      Resumen, Direcciones y Servicios / ordenes.
                     </p>
                     <div className="workspace-actions">
                       <button
@@ -11346,7 +11433,6 @@ export default function DashboardPage() {
                 <div className="clients-hierarchy-header">
                   <span />
                   <span>{uiText.clients.headers.name}</span>
-                  <span>{uiText.clients.headers.type}</span>
                   <span>{uiText.clients.headers.phone}</span>
                   <span>{uiText.clients.fields.mainEmail}</span>
                   <span>{uiText.clients.subTabs.branches}</span>
@@ -11385,14 +11471,13 @@ export default function DashboardPage() {
                             aria-expanded={isExpanded}
                             aria-label={
                               isExpanded
-                                ? `Ocultar sucursales de ${client.displayName}`
-                                : `Mostrar sucursales de ${client.displayName}`
+                                ? `Ocultar direcciones de ${client.displayName}`
+                                : `Mostrar direcciones de ${client.displayName}`
                             }
                           >
                             {isExpanded ? "▼" : "▶"}
                           </button>
                           <strong>{client.displayName}</strong>
-                          <span>{getClientTypeLabel(client.client_type)}</span>
                           <span>{client.main_phone || "-"}</span>
                           <span>{client.main_email || "-"}</span>
                           <span>{branchCountLabel}</span>
@@ -11415,7 +11500,7 @@ export default function DashboardPage() {
                                 handleClientHierarchyCreateBranch(client);
                               }}
                             >
-                              + Sucursal
+                              + Direccion
                             </button>
                           </div>
                         </div>
@@ -11879,6 +11964,8 @@ export default function DashboardPage() {
                 clientsError={clientsError}
                 isClientsLoading={isClientsLoading}
                 clientForm={clientForm}
+                clientOptionalSections={clientOptionalSections}
+                clientOptionalFieldSelection={clientOptionalFieldSelection}
                 selectedClientId={selectedClientId}
                 selectedBranchClientId={selectedBranchClientId}
                 clientSubTab={clientSubTab}
@@ -11918,6 +12005,7 @@ export default function DashboardPage() {
                 onFormChange={handleFormChange}
                 onSubmit={handleCreateServiceOrder}
                 onClientFormChange={handleClientFormChange}
+                onClientOptionalFieldAdd={handleClientOptionalFieldAdd}
                 onClientSubmit={handleCreateClient}
                 onClientEdit={handleEditClient}
                 onClientNew={handleNewClient}
@@ -12004,7 +12092,7 @@ export default function DashboardPage() {
                       <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Sucursal / ubicación</span>
+                      <span>Direccion / ubicacion</span>
                       <strong>
                         {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
                       </strong>
@@ -13237,63 +13325,6 @@ export default function DashboardPage() {
                   />
                 </label>
 
-                {clientModalState.clientType === "commercial" ? (
-                  <>
-                    <label className="workspace-input-group">
-                      <span>{uiText.clients.fields.businessName}</span>
-                      <input
-                        name="businessName"
-                        type="text"
-                        value={clientModalState.businessName}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>{uiText.clients.fields.tradeName}</span>
-                      <input
-                        name="tradeName"
-                        type="text"
-                        value={clientModalState.tradeName}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                      />
-                    </label>
-                  </>
-                ) : null}
-
-                <label className="workspace-input-group">
-                  <span>{uiText.clients.fields.clientType}</span>
-                  <select
-                    name="clientType"
-                    value={clientModalState.clientType}
-                    onChange={handleClientModalChange}
-                    disabled={isSavingClientModal}
-                    required
-                  >
-                    <option value="residential">
-                      {uiText.clients.typeOptions.residential}
-                    </option>
-                    <option value="commercial">
-                      {uiText.clients.typeOptions.commercial}
-                    </option>
-                  </select>
-                </label>
-
-                {clientModalState.clientType === "commercial" ? (
-                  <label className="workspace-input-group">
-                    <span>{uiText.clients.fields.taxId}</span>
-                    <input
-                      name="taxId"
-                      type="text"
-                      value={clientModalState.taxId}
-                      onChange={handleClientModalChange}
-                      disabled={isSavingClientModal}
-                    />
-                  </label>
-                ) : null}
-
                 <label className="workspace-input-group">
                   <span>{uiText.serviceOrder.quickCreate.fields.phone}</span>
                   <input
@@ -13305,80 +13336,17 @@ export default function DashboardPage() {
                   />
                 </label>
 
-                {clientModalState.clientType === "residential" ? (
-                  <>
-                    <label className="workspace-input-group">
-                      <span>Calle</span>
-                      <input
-                        name="street"
-                        type="text"
-                        value={clientModalState.street}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>Numero</span>
-                      <input
-                        name="streetNumber"
-                        type="text"
-                        value={clientModalState.streetNumber}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>Ciudad</span>
-                      <input
-                        name="city"
-                        type="text"
-                        value={clientModalState.city}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>Estado</span>
-                      <input
-                        name="state"
-                        type="text"
-                        value={clientModalState.state}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group">
-                      <span>Codigo postal</span>
-                      <input
-                        name="postalCode"
-                        type="text"
-                        value={clientModalState.postalCode}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        required
-                      />
-                    </label>
-
-                    <label className="workspace-input-group workspace-field-wide">
-                      <span>Referencia / notas</span>
-                      <textarea
-                        name="reference"
-                        value={clientModalState.reference}
-                        onChange={handleClientModalChange}
-                        disabled={isSavingClientModal}
-                        rows={3}
-                      />
-                    </label>
-                  </>
-                ) : null}
+                <label className="workspace-input-group workspace-field-wide">
+                  <span>Direccion principal</span>
+                  <textarea
+                    name="mainAddress"
+                    value={clientModalState.mainAddress}
+                    onChange={handleClientModalChange}
+                    disabled={isSavingClientModal}
+                    rows={3}
+                    placeholder="Agregala solo si quieres dejar lista la primera direccion"
+                  />
+                </label>
               </div>
 
               <div className="workspace-form-footer">
@@ -13417,7 +13385,7 @@ export default function DashboardPage() {
             <div className="workspace-copy">
               <h3 id="branch-modal-title">{uiText.clients.branchesFormCreateTitle}</h3>
               <p>
-                Agrega la primera sucursal para {pendingBranchClient?.displayName || "el cliente"}.
+                Agrega la primera direccion para {pendingBranchClient?.displayName || "el cliente"}.
               </p>
             </div>
 
@@ -13518,7 +13486,7 @@ export default function DashboardPage() {
             <div className="entity-drawer-header">
               <div className="entity-drawer-header-copy">
                 <span className="entity-drawer-kicker">
-                  {activeEntityType === "client" ? "Clientes" : "Sucursales"}
+                  {activeEntityType === "client" ? "Clientes" : "Direcciones"}
                 </span>
                 <h3 id="entity-drawer-title">{activeDrawerTitle}</h3>
                 <p>{activeDrawerSubtitle}</p>
@@ -13541,7 +13509,10 @@ export default function DashboardPage() {
                       <div className="detail-identity-copy">
                         <span className="detail-sidebar-kicker">Cliente</span>
                         <strong>{activeClient?.displayName || activeClient?.name || "-"}</strong>
-                        <p>{getClientTypeLabel(activeClient?.client_type)}</p>
+                        <p>
+                          {(branchesByClientId[activeDrawerClientId] || []).length} direcciones
+                          registradas
+                        </p>
                       </div>
                       <div className="detail-identity-meta">
                         <span>{activeClient?.main_phone || "Sin telefono"}</span>
@@ -13571,7 +13542,7 @@ export default function DashboardPage() {
                         onClick={() => setActiveClientDrawerTab(clientDrawerTabs.branches)}
                         disabled={!activeDrawerClientId}
                       >
-                        Sucursales
+                        Direcciones
                       </button>
                       <button
                         type="button"
@@ -13608,7 +13579,7 @@ export default function DashboardPage() {
                               <strong>{activeClient?.tax_id || "-"}</strong>
                             </div>
                             <div className="detail-row">
-                              <span>Sucursales</span>
+                              <span>Direcciones</span>
                               <strong>{(branchesByClientId[activeDrawerClientId] || []).length}</strong>
                             </div>
                           </div>
@@ -13642,7 +13613,7 @@ export default function DashboardPage() {
                               <strong>{activeClientProgressOverview.overdueOrderCount}</strong>
                             </div>
                             <div className="detail-static-field">
-                              <span>Sucursales con actividad</span>
+                              <span>Direcciones con actividad</span>
                               <strong>{activeClientProgressOverview.branchesWithActivity}</strong>
                             </div>
                           </div>
@@ -13650,19 +13621,19 @@ export default function DashboardPage() {
 
                         <section className="drawer-section detail-section-card">
                           <div className="entity-drawer-section-header">
-                            <h4 className="drawer-section-title">Progreso por sucursal</h4>
+                            <h4 className="drawer-section-title">Progreso por direccion</h4>
                           </div>
 
                           {activeClientBranchProgress.length === 0 ? (
                             <p className="detail-subcopy">
-                              Todavia no hay sucursales registradas para este cliente.
+                              Todavia no hay direcciones registradas para este cliente.
                             </p>
                           ) : (
                             <div className="workspace-table-wrapper client-summary-table-wrapper">
                               <table className="workspace-table client-summary-table">
                                 <thead>
                                   <tr>
-                                    <th>Sucursal</th>
+                                    <th>Direccion</th>
                                     <th>Ultimo servicio</th>
                                     <th>Proximo servicio</th>
                                     <th>Estado</th>
@@ -13696,7 +13667,7 @@ export default function DashboardPage() {
                     {activeClientDrawerTab === clientDrawerTabs.branches ? (
                       <section className="drawer-section detail-section-card">
                         <div className="entity-drawer-section-header">
-                          <h4 className="drawer-section-title">Sucursales</h4>
+                          <h4 className="drawer-section-title">Direcciones</h4>
                           <button
                             type="button"
                             className="button button-secondary"
@@ -13705,7 +13676,7 @@ export default function DashboardPage() {
                               setActiveMode("edit");
                             }}
                           >
-                            Gestionar sucursales
+                            Gestionar direcciones
                           </button>
                         </div>
 
@@ -13809,7 +13780,7 @@ export default function DashboardPage() {
                             setActiveMode("edit");
                           }}
                         >
-                          Sucursales
+                          Direcciones
                         </button>
                         <button
                           className="button"
@@ -13860,7 +13831,7 @@ export default function DashboardPage() {
                         onClick={() => setActiveClientDrawerTab(clientDrawerTabs.branches)}
                         disabled={!activeDrawerClientId}
                       >
-                        Sucursales
+                        Direcciones
                       </button>
                     </div>
 
@@ -13868,8 +13839,12 @@ export default function DashboardPage() {
                       <form className="workspace-form entity-drawer-form" onSubmit={handleSaveClientFromDrawer}>
                         <div className="entity-drawer-section drawer-section">
                           <div className="entity-drawer-section-header">
-                            <h4 className="drawer-section-title">General</h4>
+                            <h4 className="drawer-section-title">Cliente</h4>
                           </div>
+                          <p className="detail-subcopy">
+                            Empieza con lo esencial. Agrega direccion, email o datos
+                            administrativos solo cuando hagan falta.
+                          </p>
                           <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                             <label className="workspace-input-group workspace-field-wide">
                               <span>Nombre del cliente</span>
@@ -13884,38 +13859,6 @@ export default function DashboardPage() {
                             </label>
 
                             <label className="workspace-input-group">
-                              <span>{uiText.clients.fields.clientType}</span>
-                              <select
-                                name="clientType"
-                                value={clientDrawerForm.clientType}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                                required
-                              >
-                                <option value="residential">{uiText.clients.typeOptions.residential}</option>
-                                <option value="commercial">{uiText.clients.typeOptions.commercial}</option>
-                              </select>
-                            </label>
-
-                            <label className="workspace-input-group">
-                              <span>{uiText.clients.fields.tradeName}</span>
-                              <input
-                                name="tradeName"
-                                type="text"
-                                value={clientDrawerForm.tradeName}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="entity-drawer-section drawer-section">
-                          <div className="entity-drawer-section-header">
-                            <h4 className="drawer-section-title">Contacto principal</h4>
-                          </div>
-                          <div className="workspace-grid entity-drawer-grid drawer-form-grid">
-                            <label className="workspace-input-group">
                               <span>{uiText.clients.fields.mainPhone}</span>
                               <input
                                 name="mainPhone"
@@ -13925,63 +13868,144 @@ export default function DashboardPage() {
                                 disabled={isSavingClientDrawer}
                               />
                             </label>
-
-                            <label className="workspace-input-group">
-                              <span>{uiText.clients.fields.mainEmail}</span>
-                              <input
-                                name="mainEmail"
-                                type="email"
-                                value={clientDrawerForm.mainEmail}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                              />
-                            </label>
-
-                            <label className="workspace-input-group workspace-field-wide">
-                              <span>{uiText.clients.fields.mainContact}</span>
-                              <input
-                                name="mainContact"
-                                type="text"
-                                value={clientDrawerForm.mainContact}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                              />
-                            </label>
                           </div>
                         </div>
 
-                        <div className="entity-drawer-section drawer-section">
-                          <div className="entity-drawer-section-header">
-                            <h4 className="drawer-section-title">Datos administrativos</h4>
+                        {clientDrawerOptionalSections.address ? (
+                          <div className="entity-drawer-section drawer-section">
+                            <div className="entity-drawer-section-header">
+                              <h4 className="drawer-section-title">Direccion principal</h4>
+                            </div>
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>{uiText.clients.fields.mainAddress}</span>
+                                <textarea
+                                  name="mainAddress"
+                                  value={clientDrawerForm.mainAddress}
+                                  onChange={handleClientDrawerFormChange}
+                                  disabled={isSavingClientDrawer}
+                                  rows={3}
+                                />
+                              </label>
+                            </div>
                           </div>
-                          <div className="workspace-grid entity-drawer-grid drawer-form-grid">
-                            <label className="workspace-input-group">
-                              <span>{uiText.clients.fields.businessName}</span>
-                              <input
-                                name="businessName"
-                                type="text"
-                                value={clientDrawerForm.businessName}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                              />
-                            </label>
+                        ) : null}
 
-                            <label className="workspace-input-group">
-                              <span>{uiText.clients.fields.taxId}</span>
-                              <input
-                                name="taxId"
-                                type="text"
-                                value={clientDrawerForm.taxId}
-                                onChange={handleClientDrawerFormChange}
-                                disabled={isSavingClientDrawer}
-                              />
+                        {clientDrawerOptionalSections.email || clientDrawerOptionalSections.contact ? (
+                          <div className="entity-drawer-section drawer-section">
+                            <div className="entity-drawer-section-header">
+                              <h4 className="drawer-section-title">Contacto</h4>
+                            </div>
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                              {clientDrawerOptionalSections.email ? (
+                                <label className="workspace-input-group">
+                                  <span>{uiText.clients.fields.mainEmail}</span>
+                                  <input
+                                    name="mainEmail"
+                                    type="email"
+                                    value={clientDrawerForm.mainEmail}
+                                    onChange={handleClientDrawerFormChange}
+                                    disabled={isSavingClientDrawer}
+                                  />
+                                </label>
+                              ) : null}
+
+                              {clientDrawerOptionalSections.contact ? (
+                                <label className="workspace-input-group workspace-field-wide">
+                                  <span>{uiText.clients.fields.mainContact}</span>
+                                  <input
+                                    name="mainContact"
+                                    type="text"
+                                    value={clientDrawerForm.mainContact}
+                                    onChange={handleClientDrawerFormChange}
+                                    disabled={isSavingClientDrawer}
+                                  />
+                                </label>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {clientDrawerOptionalSections.business ? (
+                          <div className="entity-drawer-section drawer-section">
+                            <div className="entity-drawer-section-header">
+                              <h4 className="drawer-section-title">
+                                Datos fiscales / comerciales
+                              </h4>
+                            </div>
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.fields.businessName}</span>
+                                <input
+                                  name="businessName"
+                                  type="text"
+                                  value={clientDrawerForm.businessName}
+                                  onChange={handleClientDrawerFormChange}
+                                  disabled={isSavingClientDrawer}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.fields.tradeName}</span>
+                                <input
+                                  name="tradeName"
+                                  type="text"
+                                  value={clientDrawerForm.tradeName}
+                                  onChange={handleClientDrawerFormChange}
+                                  disabled={isSavingClientDrawer}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.fields.taxId}</span>
+                                <input
+                                  name="taxId"
+                                  type="text"
+                                  value={clientDrawerForm.taxId}
+                                  onChange={handleClientDrawerFormChange}
+                                  disabled={isSavingClientDrawer}
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="entity-drawer-section drawer-section">
+                          <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                            <label className="workspace-input-group workspace-field-wide client-form-add-field-group">
+                              <span>+ Agregar campo</span>
+                              <select
+                                value={clientDrawerOptionalFieldSelection}
+                                onChange={handleClientDrawerOptionalFieldAdd}
+                                disabled={
+                                  isSavingClientDrawer ||
+                                  getAvailableClientOptionalFieldOptions(
+                                    clientDrawerOptionalSections
+                                  ).length === 0
+                                }
+                              >
+                                <option value="">
+                                  {getAvailableClientOptionalFieldOptions(
+                                    clientDrawerOptionalSections
+                                  ).length === 0
+                                    ? "Todos los campos opcionales ya estan visibles"
+                                    : "Selecciona un campo opcional"}
+                                </option>
+                                {getAvailableClientOptionalFieldOptions(
+                                  clientDrawerOptionalSections
+                                ).map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
                             </label>
                           </div>
                         </div>
 
                         {!activeDrawerClientId ? (
                           <p className="empty-hint">
-                            Guarda el cliente primero para agregar contactos y sucursales.
+                            Guarda el cliente primero para agregar contactos y direcciones.
                           </p>
                         ) : null}
 
@@ -14022,7 +14046,7 @@ export default function DashboardPage() {
                               <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                                 <p>
                                   {clientDeleteImpact.branches > 0 || clientDeleteImpact.contacts > 0
-                                    ? `Este cliente tambien tiene ${clientDeleteImpact.branches} sucursales y ${clientDeleteImpact.contacts} contactos asociados. Si continuas, tambien se eliminaran.`
+                                    ? `Este cliente tambien tiene ${clientDeleteImpact.branches} direcciones y ${clientDeleteImpact.contacts} contactos asociados. Si continuas, tambien se eliminaran.`
                                     : "Esta accion eliminara el cliente de forma permanente."}
                                 </p>
                                 <div className="detail-delete-actions">
@@ -14227,18 +14251,18 @@ export default function DashboardPage() {
                       <div className="entity-drawer-section drawer-section">
                         {!activeDrawerClientId ? (
                           <p className="empty-hint">
-                            Guarda el cliente primero para agregar sucursales.
+                            Guarda el cliente primero para agregar direcciones.
                           </p>
                         ) : (
                           <>
                             <div className="entity-drawer-section-header">
-                              <h4>Sucursales del cliente</h4>
+                              <h4>Direcciones del cliente</h4>
                               <button
                                 type="button"
                                 className="button button-secondary"
                                 onClick={resetBranchDrawerEditor}
                               >
-                                + Sucursal
+                                + Direccion
                               </button>
                             </div>
 
@@ -14275,8 +14299,8 @@ export default function DashboardPage() {
                               <div className="entity-drawer-subform-header">
                                 <strong>
                                   {activeEditingBranch
-                                    ? `Editando sucursal: ${activeEditingBranch.name}`
-                                    : "Nueva sucursal"}
+                                    ? `Editando direccion: ${activeEditingBranch.name}`
+                                    : "Nueva direccion"}
                                 </strong>
                                 {activeEditingBranch ? (
                                   <button
@@ -14369,7 +14393,7 @@ export default function DashboardPage() {
                                   {isConfirmingDeleteBranch ? (
                                     <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                                       <p>
-                                        Esta accion eliminara la sucursal de forma permanente. Solo
+                                        Esta accion eliminara la direccion de forma permanente. Solo
                                         se permitira si no tiene ordenes de servicio relacionadas.
                                       </p>
                                       <div className="detail-delete-actions">
@@ -14400,7 +14424,7 @@ export default function DashboardPage() {
                                       onClick={handleRequestDeleteBranchFromDrawer}
                                       disabled={isSavingDrawerBranch || isDeletingBranch}
                                     >
-                                      Eliminar sucursal
+                                      Eliminar direccion
                                     </button>
                                   )}
                                 </div>
@@ -14518,7 +14542,7 @@ export default function DashboardPage() {
                       {isConfirmingDeleteBranch ? (
                         <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                           <p>
-                            Esta accion eliminara la sucursal de forma permanente. Solo se
+                            Esta accion eliminara la direccion de forma permanente. Solo se
                             permitira si no tiene ordenes de servicio relacionadas.
                           </p>
                           <div className="detail-delete-actions">
@@ -14549,7 +14573,7 @@ export default function DashboardPage() {
                           onClick={handleRequestDeleteBranchFromDrawer}
                           disabled={isSavingDrawerBranch || isDeletingBranch}
                         >
-                          Eliminar sucursal
+                          Eliminar direccion
                         </button>
                       )}
                     </div>
