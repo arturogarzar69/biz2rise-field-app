@@ -1288,7 +1288,7 @@ function getClientOptionalSections(clientState) {
 
 function getAvailableClientOptionalFieldOptions(optionalSections) {
   return [
-    { value: "address", label: "Direccion" },
+    { value: "address", label: "Dirección" },
     { value: "email", label: "Email" },
     { value: "contact", label: "Contacto adicional" },
     { value: "business", label: "Datos fiscales / comerciales" }
@@ -2035,7 +2035,7 @@ function WorkspacePanel({
           <div className={isQuickCreate ? "workspace-section workspace-section-tight" : undefined}>
             <div className="drawer-section detail-section-card workspace-quick-create-card">
               <div className="entity-drawer-section-header">
-                <h4 className="drawer-section-title">Programacion</h4>
+                <h4 className="drawer-section-title">Programación</h4>
               </div>
 
               <div className="workspace-grid service-order-grid">
@@ -2510,7 +2510,7 @@ function WorkspacePanel({
                   <strong>{clientsModuleSummary.totalClients}</strong>
                 </div>
                 <div className="detail-static-field">
-                  <span>Clientes con una direccion</span>
+                  <span>Clientes con una dirección</span>
                   <strong>{clientsModuleSummary.singleAddressClients}</strong>
                 </div>
                 <div className="detail-static-field">
@@ -2554,7 +2554,7 @@ function WorkspacePanel({
                   </div>
                   <div className="detail-section-grid">
                     <div className="detail-row">
-                      <span>Clientes con ordenes vencidas</span>
+                      <span>Clientes con órdenes vencidas</span>
                       <strong>{clientsModuleSummary.clientsWithOverdueOrders}</strong>
                     </div>
                     <div className="detail-row">
@@ -2573,7 +2573,7 @@ function WorkspacePanel({
                     <h4 className="drawer-section-title">Contexto</h4>
                   </div>
                   <p className="detail-subcopy">
-                    Este resumen muestra el estado global del modulo de clientes. El
+                    Este resumen muestra el estado global del módulo de clientes. El
                     resumen del drawer sigue siendo el contexto detallado de un cliente
                     seleccionado.
                   </p>
@@ -3776,13 +3776,13 @@ export default function DashboardPage() {
     if (activeEntityType === "client" && activeMode === "edit" && activeEntityId) {
       const activeClient = clients.find((client) => client.id === activeEntityId);
 
-      return activeClient ? `Modo edicion cliente: ${activeClient.displayName}` : "";
+      return activeClient ? `Modo edición cliente: ${activeClient.displayName}` : "";
     }
 
     if (activeEntityType === "branch" && activeMode === "create" && activeParentClientId) {
       const parentClient = clients.find((client) => client.id === activeParentClientId);
 
-      return parentClient ? `Creando direccion para: ${parentClient.displayName}` : "";
+      return parentClient ? `Creando dirección para: ${parentClient.displayName}` : "";
     }
 
     if (activeEntityType === "branch" && activeMode === "edit" && activeEntityId) {
@@ -3790,7 +3790,7 @@ export default function DashboardPage() {
         .flat()
         .find((branch) => branch.id === activeEntityId);
 
-      return activeBranch ? `Modo edicion direccion: ${activeBranch.name}` : "";
+      return activeBranch ? `Modo edición dirección: ${activeBranch.name}` : "";
     }
 
     return "";
@@ -4301,21 +4301,21 @@ export default function DashboardPage() {
         : activeEntityType === "client" && activeMode === "detail"
           ? activeClient?.displayName || activeClient?.name || "Detalle del cliente"
         : activeEntityType === "branch" && activeMode === "create"
-          ? "Nueva direccion"
+          ? "Nueva dirección"
         : activeEntityType === "branch" && activeMode === "edit"
-            ? "Editar direccion"
+            ? "Editar dirección"
             : "";
   const activeDrawerSubtitle =
     activeEntityType === "client" && activeMode === "edit"
       ? "Actualiza la informacion esencial del cliente y agrega solo los campos que hagan falta."
       : activeEntityType === "client" && activeMode === "create"
-        ? "Crea el cliente con lo esencial y agrega direcciones o contactos despues si los necesitas."
+        ? "Crea el cliente con lo esencial y agrega direcciones o contactos después si los necesitas."
         : activeEntityType === "client" && activeMode === "detail"
-          ? "Consulta el resumen del cliente y entra a edicion solo cuando realmente necesites trabajar."
+          ? "Consulta el resumen del cliente y entra a edición solo cuando realmente necesites trabajar."
         : activeEntityType === "branch" && activeMode === "create"
-          ? "Registra una nueva direccion para dejar lista la ubicacion operativa del cliente."
+          ? "Registra una nueva dirección para dejar lista la ubicación operativa del cliente."
           : activeEntityType === "branch" && activeMode === "edit"
-            ? "Ajusta la informacion operativa de esta direccion sin perder el contexto del cliente."
+            ? "Ajusta la información operativa de esta dirección sin perder el contexto del cliente."
             : "";
   const serviceOrderPanelKicker =
     rightPanelMode === rightPanelModes.create
@@ -4345,7 +4345,7 @@ export default function DashboardPage() {
           ? `${getClientDisplayName(selectedServiceOrder.clients)} · ${formatServiceDate(
               selectedServiceOrder.service_date
             )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
-          : "Ajusta programacion, estado y ejecucion de la orden."
+          : "Ajusta programación, estado y ejecución de la orden."
         : selectedAppointment
           ? `${formatServiceDate(
               selectedAppointment.appointment_date
@@ -8247,7 +8247,7 @@ export default function DashboardPage() {
       setCalendarActionMessage(
         primaryAddress
           ? uiText.clients.success
-          : "Cliente creado. Agrega la primera direccion cuando la necesites."
+          : "Cliente creado. Agrega la primera dirección cuando la necesites."
       );
       setIsClientModalOpen(false);
       setClientModalState(initialQuickClientState);
@@ -10679,7 +10679,7 @@ export default function DashboardPage() {
           <div className="operations-panel-header">
             <div>
               <h2>{uiText.dashboard.operationsTitle}</h2>
-              <p>Filtros y accesos rapidos para el despacho diario.</p>
+              <p>Filtros y accesos rápidos para el despacho diario.</p>
             </div>
             <div className="operations-panel-actions">
               <button className="button" type="button" onClick={handleOpenCreatePanel}>
@@ -10713,7 +10713,7 @@ export default function DashboardPage() {
             <div className="operations-panel-section">
               {hasActiveTechnicianFilter ? (
                 <div className="operations-filter-note">
-                  <span>Filtrando por {selectedCalendarTechnicians.length} tecnico(s)</span>
+                  <span>Filtrando por {selectedCalendarTechnicians.length} técnico(s)</span>
                   <button
                     type="button"
                     className="calendar-filter-banner-action"
@@ -10786,7 +10786,7 @@ export default function DashboardPage() {
             <div className="operations-panel-header">
               <div>
                 <h2>{uiText.clients.title}</h2>
-                <p>Busca clientes, revisa sus direcciones y crea nuevos registros rapidamente.</p>
+                <p>Busca clientes, revisa sus direcciones y crea nuevos registros rápidamente.</p>
               </div>
               <div className="operations-panel-actions">
                 <button className="button" type="button" onClick={handleOpenClientDrawerCreate}>
@@ -10832,7 +10832,7 @@ export default function DashboardPage() {
             <div className="operations-panel-header">
               <div>
                 <h2>{uiText.technicians.title}</h2>
-                <p>Consulta el roster tecnico y filtra rapidamente por estado.</p>
+                <p>Consulta el roster técnico y filtra rápidamente por estado.</p>
               </div>
               <div className="operations-panel-actions">
                 <button className="button" type="button" onClick={handleOpenTechnicianDrawerCreate}>
@@ -11066,7 +11066,7 @@ export default function DashboardPage() {
               <div className="calendar-filter-banner calendar-filter-banner-technicians">
                 <span>
                   Mostrando: {selectedCalendarTechnicians.length}{" "}
-                  {selectedCalendarTechnicians.length === 1 ? "tecnico" : "tecnicos"}
+                  {selectedCalendarTechnicians.length === 1 ? "técnico" : "técnicos"}
                 </span>
                 <button
                   type="button"
@@ -11107,8 +11107,8 @@ export default function DashboardPage() {
           hasActiveTechnicianFilter &&
           filteredCalendarEvents.length === 0 ? (
             <div className="calendar-empty-state">
-              <h3>No hay servicios para los tecnicos seleccionados</h3>
-              <p>Prueba con otros tecnicos o limpia los filtros para ver todos los servicios.</p>
+              <h3>No hay servicios para los técnicos seleccionados</h3>
+              <p>Prueba con otros técnicos o limpia los filtros para ver todos los servicios.</p>
               <button
                 type="button"
                 className="calendar-filter-banner-action calendar-empty-state-action"
@@ -11337,7 +11337,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="client-summary-kpis client-summary-kpis-secondary">
                     <div className="detail-static-field">
-                      <span>Clientes con una direccion</span>
+                      <span>Clientes con una dirección</span>
                       <strong>{clientsModuleSummary.singleAddressClients}</strong>
                     </div>
                     <div className="detail-static-field">
@@ -11406,7 +11406,7 @@ export default function DashboardPage() {
                     <p className="detail-subcopy">
                       Este resumen muestra la actividad global del módulo de clientes.
                       Usa Lista de clientes para abrir un cliente específico y revisar su
-                      Resumen, Direcciones y Servicios / ordenes.
+                      Resumen, Direcciones y Servicios / órdenes.
                     </p>
                     <div className="workspace-actions">
                       <button
@@ -11500,7 +11500,7 @@ export default function DashboardPage() {
                                 handleClientHierarchyCreateBranch(client);
                               }}
                             >
-                              + Direccion
+                              + Dirección
                             </button>
                           </div>
                         </div>
@@ -11771,7 +11771,7 @@ export default function DashboardPage() {
               <section className="drawer-section settings-company-section">
                 <div className="entity-drawer-section-header">
                   <div>
-                    <h4 className="drawer-section-title">Direccion</h4>
+                    <h4 className="drawer-section-title">Dirección</h4>
                   </div>
                 </div>
 
@@ -12092,7 +12092,7 @@ export default function DashboardPage() {
                       <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Direccion / ubicacion</span>
+                      <span>Dirección / ubicación</span>
                       <strong>
                         {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
                       </strong>
@@ -12193,7 +12193,7 @@ export default function DashboardPage() {
                       </div>
                       {selectedAppointmentLinkedServiceOrder ? (
                         <div className="detail-row">
-                          <span>Programacion</span>
+                          <span>Programación</span>
                           <strong>
                             {formatServiceDate(selectedAppointmentLinkedServiceOrder.service_date)} ·{" "}
                             {formatDisplayTime(selectedAppointmentLinkedServiceOrder.service_time)}
@@ -13337,14 +13337,14 @@ export default function DashboardPage() {
                 </label>
 
                 <label className="workspace-input-group workspace-field-wide">
-                  <span>Direccion principal</span>
+                  <span>Dirección principal</span>
                   <textarea
                     name="mainAddress"
                     value={clientModalState.mainAddress}
                     onChange={handleClientModalChange}
                     disabled={isSavingClientModal}
                     rows={3}
-                    placeholder="Agregala solo si quieres dejar lista la primera direccion"
+                    placeholder="Agrégala solo si quieres dejar lista la primera dirección"
                   />
                 </label>
               </div>
@@ -13385,7 +13385,7 @@ export default function DashboardPage() {
             <div className="workspace-copy">
               <h3 id="branch-modal-title">{uiText.clients.branchesFormCreateTitle}</h3>
               <p>
-                Agrega la primera direccion para {pendingBranchClient?.displayName || "el cliente"}.
+                Agrega la primera dirección para {pendingBranchClient?.displayName || "el cliente"}.
               </p>
             </div>
 
@@ -13554,7 +13554,7 @@ export default function DashboardPage() {
                         onClick={() => setActiveClientDrawerTab(clientDrawerTabs.services)}
                         disabled={!activeDrawerClientId}
                       >
-                        Servicios / ordenes
+                        Servicios / órdenes
                       </button>
                     </div>
 
@@ -13571,7 +13571,7 @@ export default function DashboardPage() {
                               <strong>{activeClient?.main_contact || "-"}</strong>
                             </div>
                             <div className="detail-row">
-                              <span>Razon social</span>
+                              <span>Razón social</span>
                               <strong>{activeClient?.business_name || "-"}</strong>
                             </div>
                             <div className="detail-row">
@@ -13621,19 +13621,19 @@ export default function DashboardPage() {
 
                         <section className="drawer-section detail-section-card">
                           <div className="entity-drawer-section-header">
-                            <h4 className="drawer-section-title">Progreso por direccion</h4>
+                            <h4 className="drawer-section-title">Progreso por dirección</h4>
                           </div>
 
                           {activeClientBranchProgress.length === 0 ? (
                             <p className="detail-subcopy">
-                              Todavia no hay direcciones registradas para este cliente.
+                              Todavía no hay direcciones registradas para este cliente.
                             </p>
                           ) : (
                             <div className="workspace-table-wrapper client-summary-table-wrapper">
                               <table className="workspace-table client-summary-table">
                                 <thead>
                                   <tr>
-                                    <th>Direccion</th>
+                                    <th>Dirección</th>
                                     <th>Ultimo servicio</th>
                                     <th>Proximo servicio</th>
                                     <th>Estado</th>
@@ -13691,7 +13691,7 @@ export default function DashboardPage() {
                                   <strong>{branch.name}</strong>
                                 </div>
                                 {branch.address ? <span>{branch.address}</span> : null}
-                                {branch.phone ? <span>Telefono: {branch.phone}</span> : null}
+                                {branch.phone ? <span>Teléfono: {branch.phone}</span> : null}
                                 {branch.contact ? <span>Contacto: {branch.contact}</span> : null}
                                 {!branch.address && !branch.phone && !branch.contact ? (
                                   <span>Sin datos operativos</span>
@@ -13708,12 +13708,12 @@ export default function DashboardPage() {
                     {activeClientDrawerTab === clientDrawerTabs.services ? (
                       <section className="drawer-section detail-section-card">
                         <div className="entity-drawer-section-header">
-                          <h4 className="drawer-section-title">Servicios / ordenes</h4>
+                          <h4 className="drawer-section-title">Servicios / órdenes</h4>
                         </div>
 
                         {activeClientTimelineRows.length === 0 ? (
                           <p className="detail-subcopy">
-                            No hay citas ni ordenes registradas para este cliente.
+                            No hay citas ni órdenes registradas para este cliente.
                           </p>
                         ) : (
                           <div className="workspace-table-wrapper client-summary-table-wrapper">
@@ -13842,7 +13842,7 @@ export default function DashboardPage() {
                             <h4 className="drawer-section-title">Cliente</h4>
                           </div>
                           <p className="detail-subcopy">
-                            Empieza con lo esencial. Agrega direccion, email o datos
+                            Empieza con lo esencial. Agrega dirección, email o datos
                             administrativos solo cuando hagan falta.
                           </p>
                           <div className="workspace-grid entity-drawer-grid drawer-form-grid">
@@ -13874,7 +13874,7 @@ export default function DashboardPage() {
                         {clientDrawerOptionalSections.address ? (
                           <div className="entity-drawer-section drawer-section">
                             <div className="entity-drawer-section-header">
-                              <h4 className="drawer-section-title">Direccion principal</h4>
+                              <h4 className="drawer-section-title">Dirección principal</h4>
                             </div>
                             <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                               <label className="workspace-input-group workspace-field-wide">
@@ -14046,7 +14046,7 @@ export default function DashboardPage() {
                               <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                                 <p>
                                   {clientDeleteImpact.branches > 0 || clientDeleteImpact.contacts > 0
-                                    ? `Este cliente tambien tiene ${clientDeleteImpact.branches} direcciones y ${clientDeleteImpact.contacts} contactos asociados. Si continuas, tambien se eliminaran.`
+                                    ? `Este cliente también tiene ${clientDeleteImpact.branches} direcciones y ${clientDeleteImpact.contacts} contactos asociados. Si continúas, también se eliminarán.`
                                     : "Esta accion eliminara el cliente de forma permanente."}
                                 </p>
                                 <div className="detail-delete-actions">
@@ -14058,7 +14058,7 @@ export default function DashboardPage() {
                                   >
                                     {isDeletingClient
                                       ? uiText.common.loadingDashboard
-                                      : "Confirmar eliminacion"}
+                                      : "Confirmar eliminación"}
                                   </button>
                                   <button
                                     className="button button-secondary"
@@ -14108,7 +14108,7 @@ export default function DashboardPage() {
                               <p className="detail-subcopy">Cargando contactos...</p>
                             ) : activeClientContacts.length === 0 ? (
                               <p className="detail-subcopy">
-                                Todavia no hay contactos estructurados para este cliente.
+                                Todavía no hay contactos estructurados para este cliente.
                               </p>
                             ) : (
                               <div className="entity-drawer-list">
@@ -14153,7 +14153,7 @@ export default function DashboardPage() {
                                     className="button button-secondary"
                                     onClick={resetContactDrawerEditor}
                                   >
-                                    Cancelar edicion
+                                    Cancelar edición
                                   </button>
                                 ) : null}
                               </div>
@@ -14170,7 +14170,7 @@ export default function DashboardPage() {
                                   />
                                 </label>
                                 <label className="workspace-input-group">
-                                  <span>Telefono</span>
+                                  <span>Teléfono</span>
                                   <input
                                     name="phone"
                                     type="text"
@@ -14262,7 +14262,7 @@ export default function DashboardPage() {
                                 className="button button-secondary"
                                 onClick={resetBranchDrawerEditor}
                               >
-                                + Direccion
+                                + Dirección
                               </button>
                             </div>
 
@@ -14283,7 +14283,7 @@ export default function DashboardPage() {
                                       <strong>{branch.name}</strong>
                                     </div>
                                     {branch.address ? <span>{branch.address}</span> : null}
-                                    {branch.phone ? <span>Telefono: {branch.phone}</span> : null}
+                                    {branch.phone ? <span>Teléfono: {branch.phone}</span> : null}
                                     {branch.contact ? <span>Contacto: {branch.contact}</span> : null}
                                     {!branch.address && !branch.phone && !branch.contact ? (
                                       <span>Sin datos operativos</span>
@@ -14299,8 +14299,8 @@ export default function DashboardPage() {
                               <div className="entity-drawer-subform-header">
                                 <strong>
                                   {activeEditingBranch
-                                    ? `Editando direccion: ${activeEditingBranch.name}`
-                                    : "Nueva direccion"}
+                                    ? `Editando dirección: ${activeEditingBranch.name}`
+                                    : "Nueva dirección"}
                                 </strong>
                                 {activeEditingBranch ? (
                                   <button
@@ -14308,7 +14308,7 @@ export default function DashboardPage() {
                                     className="button button-secondary"
                                     onClick={resetBranchDrawerEditor}
                                   >
-                                    Cancelar edicion
+                                    Cancelar edición
                                   </button>
                                 ) : null}
                               </div>
@@ -14393,8 +14393,8 @@ export default function DashboardPage() {
                                   {isConfirmingDeleteBranch ? (
                                     <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                                       <p>
-                                        Esta accion eliminara la direccion de forma permanente. Solo
-                                        se permitira si no tiene ordenes de servicio relacionadas.
+                                        Esta acción eliminará la dirección de forma permanente. Solo
+                                        se permitirá si no tiene órdenes de servicio relacionadas.
                                       </p>
                                       <div className="detail-delete-actions">
                                         <button
@@ -14405,7 +14405,7 @@ export default function DashboardPage() {
                                         >
                                           {isDeletingBranch
                                             ? uiText.common.loadingDashboard
-                                            : "Confirmar eliminacion"}
+                                            : "Confirmar eliminación"}
                                         </button>
                                         <button
                                           className="button button-secondary"
@@ -14424,7 +14424,7 @@ export default function DashboardPage() {
                                       onClick={handleRequestDeleteBranchFromDrawer}
                                       disabled={isSavingDrawerBranch || isDeletingBranch}
                                     >
-                                      Eliminar direccion
+                                      Eliminar dirección
                                     </button>
                                   )}
                                 </div>
@@ -14542,8 +14542,8 @@ export default function DashboardPage() {
                       {isConfirmingDeleteBranch ? (
                         <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                           <p>
-                            Esta accion eliminara la direccion de forma permanente. Solo se
-                            permitira si no tiene ordenes de servicio relacionadas.
+                            Esta acción eliminará la dirección de forma permanente. Solo se
+                            permitirá si no tiene órdenes de servicio relacionadas.
                           </p>
                           <div className="detail-delete-actions">
                             <button
@@ -14554,7 +14554,7 @@ export default function DashboardPage() {
                             >
                               {isDeletingBranch
                                 ? uiText.common.loadingDashboard
-                                : "Confirmar eliminacion"}
+                                : "Confirmar eliminación"}
                             </button>
                             <button
                               className="button button-secondary"
@@ -14573,7 +14573,7 @@ export default function DashboardPage() {
                           onClick={handleRequestDeleteBranchFromDrawer}
                           disabled={isSavingDrawerBranch || isDeletingBranch}
                         >
-                          Eliminar direccion
+                          Eliminar dirección
                         </button>
                       )}
                     </div>
@@ -14606,20 +14606,20 @@ export default function DashboardPage() {
           >
             <div className="entity-drawer-header">
               <div className="entity-drawer-header-copy">
-                <span className="entity-drawer-kicker">Tecnicos</span>
+                <span className="entity-drawer-kicker">Técnicos</span>
                 <h3 id="technician-drawer-title">
                   {technicianDrawerMode === "detail"
-                    ? activeTechnician?.full_name || "Detalle del tecnico"
+                    ? activeTechnician?.full_name || "Detalle del técnico"
                     : technicianDrawerMode === "edit"
                     ? uiText.technicians.formEditTitle
                     : uiText.technicians.formCreateTitle}
                 </h3>
                 <p>
                   {technicianDrawerMode === "detail"
-                    ? "Consulta disponibilidad, contacto y contexto operativo antes de entrar a edicion."
+                    ? "Consulta disponibilidad, contacto y contexto operativo antes de entrar a edición."
                     : technicianDrawerMode === "edit"
-                    ? "Actualiza disponibilidad, contacto y notas operativas del tecnico."
-                    : "Registra un tecnico nuevo sin salir del roster operativo."}
+                    ? "Actualiza disponibilidad, contacto y notas operativas del técnico."
+                    : "Registra un técnico nuevo sin salir del roster operativo."}
                 </p>
               </div>
               <button
@@ -14637,7 +14637,7 @@ export default function DashboardPage() {
                 <div className="detail-summary">
                   <section className="drawer-section detail-section-card detail-identity-card">
                     <div className="detail-identity-copy">
-                      <span className="detail-sidebar-kicker">Tecnico</span>
+                      <span className="detail-sidebar-kicker">Técnico</span>
                       <strong>{activeTechnician?.full_name || "-"}</strong>
                       <p>
                         {activeTechnician?.is_active
@@ -14665,11 +14665,11 @@ export default function DashboardPage() {
                         </strong>
                       </div>
                       <div className="detail-row">
-                        <span>Telefono</span>
+                        <span>Teléfono</span>
                         <strong>{activeTechnician?.phone || "-"}</strong>
                       </div>
                       <div className="detail-row">
-                        <span>Direccion</span>
+                        <span>Dirección</span>
                         <strong>{activeTechnician?.address || "-"}</strong>
                       </div>
                       <div className="detail-row">
@@ -14698,7 +14698,7 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => setTechnicianDrawerMode("edit")}
                       >
-                        Editar tecnico
+                        Editar técnico
                       </button>
                     </div>
                   </div>
@@ -14767,7 +14767,7 @@ export default function DashboardPage() {
 
                   <div className="entity-drawer-section drawer-section">
                     <div className="entity-drawer-section-header">
-                      <h4 className="drawer-section-title">Ubicacion y notas</h4>
+                      <h4 className="drawer-section-title">Ubicación y notas</h4>
                     </div>
                     <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                       <label className="workspace-input-group workspace-field-wide">
@@ -14832,8 +14832,8 @@ export default function DashboardPage() {
                       {isConfirmingDeleteTechnician ? (
                         <div className="detail-delete-confirmation entity-drawer-delete-confirmation">
                           <p>
-                            Esta accion eliminara el tecnico de forma permanente. Solo se
-                            permitira si no tiene ordenes de servicio relacionadas.
+                            Esta acción eliminará el técnico de forma permanente. Solo se
+                            permitirá si no tiene órdenes de servicio relacionadas.
                           </p>
                           <div className="detail-delete-actions">
                             <button
@@ -14844,7 +14844,7 @@ export default function DashboardPage() {
                             >
                               {isDeletingTechnician
                                 ? uiText.common.loadingDashboard
-                                : "Confirmar eliminacion"}
+                                : "Confirmar eliminación"}
                             </button>
                             <button
                               className="button button-secondary"
@@ -14863,7 +14863,7 @@ export default function DashboardPage() {
                           onClick={handleRequestDeleteTechnician}
                           disabled={isSavingTechnician || isDeletingTechnician}
                         >
-                          Eliminar tecnico
+                          Eliminar técnico
                         </button>
                       )}
                     </div>
