@@ -5405,13 +5405,23 @@ export default function DashboardPage() {
       return;
     }
 
-    const appointmentStart = parseServiceOrderStart(
+    const normalizedServiceTime = orderState.serviceTime.trim();
+    const appointmentDateOnly = parse(orderState.serviceDate, "yyyy-MM-dd", new Date());
+    let appointmentStart = parseServiceOrderStart(
       orderState.serviceDate,
-      orderState.serviceTime.trim()
+      normalizedServiceTime
     );
+    const selectedTimeMinutes = parseTimeOptionToMinutes(normalizedServiceTime);
+
+    if (isValid(appointmentDateOnly) && selectedTimeMinutes !== null) {
+      const appointmentHours = Math.floor(selectedTimeMinutes / 60);
+      const appointmentMinutes = selectedTimeMinutes % 60;
+      appointmentDateOnly.setHours(appointmentHours, appointmentMinutes, 0, 0);
+      appointmentStart = appointmentDateOnly;
+    }
 
     if (isValid(appointmentStart) && appointmentStart.getTime() < Date.now()) {
-      setError("No puedes crear una cita en una fecha pasada");
+      setError("No puedes crear una cita en una fecha u hora pasada");
       return;
     }
 
@@ -7408,7 +7418,7 @@ export default function DashboardPage() {
     if (isPastCreateSlot) {
       setCalendarActionMessage("");
       setCalendarActionError("");
-      setPastDateAlertMessage("No puedes crear una cita en una fecha pasada");
+      setPastDateAlertMessage("No puedes crear una cita en una fecha u hora pasada");
       return;
     }
 
