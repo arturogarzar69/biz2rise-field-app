@@ -1362,6 +1362,8 @@ function SearchableQuickCreateSelect({
   isLoading = false,
   inputRef = null,
   requiredHint = null,
+  helperText = "",
+  onQueryChange = null,
   createLabelPrefix = "+ Crear",
   emptyResultsLabel = "Sin coincidencias"
 }) {
@@ -1376,7 +1378,8 @@ function SearchableQuickCreateSelect({
 
   useEffect(() => {
     setQuery(selectedLabel);
-  }, [selectedLabel]);
+    onQueryChange?.(selectedLabel);
+  }, [onQueryChange, selectedLabel]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1420,8 +1423,10 @@ function SearchableQuickCreateSelect({
     Boolean(trimmedQuery) && !isLoading && filteredItems.length === 0 && !disabled;
 
   const handleSelectItem = (item) => {
+    const nextLabel = getItemLabel(item);
     onSelectValue(getItemValue(item));
-    setQuery(getItemLabel(item));
+    setQuery(nextLabel);
+    onQueryChange?.(nextLabel);
     setIsOpen(false);
   };
 
@@ -1437,6 +1442,7 @@ function SearchableQuickCreateSelect({
   const handleInputChange = (event) => {
     const nextValue = event.target.value;
     setQuery(nextValue);
+    onQueryChange?.(nextValue);
     setIsOpen(true);
 
     if (
@@ -1529,6 +1535,7 @@ function SearchableQuickCreateSelect({
         ) : null}
       </div>
       {requiredHint}
+      {helperText ? <small className="workspace-combobox-helper">{helperText}</small> : null}
     </label>
   );
 }
@@ -3643,6 +3650,8 @@ export default function DashboardPage() {
   const [appointmentConversionForm, setAppointmentConversionForm] = useState(
     initialAppointmentConversionForm
   );
+  const [appointmentConversionTechnicianQuery, setAppointmentConversionTechnicianQuery] =
+    useState("");
   const [isDeletingAppointment, setIsDeletingAppointment] = useState(false);
   const [isChoosingRecurringAppointmentDelete, setIsChoosingRecurringAppointmentDelete] =
     useState(false);
@@ -7050,6 +7059,7 @@ export default function DashboardPage() {
     if (!selectedAppointment) {
       setIsPreparingAppointmentConversion(false);
       setAppointmentConversionForm(initialAppointmentConversionForm);
+      setAppointmentConversionTechnicianQuery("");
       return;
     }
 
@@ -7061,6 +7071,7 @@ export default function DashboardPage() {
       durationMinutes: resolveDurationMinutes(selectedAppointment.duration_minutes),
       serviceInstructions: selectedAppointment.notes || ""
     });
+    setAppointmentConversionTechnicianQuery("");
   }, [selectedAppointment?.id]);
 
   useEffect(() => {
@@ -8829,6 +8840,7 @@ export default function DashboardPage() {
           ...currentState,
           technicianName: savedTechnician.full_name
         }));
+        setAppointmentConversionTechnicianQuery(savedTechnician.full_name);
       }
 
       setIsQuickTechnicianModalOpen(false);
@@ -12390,208 +12402,56 @@ export default function DashboardPage() {
               />
             ) : selectedAppointment ? (
               <div className="detail-summary">
-                <section className="drawer-section detail-section-card detail-identity-card">
-                  <div className="detail-identity-copy">
-                    <span className="detail-sidebar-kicker">Cita / Planeación</span>
-                    <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
-                    <p>
-                      {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
-                      {selectedAppointmentLocation?.address
-                        ? ` · ${selectedAppointmentLocation.address}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="detail-identity-meta">
-                    <span className="detail-badge-neutral">Cita</span>
-                    {isSelectedAppointmentRecurring ? (
-                      <span className="detail-badge-recurrence">Recurrente</span>
-                    ) : null}
-                    {isSelectedAppointmentConverted ? (
-                      <span className="detail-badge-converted">Convertida</span>
-                    ) : null}
-                    <span className="detail-status-badge">{selectedAppointmentStatusLabel}</span>
-                  </div>
-                  <div className="detail-identity-summary">
-                    <p>
-                      {formatServiceDate(selectedAppointment.appointment_date)} ·{" "}
-                      {formatDisplayTime(selectedAppointment.appointment_time)} ·{" "}
-                      {resolveDurationMinutes(selectedAppointment.duration_minutes)} min
-                    </p>
-                    <p>
-                      {selectedAppointmentHasTechnician
-                        ? `Técnico actual: ${getTechnicianDisplayName(
-                            selectedAppointment.technician_name
-                          )}`
-                        : "Sin técnico asignado por ahora"}
-                    </p>
-                  </div>
-                </section>
-
-                <section className="drawer-section detail-section-card">
-                  <div className="entity-drawer-section-header">
-                    <div>
-                      <h4 className="drawer-section-title">Planeación</h4>
-                      <p className="detail-subcopy">
-                        Esta cita representa una visita planeada. La asignación operativa
-                        ocurre al convertirla en orden.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="detail-section-grid detail-section-grid-2">
-                    <div className="detail-static-field">
-                      <span>Fecha</span>
-                      <strong>{formatServiceDate(selectedAppointment.appointment_date)}</strong>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Hora</span>
-                      <strong>{formatDisplayTime(selectedAppointment.appointment_time)}</strong>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Duración</span>
-                      <strong>{resolveDurationMinutes(selectedAppointment.duration_minutes)} min</strong>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Cliente</span>
-                      <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Dirección / ubicación</span>
-                      <strong>
-                        {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
-                      </strong>
-                      <p className="detail-subcopy">
-                        {getServiceLocationSummary(selectedAppointment)}
-                      </p>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Técnico</span>
-                      <strong>
-                        {selectedAppointmentHasTechnician
-                          ? getTechnicianDisplayName(selectedAppointment.technician_name)
-                          : "Sin técnico asignado"}
-                      </strong>
-                      <p className="detail-subcopy">
-                        {selectedAppointmentHasTechnician
-                          ? "La asignación actual es informativa y puede cambiar al convertir."
-                          : "La cita puede planearse sin técnico. La asignación se define al convertir."}
-                      </p>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="drawer-section detail-section-card">
-                  <div className="entity-drawer-section-header">
-                    <div>
-                      <h4 className="drawer-section-title">Recurrencia</h4>
-                      <p className="detail-subcopy">
-                        {isSelectedAppointmentRecurring
-                          ? "Esta cita pertenece a una serie recurrente."
-                          : "Esta cita se gestiona como una visita única."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="detail-section-grid detail-section-grid-2">
-                    <div className="detail-static-field">
-                      <span>Estado de recurrencia</span>
-                      <strong>{selectedAppointmentRecurrenceLabel}</strong>
-                    </div>
-                    <div className="detail-static-field">
-                      <span>Tipo de ocurrencia</span>
-                      <strong>
-                        {isSelectedAppointmentRecurring
-                          ? "Ocurrencia real de una serie"
-                          : "Cita única"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <p className="detail-section-empty-copy">
-                    {selectedAppointmentRecurrenceDescription}
-                  </p>
-                </section>
-
-                {selectedAppointment.notes ? (
-                  <section className="drawer-section detail-section-card">
-                    <div className="entity-drawer-section-header">
-                      <h4 className="drawer-section-title">Notas de planeación</h4>
-                    </div>
-
-                    <div className="detail-section-grid">
-                      <div className="detail-row detail-row-notes">
-                        <strong>{selectedAppointment.notes}</strong>
+                {isPreparingAppointmentConversion && !isSelectedAppointmentConverted ? (
+                  <>
+                    <section className="drawer-section detail-section-card detail-identity-card">
+                      <div className="detail-identity-copy">
+                        <span className="detail-sidebar-kicker">Convertir en orden de servicio</span>
+                        <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                        <p>{getServiceLocationSummary(selectedAppointment)}</p>
                       </div>
-                    </div>
-                  </section>
-                ) : null}
+                    </section>
 
-                {isSelectedAppointmentConverted ? (
-                  <section className="drawer-section detail-section-card">
-                    <div className="entity-drawer-section-header">
-                      <div>
-                        <h4 className="drawer-section-title">Trazabilidad</h4>
-                        <p className="detail-subcopy">
-                          Esta cita ya fue convertida en orden de servicio y ya no forma
-                          parte de la planeación activa.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="detail-traceability-box">
-                      <strong>Esta cita ya fue convertida en orden de servicio.</strong>
-                      <p>
-                        Conservamos esta cita para referencia histórica y seguimiento de la
-                        conversión.
-                      </p>
-                    </div>
-
-                    <div className="entity-drawer-section-header">
-                      <h4 className="drawer-section-title">Orden vinculada</h4>
-                    </div>
-
-                    <div className="detail-section-grid">
-                      <div className="detail-row">
-                        <span>ID de orden</span>
-                        <strong>{selectedAppointment.service_order_id || "Pendiente de sincronizar"}</strong>
-                      </div>
-                      {selectedAppointmentLinkedServiceOrder ? (
-                        <div className="detail-row">
-                          <span>Programación</span>
-                          <strong>
-                            {formatServiceDate(selectedAppointmentLinkedServiceOrder.service_date)} ·{" "}
-                            {formatDisplayTime(selectedAppointmentLinkedServiceOrder.service_time)}
-                          </strong>
+                    <section className="drawer-section detail-section-card">
+                      <div className="entity-drawer-section-header">
+                        <div>
+                          <h4 className="drawer-section-title">Convertir en orden de servicio</h4>
+                          <p className="detail-subcopy">
+                            Asigna técnico y confirma la planeación antes de crear la orden.
+                          </p>
                         </div>
-                      ) : null}
-                    </div>
-
-                    {selectedAppointment.service_order_id ? (
-                      <div className="detail-delete-actions">
-                        <button
-                          className="button button-secondary"
-                          type="button"
-                          onClick={handleOpenLinkedServiceOrder}
-                        >
-                          Abrir orden de servicio
-                        </button>
                       </div>
-                    ) : null}
-                  </section>
-                ) : null}
 
-                {!isSelectedAppointmentConverted ? (
-                  <section className="drawer-section detail-section-card">
-                    <div className="entity-drawer-section-header">
-                      <div>
-                        <h4 className="drawer-section-title">Convertir en orden de servicio</h4>
-                        <p className="detail-subcopy">
-                          Convierte esta cita cuando ya quieras asignar técnico y ejecutar el trabajo.
-                        </p>
+                      <div className="detail-section-grid detail-section-grid-2">
+                        <div className="detail-static-field">
+                          <span>Cliente</span>
+                          <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Dirección / ubicación</span>
+                          <strong>
+                            {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
+                          </strong>
+                          <p className="detail-subcopy">
+                            {selectedAppointmentLocation?.address || getServiceLocationSummary(selectedAppointment)}
+                          </p>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Fecha</span>
+                          <strong>{formatServiceDate(selectedAppointment.appointment_date)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Hora</span>
+                          <strong>{formatDisplayTime(selectedAppointment.appointment_time)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Duración</span>
+                          <strong>{resolveDurationMinutes(selectedAppointment.duration_minutes)} min</strong>
+                        </div>
                       </div>
-                    </div>
+                    </section>
 
-                    {isPreparingAppointmentConversion ? (
+                    <section className="drawer-section detail-section-card">
                       <div className="detail-edit-grid detail-edit-grid-2">
                         <SearchableQuickCreateSelect
                           label="Técnico requerido para la orden"
@@ -12612,7 +12472,24 @@ export default function DashboardPage() {
                           loadingPlaceholder={uiText.serviceOrder.placeholders.technicianLoading}
                           disabled={isConfirmingAppointment || isTechniciansLoading}
                           isLoading={isTechniciansLoading}
+                          helperText="Escribe para buscar un técnico activo o crear uno nuevo."
+                          onQueryChange={setAppointmentConversionTechnicianQuery}
                         />
+
+                        <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
+                          <button
+                            className="button button-secondary workspace-table-button"
+                            type="button"
+                            onClick={() =>
+                              handleOpenQuickTechnicianModal(
+                                appointmentConversionTechnicianQuery.trim()
+                              )
+                            }
+                            disabled={isConfirmingAppointment}
+                          >
+                            + Crear técnico
+                          </button>
+                        </div>
 
                         <label className="workspace-input-group">
                           <span>Fecha planificada</span>
@@ -12694,13 +12571,227 @@ export default function DashboardPage() {
                               !appointmentConversionForm.durationMinutes
                             }
                           >
-                            {isConfirmingAppointment
-                              ? "Creando..."
-                              : "Crear orden de servicio"}
+                            {isConfirmingAppointment ? "Creando..." : "Crear orden de servicio"}
                           </button>
                         </div>
                       </div>
-                    ) : (
+                    </section>
+
+                    <div className="workspace-form-messages">
+                      {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                      {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
+                    </div>
+                  </>
+                ) : isSelectedAppointmentConverted ? (
+                  <>
+                    <section className="drawer-section detail-section-card detail-identity-card">
+                      <div className="detail-identity-copy">
+                        <span className="detail-sidebar-kicker">Cita convertida</span>
+                        <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                        <p>{getServiceLocationSummary(selectedAppointment)}</p>
+                      </div>
+                      <div className="detail-identity-meta">
+                        <span className="detail-badge-converted">Convertida</span>
+                        <span className="detail-status-badge">{selectedAppointmentStatusLabel}</span>
+                      </div>
+                    </section>
+
+                    <section className="drawer-section detail-section-card">
+                      <div className="entity-drawer-section-header">
+                        <div>
+                          <h4 className="drawer-section-title">Trazabilidad</h4>
+                          <p className="detail-subcopy">
+                            Esta cita ya fue convertida en orden de servicio y ya no forma parte de la planeación activa.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="detail-traceability-box">
+                        <strong>Esta cita ya fue convertida en orden de servicio.</strong>
+                        <p>
+                          Conservamos esta cita para referencia histórica y seguimiento de la conversión.
+                        </p>
+                      </div>
+
+                      <div className="detail-section-grid">
+                        <div className="detail-row">
+                          <span>ID de orden</span>
+                          <strong>{selectedAppointment.service_order_id || "Pendiente de sincronizar"}</strong>
+                        </div>
+                        {selectedAppointmentLinkedServiceOrder ? (
+                          <div className="detail-row">
+                            <span>Programación</span>
+                            <strong>
+                              {formatServiceDate(selectedAppointmentLinkedServiceOrder.service_date)} ·{" "}
+                              {formatDisplayTime(selectedAppointmentLinkedServiceOrder.service_time)}
+                            </strong>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {selectedAppointment.service_order_id ? (
+                        <div className="detail-delete-actions">
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            onClick={handleOpenLinkedServiceOrder}
+                          >
+                            Abrir orden de servicio
+                          </button>
+                        </div>
+                      ) : null}
+                    </section>
+
+                    <div className="workspace-form-messages">
+                      {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                      {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <section className="drawer-section detail-section-card detail-identity-card">
+                      <div className="detail-identity-copy">
+                        <span className="detail-sidebar-kicker">Cita / Planeación</span>
+                        <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                        <p>
+                          {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
+                          {selectedAppointmentLocation?.address
+                            ? ` · ${selectedAppointmentLocation.address}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="detail-identity-meta">
+                        <span className="detail-badge-neutral">Cita</span>
+                        {isSelectedAppointmentRecurring ? (
+                          <span className="detail-badge-recurrence">Recurrente</span>
+                        ) : null}
+                        <span className="detail-status-badge">{selectedAppointmentStatusLabel}</span>
+                      </div>
+                      <div className="detail-identity-summary">
+                        <p>
+                          {formatServiceDate(selectedAppointment.appointment_date)} ·{" "}
+                          {formatDisplayTime(selectedAppointment.appointment_time)} ·{" "}
+                          {resolveDurationMinutes(selectedAppointment.duration_minutes)} min
+                        </p>
+                        <p>
+                          {selectedAppointmentHasTechnician
+                            ? `Técnico actual: ${getTechnicianDisplayName(
+                                selectedAppointment.technician_name
+                              )}`
+                            : "Sin técnico asignado por ahora"}
+                        </p>
+                      </div>
+                    </section>
+
+                    <section className="drawer-section detail-section-card">
+                      <div className="entity-drawer-section-header">
+                        <div>
+                          <h4 className="drawer-section-title">Planeación</h4>
+                          <p className="detail-subcopy">
+                            Esta cita representa una visita planeada. La asignación operativa
+                            ocurre al convertirla en orden.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="detail-section-grid detail-section-grid-2">
+                        <div className="detail-static-field">
+                          <span>Fecha</span>
+                          <strong>{formatServiceDate(selectedAppointment.appointment_date)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Hora</span>
+                          <strong>{formatDisplayTime(selectedAppointment.appointment_time)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Duración</span>
+                          <strong>{resolveDurationMinutes(selectedAppointment.duration_minutes)} min</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Cliente</span>
+                          <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Dirección / ubicación</span>
+                          <strong>
+                            {selectedAppointmentLocation?.name || uiText.dashboard.branchEmpty}
+                          </strong>
+                          <p className="detail-subcopy">
+                            {getServiceLocationSummary(selectedAppointment)}
+                          </p>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Técnico</span>
+                          <strong>
+                            {selectedAppointmentHasTechnician
+                              ? getTechnicianDisplayName(selectedAppointment.technician_name)
+                              : "Sin técnico asignado"}
+                          </strong>
+                          <p className="detail-subcopy">
+                            {selectedAppointmentHasTechnician
+                              ? "La asignación actual es informativa y puede cambiar al convertir."
+                              : "La cita puede planearse sin técnico. La asignación se define al convertir."}
+                          </p>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="drawer-section detail-section-card">
+                      <div className="entity-drawer-section-header">
+                        <div>
+                          <h4 className="drawer-section-title">Recurrencia</h4>
+                          <p className="detail-subcopy">
+                            {isSelectedAppointmentRecurring
+                              ? "Esta cita pertenece a una serie recurrente."
+                              : "Esta cita se gestiona como una visita única."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="detail-section-grid detail-section-grid-2">
+                        <div className="detail-static-field">
+                          <span>Estado de recurrencia</span>
+                          <strong>{selectedAppointmentRecurrenceLabel}</strong>
+                        </div>
+                        <div className="detail-static-field">
+                          <span>Tipo de ocurrencia</span>
+                          <strong>
+                            {isSelectedAppointmentRecurring
+                              ? "Ocurrencia real de una serie"
+                              : "Cita única"}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <p className="detail-section-empty-copy">
+                        {selectedAppointmentRecurrenceDescription}
+                      </p>
+                    </section>
+
+                    {selectedAppointment.notes ? (
+                      <section className="drawer-section detail-section-card">
+                        <div className="entity-drawer-section-header">
+                          <h4 className="drawer-section-title">Notas de planeación</h4>
+                        </div>
+
+                        <div className="detail-section-grid">
+                          <div className="detail-row detail-row-notes">
+                            <strong>{selectedAppointment.notes}</strong>
+                          </div>
+                        </div>
+                      </section>
+                    ) : null}
+
+                    <section className="drawer-section detail-section-card">
+                      <div className="entity-drawer-section-header">
+                        <div>
+                          <h4 className="drawer-section-title">Convertir en orden de servicio</h4>
+                          <p className="detail-subcopy">
+                            Convierte esta cita cuando ya quieras asignar técnico y ejecutar el trabajo.
+                          </p>
+                        </div>
+                      </div>
+
                       <div className="detail-delete-actions">
                         <button
                           className="button"
@@ -12715,83 +12806,74 @@ export default function DashboardPage() {
                           Confirmar y crear orden de servicio
                         </button>
                       </div>
-                    )}
-                  </section>
-                ) : null}
+                    </section>
 
-                <div className="workspace-form-messages">
-                  {detailFormError ? <p className="error">{detailFormError}</p> : null}
-                  {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
-                </div>
-
-                {isChoosingRecurringAppointmentDelete ? (
-                  <div className="detail-delete-confirmation">
-                    <p>
-                      Esta cita pertenece a una recurrencia. ¿Que deseas eliminar?
-                    </p>
-                    <div className="detail-delete-actions">
-                      <button
-                        className={
-                          isDeletingAppointment ? "button button-secondary is-loading" : "button button-secondary"
-                        }
-                        type="button"
-                        onClick={handleDeleteAppointmentOccurrence}
-                        disabled={isDeletingAppointment || isConfirmingAppointment}
-                      >
-                        {isDeletingAppointment ? "Eliminando..." : "Solo esta cita"}
-                      </button>
-                      <button
-                        className={
-                          isDeletingAppointment ? "button is-loading" : "button"
-                        }
-                        type="button"
-                        onClick={handleDeleteAppointmentSeries}
-                        disabled={isDeletingAppointment || isConfirmingAppointment}
-                      >
-                        {isDeletingAppointment ? "Eliminando..." : "Toda la serie"}
-                      </button>
-                      <button
-                        className="button button-secondary"
-                        type="button"
-                        onClick={() => setIsChoosingRecurringAppointmentDelete(false)}
-                        disabled={isDeletingAppointment}
-                      >
-                        Cancelar
-                      </button>
+                    <div className="workspace-form-messages">
+                      {detailFormError ? <p className="error">{detailFormError}</p> : null}
+                      {detailFormMessage ? <p className="success-message">{detailFormMessage}</p> : null}
                     </div>
-                  </div>
-                ) : null}
 
-                <div className="detail-panel-footer detail-panel-footer-detail">
-                  {!isSelectedAppointmentConverted ? (
-                    <div className="detail-footer-secondary">
-                      <p className="detail-section-empty-copy">
-                        Usa la eliminación solo si esta planeación ya no debe mantenerse
-                        visible.
-                      </p>
-                      <button
-                        className={
-                          isDeletingAppointment
-                            ? "button button-secondary is-loading"
-                            : "button button-secondary"
-                        }
-                        type="button"
-                        onClick={handleDeleteAppointment}
-                        disabled={
-                          isConfirmingAppointment ||
-                          isDeletingAppointment ||
-                          isChoosingRecurringAppointmentDelete
-                        }
-                      >
-                        {isDeletingAppointment ? "Eliminando..." : "Eliminar cita"}
-                      </button>
+                    {isChoosingRecurringAppointmentDelete ? (
+                      <div className="detail-delete-confirmation">
+                        <p>
+                          Esta cita pertenece a una recurrencia. ¿Que deseas eliminar?
+                        </p>
+                        <div className="detail-delete-actions">
+                          <button
+                            className={
+                              isDeletingAppointment ? "button button-secondary is-loading" : "button button-secondary"
+                            }
+                            type="button"
+                            onClick={handleDeleteAppointmentOccurrence}
+                            disabled={isDeletingAppointment || isConfirmingAppointment}
+                          >
+                            {isDeletingAppointment ? "Eliminando..." : "Solo esta cita"}
+                          </button>
+                          <button
+                            className={isDeletingAppointment ? "button is-loading" : "button"}
+                            type="button"
+                            onClick={handleDeleteAppointmentSeries}
+                            disabled={isDeletingAppointment || isConfirmingAppointment}
+                          >
+                            {isDeletingAppointment ? "Eliminando..." : "Toda la serie"}
+                          </button>
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            onClick={() => setIsChoosingRecurringAppointmentDelete(false)}
+                            disabled={isDeletingAppointment}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="detail-panel-footer detail-panel-footer-detail">
+                      <div className="detail-footer-secondary">
+                        <p className="detail-section-empty-copy">
+                          Usa la eliminación solo si esta planeación ya no debe mantenerse visible.
+                        </p>
+                        <button
+                          className={
+                            isDeletingAppointment
+                              ? "button button-secondary is-loading"
+                              : "button button-secondary"
+                          }
+                          type="button"
+                          onClick={handleDeleteAppointment}
+                          disabled={
+                            isConfirmingAppointment ||
+                            isDeletingAppointment ||
+                            isChoosingRecurringAppointmentDelete
+                          }
+                        >
+                          {isDeletingAppointment ? "Eliminando..." : "Eliminar cita"}
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    <p className="detail-section-empty-copy">
-                      La eliminación está bloqueada porque esta cita ya tiene una orden vinculada.
-                    </p>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             ) : !selectedOrder ? (
               <div className="detail-empty-state">
