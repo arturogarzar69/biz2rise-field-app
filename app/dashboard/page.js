@@ -1342,6 +1342,197 @@ function getTechnicianColorToken(technicianName) {
   return technicianColorPalette[hash % technicianColorPalette.length];
 }
 
+function normalizeSearchableOptionLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function SearchableQuickCreateSelect({
+  label,
+  selectedValue,
+  items,
+  getItemValue,
+  getItemLabel,
+  onSelectValue,
+  onCreateRequest,
+  placeholder,
+  loadingPlaceholder = "",
+  disabled = false,
+  isLoading = false,
+  inputRef = null,
+  requiredHint = null,
+  createLabelPrefix = "+ Crear",
+  emptyResultsLabel = "Sin coincidencias"
+}) {
+  const wrapperRef = useRef(null);
+  const selectedItem = useMemo(
+    () => items.find((item) => getItemValue(item) === selectedValue) || null,
+    [getItemLabel, getItemValue, items, selectedValue]
+  );
+  const selectedLabel = selectedItem ? getItemLabel(selectedItem) : "";
+  const [query, setQuery] = useState(selectedLabel);
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(selectedLabel);
+  }, [selectedLabel]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [isOpen]);
+
+  const normalizedQuery = normalizeSearchableOptionLabel(query);
+  const exactMatch = useMemo(
+    () =>
+      items.find(
+        (item) => normalizeSearchableOptionLabel(getItemLabel(item)) === normalizedQuery
+      ) || null,
+    [getItemLabel, items, normalizedQuery]
+  );
+  const filteredItems = useMemo(() => {
+    if (!normalizedQuery) {
+      return items.slice(0, 8);
+    }
+
+    return items
+      .filter((item) =>
+        normalizeSearchableOptionLabel(getItemLabel(item)).includes(normalizedQuery)
+      )
+      .slice(0, 8);
+  }, [getItemLabel, items, normalizedQuery]);
+  const trimmedQuery = query.trim();
+  const shouldShowCreateOption =
+    Boolean(trimmedQuery) && !isLoading && filteredItems.length === 0 && !disabled;
+
+  const handleSelectItem = (item) => {
+    onSelectValue(getItemValue(item));
+    setQuery(getItemLabel(item));
+    setIsOpen(false);
+  };
+
+  const handleOpenCreate = () => {
+    if (!trimmedQuery) {
+      return;
+    }
+
+    onCreateRequest(trimmedQuery);
+    setIsOpen(false);
+  };
+
+  const handleInputChange = (event) => {
+    const nextValue = event.target.value;
+    setQuery(nextValue);
+    setIsOpen(true);
+
+    if (
+      selectedValue &&
+      normalizeSearchableOptionLabel(nextValue) !==
+        normalizeSearchableOptionLabel(selectedLabel)
+    ) {
+      onSelectValue("");
+    }
+  };
+
+  const handleInputKeyDown = (event) => {
+    if (event.key === "Escape") {
+      setIsOpen(false);
+      return;
+    }
+
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (exactMatch) {
+      handleSelectItem(exactMatch);
+      return;
+    }
+
+    if (trimmedQuery) {
+      handleOpenCreate();
+    }
+  };
+
+  return (
+    <label className="workspace-input-group">
+      <span>{label}</span>
+      <div
+        ref={wrapperRef}
+        className={`workspace-combobox${isOpen ? " workspace-combobox-open" : ""}`}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={handleInputChange}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={handleInputKeyDown}
+          placeholder={isLoading ? loadingPlaceholder : placeholder}
+          disabled={disabled}
+          autoComplete="off"
+        />
+
+        {isOpen ? (
+          <div className="workspace-combobox-menu" role="listbox">
+            {filteredItems.length > 0 ? (
+              filteredItems.map((item) => {
+                const itemLabel = getItemLabel(item);
+                const itemValue = getItemValue(item);
+                const isSelected = itemValue === selectedValue;
+
+                return (
+                  <button
+                    key={itemValue || itemLabel}
+                    className={`workspace-combobox-option${
+                      isSelected ? " workspace-combobox-option-selected" : ""
+                    }`}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => handleSelectItem(item)}
+                  >
+                    <span>{itemLabel}</span>
+                  </button>
+                );
+              })
+            ) : shouldShowCreateOption ? (
+              <button
+                className="workspace-combobox-option workspace-combobox-option-create"
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={handleOpenCreate}
+              >
+                <span>
+                  {createLabelPrefix} "{trimmedQuery}"
+                </span>
+              </button>
+            ) : (
+              <div className="workspace-combobox-empty">{emptyResultsLabel}</div>
+            )}
+          </div>
+        ) : null}
+      </div>
+      {requiredHint}
+    </label>
+  );
+}
+
 function isResidentialClient(clientType) {
   return clientType === "residential";
 }
@@ -2035,6 +2226,15 @@ function WorkspacePanel({
       isRequiredFieldPending(fieldName) ? (
         <small className="field-required-pending-copy">Campo requerido</small>
       ) : null;
+    const handleClientSelectionChange = (nextClientId) => {
+      onFormChange({
+        target: {
+          name: "clientId",
+          value: nextClientId,
+          type: "text"
+        }
+      });
+    };
 
     return (
       <div className="workspace-section">
@@ -2055,40 +2255,21 @@ function WorkspacePanel({
               </div>
 
               <div className="workspace-grid service-order-grid">
-            <label className={getRequiredFieldClassName("clientId")}>
-              <span>{uiText.serviceOrder.fields.client}</span>
-              <select
-                ref={clientSelectRef}
-                name="clientId"
-                value={formState.clientId}
-                onChange={onFormChange}
-                disabled={isSavingOrder || isClientsLoading}
-                required
-              >
-                <option value="">
-                  {isClientsLoading
-                    ? uiText.serviceOrder.placeholders.clientLoading
-                    : uiText.serviceOrder.placeholders.client}
-                </option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.displayName}
-                  </option>
-                ))}
-              </select>
-              {renderRequiredHint("clientId")}
-            </label>
-
-                <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
-                  <button
-                    className="button button-secondary workspace-table-button"
-                    type="button"
-                    onClick={onOpenClientQuickCreate}
-                    disabled={isSavingOrder}
-                  >
-                    + Crear cliente
-                  </button>
-                </div>
+                <SearchableQuickCreateSelect
+                  label={uiText.serviceOrder.fields.client}
+                  selectedValue={formState.clientId}
+                  items={clients}
+                  getItemValue={(client) => client.id}
+                  getItemLabel={(client) => client.displayName}
+                  onSelectValue={handleClientSelectionChange}
+                  onCreateRequest={onOpenClientQuickCreate}
+                  placeholder={uiText.serviceOrder.placeholders.client}
+                  loadingPlaceholder={uiText.serviceOrder.placeholders.clientLoading}
+                  disabled={isSavingOrder || isClientsLoading}
+                  isLoading={isClientsLoading}
+                  inputRef={clientSelectRef}
+                  requiredHint={renderRequiredHint("clientId")}
+                />
 
                 <div className="workspace-field-wide service-order-location-type">
                   <span>{uiText.serviceOrder.fields.locationType}</span>
@@ -7683,8 +7864,11 @@ export default function DashboardPage() {
     setRightPanelMode(rightPanelModes.empty);
   };
 
-  const handleOpenClientModal = () => {
-    setClientModalState(initialQuickClientState);
+  const handleOpenClientModal = (prefilledName = "") => {
+    setClientModalState({
+      ...initialQuickClientState,
+      name: prefilledName
+    });
     setClientModalError("");
     setIsClientModalOpen(true);
   };
@@ -7724,8 +7908,11 @@ export default function DashboardPage() {
     setIsBranchModalOpen(true);
   };
 
-  const handleOpenQuickTechnicianModal = () => {
-    setQuickTechnicianState(initialQuickTechnicianState);
+  const handleOpenQuickTechnicianModal = (prefilledName = "") => {
+    setQuickTechnicianState({
+      ...initialQuickTechnicianState,
+      fullName: prefilledName
+    });
     setQuickTechnicianError("");
     setIsQuickTechnicianModalOpen(true);
   };
@@ -12406,38 +12593,26 @@ export default function DashboardPage() {
 
                     {isPreparingAppointmentConversion ? (
                       <div className="detail-edit-grid detail-edit-grid-2">
-                        <label className="workspace-input-group">
-                          <span>Técnico requerido para la orden</span>
-                          <select
-                            name="technicianName"
-                            value={appointmentConversionForm.technicianName}
-                            onChange={handleAppointmentConversionFormChange}
-                            disabled={isConfirmingAppointment || isTechniciansLoading}
-                            required
-                          >
-                            <option value="">
-                              {isTechniciansLoading
-                                ? uiText.serviceOrder.placeholders.technicianLoading
-                                : uiText.serviceOrder.placeholders.technician}
-                            </option>
-                            {activeTechnicians.map((technician) => (
-                              <option key={technician.id} value={technician.full_name}>
-                                {technician.full_name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
-                          <button
-                            className="button button-secondary workspace-table-button"
-                            type="button"
-                            onClick={handleOpenQuickTechnicianModal}
-                            disabled={isConfirmingAppointment}
-                          >
-                            + Crear técnico
-                          </button>
-                        </div>
+                        <SearchableQuickCreateSelect
+                          label="Técnico requerido para la orden"
+                          selectedValue={appointmentConversionForm.technicianName}
+                          items={activeTechnicians}
+                          getItemValue={(technician) => technician.full_name}
+                          getItemLabel={(technician) => technician.full_name}
+                          onSelectValue={(nextTechnicianName) =>
+                            handleAppointmentConversionFormChange({
+                              target: {
+                                name: "technicianName",
+                                value: nextTechnicianName
+                              }
+                            })
+                          }
+                          onCreateRequest={handleOpenQuickTechnicianModal}
+                          placeholder={uiText.serviceOrder.placeholders.technician}
+                          loadingPlaceholder={uiText.serviceOrder.placeholders.technicianLoading}
+                          disabled={isConfirmingAppointment || isTechniciansLoading}
+                          isLoading={isTechniciansLoading}
+                        />
 
                         <label className="workspace-input-group">
                           <span>Fecha planificada</span>
