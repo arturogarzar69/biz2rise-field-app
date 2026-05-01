@@ -3884,6 +3884,7 @@ export default function DashboardPage() {
   const [isSavingContactDrawer, setIsSavingContactDrawer] = useState(false);
   const [activeBranchFormId, setActiveBranchFormId] = useState(null);
   const [drawerBranchForm, setDrawerBranchForm] = useState(initialBranchFormState);
+  const [isBranchDrawerEditorOpen, setIsBranchDrawerEditorOpen] = useState(false);
   const [drawerBranchError, setDrawerBranchError] = useState("");
   const [drawerBranchMessage, setDrawerBranchMessage] = useState("");
   const [isSavingDrawerBranch, setIsSavingDrawerBranch] = useState(false);
@@ -7574,6 +7575,7 @@ export default function DashboardPage() {
       setClientDrawerForm(initialClientDrawerForm);
       setContactDrawerForm(initialContactDrawerForm);
       setDrawerBranchForm(initialBranchFormState);
+      setIsBranchDrawerEditorOpen(false);
       return;
     }
 
@@ -7610,6 +7612,7 @@ export default function DashboardPage() {
       setClientDrawerOptionalFieldSelection("");
       setContactDrawerForm(initialContactDrawerForm);
       setDrawerBranchForm(initialBranchFormState);
+      setIsBranchDrawerEditorOpen(false);
       setClientDrawerError("");
       setClientDrawerMessage("");
       setContactDrawerError("");
@@ -7631,6 +7634,7 @@ export default function DashboardPage() {
         : { ...initialBranchFormState }
     );
     setActiveBranchFormId(activeBranch?.id || null);
+    setIsBranchDrawerEditorOpen(true);
     setContactDrawerForm(initialContactDrawerForm);
     setClientDrawerError("");
     setClientDrawerMessage("");
@@ -8226,16 +8230,52 @@ export default function DashboardPage() {
     });
   };
 
-  const resetBranchDrawerEditor = () => {
+  const closeBranchDrawerEditor = (skipConfirm = false) => {
+    if (!skipConfirm && isBranchDrawerDirty && !confirmDiscardUnsavedChanges()) {
+      return false;
+    }
+
+    setIsBranchDrawerEditorOpen(false);
     setActiveBranchFormId(null);
     setIsConfirmingDeleteBranch(false);
     setIsDeletingBranch(false);
     setDrawerBranchForm({ ...initialBranchFormState });
     setDrawerBranchError("");
     setDrawerBranchMessage("");
+    return true;
+  };
+
+  const resetBranchDrawerEditor = (skipConfirm = false) => {
+    if (
+      !skipConfirm &&
+      isBranchDrawerEditorOpen &&
+      isBranchDrawerDirty &&
+      !confirmDiscardUnsavedChanges()
+    ) {
+      return false;
+    }
+
+    setIsBranchDrawerEditorOpen(true);
+    setActiveBranchFormId(null);
+    setIsConfirmingDeleteBranch(false);
+    setIsDeletingBranch(false);
+    setDrawerBranchForm({ ...initialBranchFormState });
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+    return true;
   };
 
   const handleEditBranchFromDrawer = (branch) => {
+    if (
+      isBranchDrawerEditorOpen &&
+      activeBranchFormId !== branch.id &&
+      isBranchDrawerDirty &&
+      !confirmDiscardUnsavedChanges()
+    ) {
+      return;
+    }
+
+    setIsBranchDrawerEditorOpen(true);
     setActiveBranchFormId(branch.id);
     setDrawerBranchError("");
     setDrawerBranchMessage("");
@@ -9224,6 +9264,9 @@ export default function DashboardPage() {
   const handleSaveBranchFromDrawer = async (event) => {
     event.preventDefault();
     const drawerClientId = activeEntityType === "branch" ? activeParentClientId : activeDrawerClientId;
+    const isStandaloneBranchEdit = activeEntityType === "branch" && activeMode === "edit";
+    const isInlineBranchEdit = activeEntityType !== "branch" && Boolean(activeBranchFormId);
+    const isEditingExistingBranch = isStandaloneBranchEdit || isInlineBranchEdit;
 
     if (!drawerClientId) {
       setDrawerBranchError("Guarda el cliente primero para agregar direcciones.");
@@ -9240,9 +9283,7 @@ export default function DashboardPage() {
         branchState: drawerBranchForm,
         clientId: drawerClientId,
         branchId:
-          activeEntityType === "branch" && activeMode === "edit"
-            ? activeEntityId
-            : activeBranchFormId,
+          isStandaloneBranchEdit ? activeEntityId : activeBranchFormId,
         preserveOrderClient: true
       });
 
@@ -9250,19 +9291,25 @@ export default function DashboardPage() {
         ...currentState,
         [drawerClientId]: true
       }));
-      setDrawerBranchMessage(
-        (activeEntityType === "branch" && activeMode === "edit") || activeBranchFormId
-          ? uiText.clients.branchUpdateSuccess
-          : uiText.clients.branchCreateSuccess
-      );
-      setActiveBranchFormId(savedBranch?.id || activeBranchFormId || null);
-      setDrawerBranchForm({
-        name: savedBranch?.name || drawerBranchForm.name,
-        address: savedBranch?.address || drawerBranchForm.address,
-        phone: savedBranch?.phone || drawerBranchForm.phone,
-        contact: savedBranch?.contact || drawerBranchForm.contact,
-        notes: savedBranch?.notes || drawerBranchForm.notes
-      });
+      const branchSuccessMessage = isEditingExistingBranch
+        ? uiText.clients.branchUpdateSuccess
+        : uiText.clients.branchCreateSuccess;
+
+      if (!isStandaloneBranchEdit && !isInlineBranchEdit) {
+        closeBranchDrawerEditor(true);
+        setDrawerBranchMessage(branchSuccessMessage);
+      } else {
+        setDrawerBranchMessage(branchSuccessMessage);
+        setActiveBranchFormId(savedBranch?.id || activeBranchFormId || null);
+        setDrawerBranchForm({
+          name: savedBranch?.name || drawerBranchForm.name,
+          address: savedBranch?.address || drawerBranchForm.address,
+          phone: savedBranch?.phone || drawerBranchForm.phone,
+          contact: savedBranch?.contact || drawerBranchForm.contact,
+          notes: savedBranch?.notes || drawerBranchForm.notes
+        });
+        setIsBranchDrawerEditorOpen(true);
+      }
 
     } catch (error) {
       setDrawerBranchError(error.message || uiText.clients.branchCreateError);
@@ -9401,7 +9448,7 @@ export default function DashboardPage() {
         setActiveClientDrawerTab(clientDrawerTabs.branches);
       }
 
-      resetBranchDrawerEditor();
+      closeBranchDrawerEditor(true);
     } catch (error) {
       setDrawerBranchError(error.message || "No fue posible eliminar la direccion.");
       setIsConfirmingDeleteBranch(false);
@@ -13542,6 +13589,15 @@ export default function DashboardPage() {
           ) : null}
 
           {activeTopLevelTab === dashboardTabs.calendar ? (
+          <>
+          {serviceOrderPanelStage !== "idle" ? (
+          <div
+            className="detail-sidebar-backdrop"
+            role="presentation"
+            onClick={handleCloseServiceOrderPanel}
+          />
+          ) : null}
+
           <aside
           className={
             serviceOrderPanelStage === "idle"
@@ -13563,6 +13619,9 @@ export default function DashboardPage() {
                 }`
           }
           aria-hidden={serviceOrderPanelStage === "idle"}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
         >
           {serviceOrderPanelStage !== "idle" ? (
             <div
@@ -15131,6 +15190,7 @@ export default function DashboardPage() {
           </div>
           ) : null}
           </aside>
+          </>
           ) : null}
         </div>
       </section>
@@ -15438,6 +15498,8 @@ export default function DashboardPage() {
             aria-modal="true"
             aria-labelledby="entity-drawer-title"
             onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
           >
             <div className="entity-drawer-header">
               <div className="entity-drawer-header-copy">
@@ -16280,6 +16342,11 @@ export default function DashboardPage() {
                               <p className="detail-subcopy">{uiText.clients.branchesEmptyState}</p>
                             )}
 
+                            {drawerBranchMessage && !isBranchDrawerEditorOpen ? (
+                              <p className="success-message">{drawerBranchMessage}</p>
+                            ) : null}
+
+                            {isBranchDrawerEditorOpen ? (
                             <form className="workspace-form entity-drawer-subform" onSubmit={handleSaveBranchFromDrawer}>
                               <div className="entity-drawer-subform-header">
                                 <strong>
@@ -16287,15 +16354,13 @@ export default function DashboardPage() {
                                     ? `Editando dirección: ${getBranchDisplayName(activeEditingBranch)}`
                                     : "Nueva dirección"}
                                 </strong>
-                                {activeEditingBranch ? (
-                                  <button
-                                    type="button"
-                                    className="button button-secondary"
-                                    onClick={resetBranchDrawerEditor}
-                                  >
-                                    Cancelar edición
-                                  </button>
-                                ) : null}
+                                <button
+                                  type="button"
+                                  className="button button-secondary"
+                                  onClick={() => closeBranchDrawerEditor()}
+                                >
+                                  {activeEditingBranch ? "Cancelar edición" : uiText.common.cancel}
+                                </button>
                               </div>
                               <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                                 <label className="workspace-input-group">
@@ -16417,6 +16482,7 @@ export default function DashboardPage() {
                                 </div>
                               ) : null}
                             </form>
+                            ) : null}
                           </>
                         )}
                       </div>

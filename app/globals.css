@@ -675,6 +675,15 @@ textarea {
     -12px 0 28px rgba(15, 23, 42, 0.04);
 }
 
+.detail-sidebar-backdrop {
+  position: absolute;
+  inset: 14px;
+  z-index: 4;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+}
+
 .main-workspace-surface-two-column {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -2811,8 +2820,12 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(229, 231, 235, 0.86);
+  background: inherit;
 }
 
 .detail-sidebar-header-copy {
@@ -3963,8 +3976,12 @@ textarea {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
   padding: 18px 18px 16px;
   border-bottom: 1px solid rgba(223, 228, 235, 0.92);
+  background: inherit;
 }
 
 .entity-drawer-header-copy {
@@ -4488,6 +4505,10 @@ button:focus-visible {
     bottom: auto;
     left: auto;
     max-height: none;
+  }
+
+  .detail-sidebar-backdrop {
+    display: none;
   }
 }
 
