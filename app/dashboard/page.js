@@ -10755,7 +10755,7 @@ export default function DashboardPage() {
     }, 0);
   };
 
-  const getExecutionStatusValue = (serviceOrder) => {
+  function getExecutionStatusValue(serviceOrder) {
     if (!serviceOrder) {
       return defaultExecutionStatus;
     }
@@ -10765,7 +10765,7 @@ export default function DashboardPage() {
     }
 
     return serviceOrder.status === "completed" ? "completed" : defaultExecutionStatus;
-  };
+  }
 
   const canStartTechnicianService = (serviceOrder) =>
     Boolean(
@@ -13045,13 +13045,21 @@ export default function DashboardPage() {
                   <>
                     <section className="drawer-section detail-section-card detail-identity-card">
                       <div className="detail-identity-copy">
-                        <span className="detail-sidebar-kicker">Cita convertida</span>
+                        <span className="detail-sidebar-kicker">
+                          {selectedAppointmentLinkedServiceOrder
+                            ? "Orden de servicio"
+                            : "Cita convertida"}
+                        </span>
                         <strong>{getClientDisplayName(selectedAppointment.clients)}</strong>
                         <p>{getServiceLocationSummary(selectedAppointment)}</p>
                       </div>
                       <div className="detail-identity-meta">
                         <span className="detail-badge-converted">Convertida</span>
-                        <span className="detail-status-badge">{selectedAppointmentStatusLabel}</span>
+                        {selectedAppointmentLinkedServiceOrder ? (
+                          <span className="detail-status-badge">
+                            {getStatusLabel(selectedAppointmentLinkedServiceOrder.status)}
+                          </span>
+                        ) : null}
                       </div>
                     </section>
 
@@ -13068,7 +13076,7 @@ export default function DashboardPage() {
                       <div className="detail-traceability-box">
                         <strong>Esta cita ya fue convertida en orden de servicio.</strong>
                         <p>
-                          Conservamos esta cita para referencia histórica y seguimiento de la conversión.
+                          Este registro queda como trazabilidad. Abre la orden de servicio para continuar con la operación.
                         </p>
                       </div>
 
