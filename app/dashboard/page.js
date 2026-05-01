@@ -3733,8 +3733,8 @@ export default function DashboardPage() {
   const [companySettingsMessage, setCompanySettingsMessage] = useState("");
   const [isSavingCompanySettings, setIsSavingCompanySettings] = useState(false);
   const [draggedBacklogServiceOrder, setDraggedBacklogServiceOrder] = useState(null);
-  const [serviceListClientSearch, setServiceListClientSearch] = useState("");
-  const [serviceListRecurring, setServiceListRecurring] = useState("all");
+  const [serviceListClientFilter, setServiceListClientFilter] = useState("all");
+  const [serviceListTechnicianFilter, setServiceListTechnicianFilter] = useState("all");
   const [clientSidebarSearch, setClientSidebarSearch] = useState("");
   const [clientSidebarType, setClientSidebarType] = useState("all");
   const [technicianSidebarStatus, setTechnicianSidebarStatus] = useState("all");
@@ -3895,6 +3895,11 @@ export default function DashboardPage() {
   const selectedAppointmentLocation = selectedAppointment
     ? resolveEffectiveServiceLocation(selectedAppointment)
     : null;
+  const selectedServiceListItemKey = selectedAppointment?.id
+    ? `appointment:${selectedAppointment.id}`
+    : selectedServiceOrderId
+      ? `service_order:${selectedServiceOrderId}`
+      : null;
   const selectedAppointmentLinkedServiceOrder = selectedAppointment?.service_order_id
     ? serviceOrders.find(
         (serviceOrder) => serviceOrder.id === selectedAppointment.service_order_id
@@ -4176,31 +4181,119 @@ export default function DashboardPage() {
   const shouldRenderCalendarContent =
     !calendarError &&
     (shouldKeepCalendarVisibleDuringRefresh || !isServiceOrdersLoading);
-  const filteredServiceOrders = useMemo(() => {
-    const normalizedClientSearch = serviceListClientSearch.trim().toLowerCase();
+  const serviceListTechnicianOptions = useMemo(() => {
+    const technicianNames = Array.from(
+      new Set(
+        [
+          ...activeTechnicians.map((technician) => technician.full_name),
+          ...serviceOrders.map((serviceOrder) => serviceOrder.technician_name),
+          ...appointments.map((appointment) => appointment.technician_name)
+        ]
+          .map((technicianName) => String(technicianName || "").trim())
+          .filter(Boolean)
+      )
+    ).sort((technicianNameA, technicianNameB) =>
+      technicianNameA.localeCompare(technicianNameB, "es")
+    );
 
-    return serviceOrders.filter((serviceOrder) => {
-      const clientName = getClientDisplayName(serviceOrder.clients);
-      const matchesClient = normalizedClientSearch
-        ? clientName.toLowerCase().includes(normalizedClientSearch)
-        : true;
-      const matchesTechnician = hasActiveTechnicianFilter
-        ? selectedCalendarTechnicianSet.has(serviceOrder.technician_name)
-        : true;
-      const matchesRecurring =
-        serviceListRecurring === "all"
-          ? true
-          : serviceListRecurring === "yes"
-            ? Boolean(serviceOrder.is_recurring)
-            : !serviceOrder.is_recurring;
+    return technicianNames;
+  }, [activeTechnicians, appointments, serviceOrders]);
+  const serviceListItems = useMemo(() => {
+    const appointmentItems = appointments
+      .filter((appointment) => {
+        const normalizedStatus = String(appointment.status || "").trim().toLowerCase();
 
-      return matchesClient && matchesTechnician && matchesRecurring;
+        return !isConvertedAppointmentRecord(appointment) && normalizedStatus !== "cancelled";
+      })
+      .map((appointment) => {
+        const effectiveLocation = resolveEffectiveServiceLocation(appointment);
+        const technicianName = String(appointment.technician_name || "").trim();
+
+        return {
+          key: `appointment:${appointment.id}`,
+          id: appointment.id,
+          type: "appointment",
+          record: appointment,
+          clientId: appointment.client_id || "",
+          clientName: getClientDisplayName(appointment.clients),
+          locationName: effectiveLocation.name || uiText.dashboard.branchEmpty,
+          date: appointment.appointment_date,
+          time: appointment.appointment_time,
+          technicianName: technicianName || uiText.dashboard.calendarTechnicianFallback,
+          technicianFilterValue: technicianName || "__unassigned__",
+          statusLabel: getAppointmentStatusLabel(appointment.status),
+          durationMinutes: resolveDurationMinutes(appointment.duration_minutes),
+          amount: null,
+          isOverdue: false,
+          typeLabel: uiText.serviceList.itemTypeAppointment,
+          typeDetail: appointment.series_id
+            ? uiText.serviceList.itemTypeRecurring
+            : uiText.serviceList.itemTypeOneTime
+        };
+      });
+
+    const serviceOrderItems = serviceOrders.map((serviceOrder) => {
+      const effectiveLocation = resolveEffectiveServiceLocation(serviceOrder);
+      const technicianName = String(serviceOrder.technician_name || "").trim();
+
+      return {
+        key: `service_order:${serviceOrder.id}`,
+        id: serviceOrder.id,
+        type: "service_order",
+        record: serviceOrder,
+        clientId: serviceOrder.client_id || "",
+        clientName: getClientDisplayName(serviceOrder.clients),
+        locationName: effectiveLocation.name || uiText.dashboard.branchEmpty,
+        date: serviceOrder.service_date,
+        time: serviceOrder.service_time,
+        technicianName: technicianName || uiText.dashboard.calendarTechnicianFallback,
+        technicianFilterValue: technicianName || "__unassigned__",
+        statusLabel: getStatusLabel(serviceOrder.status),
+        durationMinutes: resolveDurationMinutes(serviceOrder.duration_minutes),
+        amount:
+          serviceOrder.service_amount === null || serviceOrder.service_amount === undefined
+            ? null
+            : serviceOrder.service_amount,
+        isOverdue: isOverdueServiceOrder(
+          serviceOrder.service_date,
+          serviceOrder.service_time,
+          serviceOrder.status,
+          serviceOrder.duration_minutes
+        ),
+        typeLabel: uiText.serviceList.itemTypeOrder,
+        typeDetail: serviceOrder.is_recurring
+          ? uiText.serviceList.itemTypeRecurring
+          : uiText.serviceList.itemTypeOneTime
+      };
     });
+
+    return [...serviceOrderItems, ...appointmentItems]
+      .filter((item) => {
+        const matchesClient =
+          serviceListClientFilter === "all" ? true : item.clientId === serviceListClientFilter;
+        const matchesTechnician =
+          serviceListTechnicianFilter === "all"
+            ? true
+            : item.technicianFilterValue === serviceListTechnicianFilter;
+
+        return matchesClient && matchesTechnician;
+      })
+      .sort((itemA, itemB) => {
+        const startA =
+          itemA.type === "appointment"
+            ? parseServiceOrderStart(itemA.date, itemA.time)
+            : parseServiceOrderStart(itemA.date, itemA.time);
+        const startB =
+          itemB.type === "appointment"
+            ? parseServiceOrderStart(itemB.date, itemB.time)
+            : parseServiceOrderStart(itemB.date, itemB.time);
+
+        return startA.getTime() - startB.getTime();
+      });
   }, [
-    hasActiveTechnicianFilter,
-    selectedCalendarTechnicianSet,
-    serviceListClientSearch,
-    serviceListRecurring,
+    appointments,
+    serviceListClientFilter,
+    serviceListTechnicianFilter,
     serviceOrders
   ]);
   const filteredClients = useMemo(() => {
@@ -9323,6 +9416,28 @@ export default function DashboardPage() {
     });
   };
 
+  const handleSelectServiceListItem = (item) => {
+    if (!item) {
+      return;
+    }
+
+    if (item.type === "appointment") {
+      handleSelectServiceOrder({
+        type: "appointment",
+        appointment: item.record,
+        appointmentId: item.record.id,
+        appointmentStatus: item.record.status
+      });
+      return;
+    }
+
+    handleSelectServiceOrder({
+      type: "service_order",
+      resource: item.record,
+      id: item.record.id
+    });
+  };
+
   const handleOpenCreatePanel = () => {
     setActiveAdminView(adminViewTabs.calendar);
     handleOpenQuickCreate();
@@ -11588,23 +11703,34 @@ export default function DashboardPage() {
             <div className="operations-panel-section">
               <label className="calendar-filter control-group-body context-panel-filter">
                 <span className="control-group-label">{uiText.serviceList.filters.client}</span>
-                <input
-                  type="text"
-                  value={serviceListClientSearch}
-                  onChange={(event) => setServiceListClientSearch(event.target.value)}
-                  placeholder={uiText.serviceList.placeholders.clientSearch}
-                />
+                <select
+                  value={serviceListClientFilter}
+                  onChange={(event) => setServiceListClientFilter(event.target.value)}
+                >
+                  <option value="all">{uiText.serviceList.filters.allClients}</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.displayName}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="calendar-filter control-group-body context-panel-filter">
-                <span className="control-group-label">{uiText.serviceList.filters.recurring}</span>
+                <span className="control-group-label">{uiText.serviceList.filters.technician}</span>
                 <select
-                  value={serviceListRecurring}
-                  onChange={(event) => setServiceListRecurring(event.target.value)}
+                  value={serviceListTechnicianFilter}
+                  onChange={(event) => setServiceListTechnicianFilter(event.target.value)}
                 >
-                  <option value="all">{uiText.serviceList.filters.all}</option>
-                  <option value="yes">{uiText.serviceList.recurringYes}</option>
-                  <option value="no">{uiText.serviceList.recurringNo}</option>
+                  <option value="all">{uiText.serviceList.filters.allTechnicians}</option>
+                  <option value="__unassigned__">
+                    {uiText.serviceList.filters.unassignedTechnician}
+                  </option>
+                  {serviceListTechnicianOptions.map((technicianName) => (
+                    <option key={technicianName} value={technicianName}>
+                      {technicianName}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -12076,14 +12202,14 @@ export default function DashboardPage() {
 
           {activeAdminView === adminViewTabs.list ? (
             <ServiceListView
-              serviceOrders={filteredServiceOrders}
-              selectedServiceOrderId={selectedServiceOrderId}
+              items={serviceListItems}
+              selectedItemKey={selectedServiceListItemKey}
               isLoading={isServiceOrdersLoading}
               error={calendarError}
-              onSelectServiceOrder={handleSelectServiceOrder}
-              getClientDisplayName={getClientDisplayName}
-              resolveEffectiveServiceLocation={resolveEffectiveServiceLocation}
               formatServiceDate={formatServiceDate}
+              formatDisplayTime={formatDisplayTime}
+              formatServiceAmountDisplay={formatServiceAmountDisplay}
+              onSelectItem={handleSelectServiceListItem}
             />
           ) : null}
           </div>
