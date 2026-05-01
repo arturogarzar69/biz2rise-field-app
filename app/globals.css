@@ -1888,6 +1888,11 @@ textarea {
 
 .workspace-combobox {
   position: relative;
+  z-index: 3;
+}
+
+.workspace-combobox-open {
+  z-index: 12;
 }
 
 .workspace-combobox-menu {
@@ -1895,7 +1900,7 @@ textarea {
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 30;
+  z-index: 40;
   display: grid;
   gap: 4px;
   padding: 8px;
@@ -1940,6 +1945,13 @@ textarea {
   padding: 9px 12px;
   color: var(--text-muted);
   font-size: var(--font-size-sm);
+}
+
+.workspace-combobox-helper {
+  margin-top: -1px;
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+  line-height: 1.35;
 }
 
 .field-required-pending input,
@@ -2384,11 +2396,29 @@ textarea {
 
 .service-list-view {
   display: grid;
-  gap: 0;
+  gap: 16px;
 }
 
 .service-list-controls {
   justify-content: flex-end;
+}
+
+.service-list-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 280px));
+  gap: 12px;
+  align-items: end;
+}
+
+.service-list-filter,
+.service-list-filter select {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .service-list-filters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .service-list-table-wrapper {

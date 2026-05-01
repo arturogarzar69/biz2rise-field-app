@@ -11809,42 +11809,7 @@ export default function DashboardPage() {
                 <strong>{overdueCount}</strong>
               </button>
             </div>
-          ) : (
-            <div className="operations-panel-section">
-              <label className="calendar-filter control-group-body context-panel-filter">
-                <span className="control-group-label">{uiText.serviceList.filters.client}</span>
-                <select
-                  value={serviceListClientFilter}
-                  onChange={(event) => setServiceListClientFilter(event.target.value)}
-                >
-                  <option value="all">{uiText.serviceList.filters.allClients}</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="calendar-filter control-group-body context-panel-filter">
-                <span className="control-group-label">{uiText.serviceList.filters.technician}</span>
-                <select
-                  value={serviceListTechnicianFilter}
-                  onChange={(event) => setServiceListTechnicianFilter(event.target.value)}
-                >
-                  <option value="all">{uiText.serviceList.filters.allTechnicians}</option>
-                  <option value="__unassigned__">
-                    {uiText.serviceList.filters.unassignedTechnician}
-                  </option>
-                  {serviceListTechnicianOptions.map((technicianName) => (
-                    <option key={technicianName} value={technicianName}>
-                      {technicianName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
+          ) : null}
           </div>
           ) : null}
           {renderSidebarFooter()}
@@ -12320,6 +12285,15 @@ export default function DashboardPage() {
               formatDisplayTime={formatDisplayTime}
               formatServiceAmountDisplay={formatServiceAmountDisplay}
               onSelectItem={handleSelectServiceListItem}
+              clientFilterValue={serviceListClientFilter}
+              technicianFilterValue={serviceListTechnicianFilter}
+              clientOptions={clients.map((client) => ({
+                id: client.id,
+                label: client.displayName
+              }))}
+              technicianOptions={serviceListTechnicianOptions}
+              onClientFilterChange={setServiceListClientFilter}
+              onTechnicianFilterChange={setServiceListTechnicianFilter}
             />
           ) : null}
           </div>

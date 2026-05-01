@@ -8,12 +8,53 @@ export default function ServiceListView({
   isLoading,
   error,
   onSelectItem,
+  clientFilterValue,
+  technicianFilterValue,
+  clientOptions,
+  technicianOptions,
+  onClientFilterChange,
+  onTechnicianFilterChange,
   formatServiceDate,
   formatDisplayTime,
   formatServiceAmountDisplay
 }) {
   return (
     <div className="service-list-view">
+      <div className="service-list-filters">
+        <label className="calendar-filter control-group-body service-list-filter">
+          <span className="control-group-label">{uiText.serviceList.filters.client}</span>
+          <select
+            value={clientFilterValue}
+            onChange={(event) => onClientFilterChange(event.target.value)}
+          >
+            <option value="all">{uiText.serviceList.filters.allClients}</option>
+            {clientOptions.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="calendar-filter control-group-body service-list-filter">
+          <span className="control-group-label">{uiText.serviceList.filters.technician}</span>
+          <select
+            value={technicianFilterValue}
+            onChange={(event) => onTechnicianFilterChange(event.target.value)}
+          >
+            <option value="all">{uiText.serviceList.filters.allTechnicians}</option>
+            <option value="__unassigned__">
+              {uiText.serviceList.filters.unassignedTechnician}
+            </option>
+            {technicianOptions.map((technicianName) => (
+              <option key={technicianName} value={technicianName}>
+                {technicianName}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {error ? (
         <div className="calendar-empty-state">
           <h3>{uiText.dashboard.calendarErrorTitle}</h3>
