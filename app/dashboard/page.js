@@ -365,6 +365,10 @@ function shouldShowServiceAmountToTechnician(serviceOrder) {
   );
 }
 
+function getTechnicianOrderWindowEndDate() {
+  return formatDateOnly(addDays(startOfDay(new Date()), 2));
+}
+
 const clientDrawerTabs = {
   summary: "summary",
   client: "client",
@@ -3877,7 +3881,13 @@ export default function DashboardPage() {
   const [technicianOrdersError, setTechnicianOrdersError] = useState("");
   const [technicianActionMessage, setTechnicianActionMessage] = useState("");
   const [technicianActionError, setTechnicianActionError] = useState("");
-  const [technicianReportDraft, setTechnicianReportDraft] = useState("");
+  const [technicianReportDraft, setTechnicianReportDraft] = useState({
+    serviceSummary: "",
+    findings: "",
+    recommendations: "",
+    materialsUsed: "",
+    completionNotes: ""
+  });
   const [isStartingTechnicianOrder, setIsStartingTechnicianOrder] = useState(false);
   const [isCompletingTechnicianOrder, setIsCompletingTechnicianOrder] = useState(false);
   const activeTechnicians = technicians.filter((technician) => technician.is_active);
@@ -5491,20 +5501,29 @@ export default function DashboardPage() {
       return;
     }
 
+    const technicianWindowEndDate = getTechnicianOrderWindowEndDate();
+
     setIsTechnicianOrdersLoading(true);
     debugLog("[Dashboard Refresh Debug] fetchTechnicianOrders:", {
       companyId,
       technicianName,
+      dateFrom: getTodayDateString(),
+      dateTo: technicianWindowEndDate,
       reason,
       timestamp: new Date().toISOString()
     });
 
+    // UI-level privacy filter only. Backend/RLS scoping should still enforce
+    // tenant and technician visibility before production.
     let query = supabase
       .from("service_orders")
       .select(serviceOrderSelectQuery)
       .eq("company_id", companyId)
-      .eq("service_date", getTodayDateString())
       .eq("technician_name", technicianName)
+      .neq("status", "cancelled")
+      .gte("service_date", getTodayDateString())
+      .lte("service_date", technicianWindowEndDate)
+      .order("service_date", { ascending: true })
       .order("service_time", { ascending: true });
 
     let { data, error } = await query;
@@ -5514,8 +5533,11 @@ export default function DashboardPage() {
         .from("service_orders")
         .select(serviceOrderSelectQuery)
         .eq("company_id", companyId)
-        .eq("service_date", getTodayDateString())
         .eq("technician_name", technicianName)
+        .neq("status", "cancelled")
+        .gte("service_date", getTodayDateString())
+        .lte("service_date", technicianWindowEndDate)
+        .order("service_date", { ascending: true })
         .order("service_time", { ascending: true });
 
       data = fallbackQuery.data;
@@ -11008,7 +11030,27 @@ export default function DashboardPage() {
         startedAt: selectedTechnicianOrder.started_at || new Date().toISOString(),
         completedAt: selectedTechnicianOrder.completed_at || new Date().toISOString(),
         serviceReport:
-          technicianReportDraft.trim() || selectedTechnicianOrder.service_report || "",
+          technicianReportDraft.completionNotes.trim() ||
+          selectedTechnicianOrder.service_report ||
+          "",
+        serviceSummary:
+          technicianReportDraft.serviceSummary.trim() ||
+          selectedTechnicianOrder.service_summary ||
+          "",
+        findings:
+          technicianReportDraft.findings.trim() || selectedTechnicianOrder.findings || "",
+        recommendations:
+          technicianReportDraft.recommendations.trim() ||
+          selectedTechnicianOrder.recommendations ||
+          "",
+        materialsUsed:
+          technicianReportDraft.materialsUsed.trim() ||
+          selectedTechnicianOrder.materials_used ||
+          "",
+        completionNotes:
+          technicianReportDraft.completionNotes.trim() ||
+          selectedTechnicianOrder.completion_notes ||
+          "",
         existingOrder: selectedTechnicianOrder,
         branchId: selectedTechnicianOrder.branch_id ?? null,
         clientId: selectedTechnicianOrder.client_id ?? undefined,
@@ -11029,8 +11071,23 @@ export default function DashboardPage() {
   }, [selectedServiceOrder]);
 
   useEffect(() => {
-    setTechnicianReportDraft(selectedTechnicianOrder?.service_report || "");
-  }, [selectedTechnicianOrder?.id, selectedTechnicianOrder?.service_report]);
+    setTechnicianReportDraft({
+      serviceSummary: selectedTechnicianOrder?.service_summary || "",
+      findings: selectedTechnicianOrder?.findings || "",
+      recommendations: selectedTechnicianOrder?.recommendations || "",
+      materialsUsed: selectedTechnicianOrder?.materials_used || "",
+      completionNotes:
+        selectedTechnicianOrder?.completion_notes || selectedTechnicianOrder?.service_report || ""
+    });
+  }, [
+    selectedTechnicianOrder?.completion_notes,
+    selectedTechnicianOrder?.findings,
+    selectedTechnicianOrder?.id,
+    selectedTechnicianOrder?.materials_used,
+    selectedTechnicianOrder?.recommendations,
+    selectedTechnicianOrder?.service_report,
+    selectedTechnicianOrder?.service_summary
+  ]);
 
   if (isLoading || !isProfileResolved) {
     return (
@@ -11050,26 +11107,6 @@ export default function DashboardPage() {
             <p className="admin-eyebrow">{uiText.technicianDashboard.eyebrow}</p>
             <h1>{uiText.technicianDashboard.headerTitle}</h1>
             <p className="technician-subtitle">{uiText.technicianDashboard.subtitle}</p>
-            <div className="admin-debug-panel">
-              <span>{uiText.dashboard.companyDebugLabel}:</span>
-              <strong>{userProfile?.company_id || "-"}</strong>
-            </div>
-            <div className="admin-debug-panel">
-              <span>Auth user id:</span>
-              <strong>{authUserId || "-"}</strong>
-            </div>
-            <div className="admin-debug-panel">
-              <span>Profile id:</span>
-              <strong>{userProfile?.id || "-"}</strong>
-            </div>
-            <div className="admin-debug-panel">
-              <span>Profile full_name:</span>
-              <strong>{userProfile?.full_name || "-"}</strong>
-            </div>
-            <div className="admin-debug-panel">
-              <span>Profile role:</span>
-              <strong>{userProfile?.role || "-"}</strong>
-            </div>
             {profileError ? <p className="admin-debug-error">{profileError}</p> : null}
           </div>
 
@@ -11170,23 +11207,20 @@ export default function DashboardPage() {
                           </div>
 
                           <div className="detail-row">
-                            <span>{uiText.technicianDashboard.fields.phone}</span>
-                            <strong>
-                              {serviceLocation.phone || uiText.technicianDashboard.fallbacks.phone}
-                            </strong>
-                          </div>
-
-                          <div className="detail-row">
-                            <span>{uiText.technicianDashboard.fields.contact}</span>
-                            <strong>
-                              {serviceLocation.contact ||
-                                uiText.technicianDashboard.fallbacks.contact}
-                            </strong>
+                            <span>{uiText.technicianDashboard.fields.serviceDate}</span>
+                            <strong>{formatServiceDate(serviceOrder.service_date)}</strong>
                           </div>
 
                           <div className="detail-row">
                             <span>{uiText.technicianDashboard.fields.serviceTime}</span>
-                            <strong>{formatDisplayTime(serviceOrder.service_time)}</strong>
+                            <strong>
+                              {formatDisplayTime(serviceOrder.service_time)}
+                            </strong>
+                          </div>
+
+                          <div className="detail-row">
+                            <span>{uiText.technicianDashboard.fields.duration}</span>
+                            <strong>{resolveDurationMinutes(serviceOrder.duration_minutes)} min</strong>
                           </div>
 
                           <div className="detail-row">
@@ -11269,29 +11303,20 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="detail-row">
-                  <span>{uiText.technicianDashboard.fields.phone}</span>
-                  <strong>
-                    {technicianServiceLocation.phone ||
-                      uiText.technicianDashboard.fallbacks.phone}
-                  </strong>
-                </div>
-
-                <div className="detail-row">
-                  <span>{uiText.technicianDashboard.fields.contact}</span>
-                  <strong>
-                    {technicianServiceLocation.contact ||
-                      uiText.technicianDashboard.fallbacks.contact}
-                  </strong>
-                </div>
-
-                <div className="detail-row">
-                  <span>{uiText.dashboard.detailFields.serviceDate}</span>
+                  <span>{uiText.technicianDashboard.fields.serviceDate}</span>
                   <strong>{formatServiceDate(selectedTechnicianOrder.service_date)}</strong>
                 </div>
 
                 <div className="detail-row">
                   <span>{uiText.technicianDashboard.fields.serviceTime}</span>
                   <strong>{formatDisplayTime(selectedTechnicianOrder.service_time)}</strong>
+                </div>
+
+                <div className="detail-row">
+                  <span>{uiText.technicianDashboard.fields.duration}</span>
+                  <strong>
+                    {resolveDurationMinutes(selectedTechnicianOrder.duration_minutes)} min
+                  </strong>
                 </div>
 
                 <div className="detail-row">
@@ -11337,21 +11362,106 @@ export default function DashboardPage() {
                   </strong>
                 </div>
 
-                <label className="workspace-input-group">
-                  <span>{uiText.technicianDashboard.fields.report}</span>
-                  <textarea
-                    value={technicianReportDraft}
-                    onChange={(event) => setTechnicianReportDraft(event.target.value)}
-                    placeholder={uiText.serviceOrder.placeholders.serviceReport}
-                    rows={4}
-                    disabled={
-                      isStartingTechnicianOrder ||
-                      isCompletingTechnicianOrder ||
-                      getExecutionStatusValue(selectedTechnicianOrder) === "completed"
-                    }
-                  />
-                  <small className="detail-subcopy">{uiText.technicianDashboard.helpers.report}</small>
-                </label>
+                <div className="detail-subcopy">{uiText.technicianDashboard.helpers.privacyNote}</div>
+
+                <div className="detail-edit-grid">
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.technicianDashboard.fields.serviceSummary}</span>
+                    <textarea
+                      value={technicianReportDraft.serviceSummary}
+                      onChange={(event) =>
+                        setTechnicianReportDraft((currentState) => ({
+                          ...currentState,
+                          serviceSummary: event.target.value
+                        }))
+                      }
+                      rows={3}
+                      disabled={
+                        isStartingTechnicianOrder ||
+                        isCompletingTechnicianOrder ||
+                        getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                      }
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.technicianDashboard.fields.findings}</span>
+                    <textarea
+                      value={technicianReportDraft.findings}
+                      onChange={(event) =>
+                        setTechnicianReportDraft((currentState) => ({
+                          ...currentState,
+                          findings: event.target.value
+                        }))
+                      }
+                      rows={3}
+                      disabled={
+                        isStartingTechnicianOrder ||
+                        isCompletingTechnicianOrder ||
+                        getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                      }
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.technicianDashboard.fields.recommendations}</span>
+                    <textarea
+                      value={technicianReportDraft.recommendations}
+                      onChange={(event) =>
+                        setTechnicianReportDraft((currentState) => ({
+                          ...currentState,
+                          recommendations: event.target.value
+                        }))
+                      }
+                      rows={3}
+                      disabled={
+                        isStartingTechnicianOrder ||
+                        isCompletingTechnicianOrder ||
+                        getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                      }
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.technicianDashboard.fields.materialsUsed}</span>
+                    <textarea
+                      value={technicianReportDraft.materialsUsed}
+                      onChange={(event) =>
+                        setTechnicianReportDraft((currentState) => ({
+                          ...currentState,
+                          materialsUsed: event.target.value
+                        }))
+                      }
+                      rows={3}
+                      disabled={
+                        isStartingTechnicianOrder ||
+                        isCompletingTechnicianOrder ||
+                        getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                      }
+                    />
+                  </label>
+
+                  <label className="workspace-input-group workspace-field-wide">
+                    <span>{uiText.technicianDashboard.fields.completionNotes}</span>
+                    <textarea
+                      value={technicianReportDraft.completionNotes}
+                      onChange={(event) =>
+                        setTechnicianReportDraft((currentState) => ({
+                          ...currentState,
+                          completionNotes: event.target.value
+                        }))
+                      }
+                      placeholder={uiText.serviceOrder.placeholders.serviceReport}
+                      rows={4}
+                      disabled={
+                        isStartingTechnicianOrder ||
+                        isCompletingTechnicianOrder ||
+                        getExecutionStatusValue(selectedTechnicianOrder) === "completed"
+                      }
+                    />
+                  </label>
+                </div>
+                <p className="detail-subcopy">{uiText.technicianDashboard.helpers.report}</p>
 
                 <div className="workspace-form-messages">
                   {technicianActionError ? (
