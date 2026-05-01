@@ -4648,18 +4648,29 @@ export default function DashboardPage() {
       serviceOrders.filter((serviceOrder) => serviceOrder.client_id === activeDrawerClientId),
     [activeDrawerClientId, serviceOrders]
   );
-  const isClientSummaryActiveAppointment = (appointment) =>
-    Boolean(appointment) && !isConvertedAppointmentRecord(appointment);
-  const isClientSummaryCancelledServiceOrder = (serviceOrder) =>
-    String(serviceOrder?.status || "").trim().toLowerCase() === "cancelled";
-  const isClientSummaryCompletedServiceOrder = (serviceOrder) =>
-    isCompletedStatus(serviceOrder?.status);
-  const isClientSummaryInProgressServiceOrder = (serviceOrder) =>
-    String(serviceOrder?.execution_status || "").trim().toLowerCase() === "in_progress";
-  const isClientSummaryActiveServiceOrder = (serviceOrder) =>
-    Boolean(serviceOrder) &&
-    !isClientSummaryCancelledServiceOrder(serviceOrder) &&
-    !isClientSummaryCompletedServiceOrder(serviceOrder);
+  function isClientSummaryActiveAppointment(appointment) {
+    return Boolean(appointment) && !isConvertedAppointmentRecord(appointment);
+  }
+
+  function isClientSummaryCancelledServiceOrder(serviceOrder) {
+    return String(serviceOrder?.status || "").trim().toLowerCase() === "cancelled";
+  }
+
+  function isClientSummaryCompletedServiceOrder(serviceOrder) {
+    return isCompletedStatus(serviceOrder?.status);
+  }
+
+  function isClientSummaryInProgressServiceOrder(serviceOrder) {
+    return String(serviceOrder?.execution_status || "").trim().toLowerCase() === "in_progress";
+  }
+
+  function isClientSummaryActiveServiceOrder(serviceOrder) {
+    return (
+      Boolean(serviceOrder) &&
+      !isClientSummaryCancelledServiceOrder(serviceOrder) &&
+      !isClientSummaryCompletedServiceOrder(serviceOrder)
+    );
+  }
   const getBranchProgressState = ({ branchAppointments, branchServiceOrders }) => {
     const now = Date.now();
     const activeAppointments = branchAppointments.filter(isClientSummaryActiveAppointment);
