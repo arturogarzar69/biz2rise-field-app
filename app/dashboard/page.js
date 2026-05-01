@@ -14,10 +14,13 @@ import {
   parse,
   startOfWeek,
   startOfDay,
+  startOfMonth,
+  endOfMonth,
   getDay,
   addHours,
   addMinutes,
   addMonths,
+  subDays,
   differenceInCalendarDays,
   differenceInMinutes
 } from "date-fns";
@@ -69,6 +72,12 @@ const debugLog = (...args) => {
 const defaultClientSubTab = uiText.clients.subTabs.list;
 const defaultClientsModuleTab = "summary";
 const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
+const clientsSummaryRangeOptions = {
+  this_month: "Este mes",
+  today: "Hoy",
+  next_7_days: "Próximos 7 días",
+  last_30_days: "Últimos 30 días"
+};
 
 const initialFormState = {
   clientId: "",
@@ -367,6 +376,49 @@ function shouldShowServiceAmountToTechnician(serviceOrder) {
 
 function getTechnicianOrderWindowEndDate() {
   return formatDateOnly(addDays(startOfDay(new Date()), 2));
+}
+
+function getClientsSummaryDateRange(rangeKey) {
+  const today = startOfDay(new Date());
+
+  switch (rangeKey) {
+    case "today":
+      return {
+        start: today,
+        end: today
+      };
+    case "next_7_days":
+      return {
+        start: today,
+        end: startOfDay(addDays(today, 6))
+      };
+    case "last_30_days":
+      return {
+        start: startOfDay(subDays(today, 29)),
+        end: today
+      };
+    case "this_month":
+    default:
+      return {
+        start: startOfMonth(today),
+        end: startOfDay(endOfMonth(today))
+      };
+  }
+}
+
+function isDateWithinClientsSummaryRange(dateValue, rangeStart, rangeEnd) {
+  const parsedDate = parseDateOnly(dateValue);
+
+  if (!parsedDate || !isValid(parsedDate)) {
+    return false;
+  }
+
+  const normalizedDate = startOfDay(parsedDate);
+
+  return (
+    normalizedDate.getTime() >= rangeStart.getTime() &&
+    normalizedDate.getTime() <= rangeEnd.getTime()
+  );
 }
 
 const clientDrawerTabs = {
@@ -2952,11 +3004,11 @@ function WorkspacePanel({
                 </div>
                 <div className="detail-static-field">
                   <span>Citas activas del mes</span>
-                  <strong>{clientsModuleSummary.activeAppointmentsThisMonth}</strong>
+                  <strong>{clientsModuleSummary.activeAppointmentsInRange}</strong>
                 </div>
                 <div className="detail-static-field">
                   <span>Órdenes del mes</span>
-                  <strong>{clientsModuleSummary.serviceOrdersThisMonth}</strong>
+                  <strong>{clientsModuleSummary.serviceOrdersInRange}</strong>
                 </div>
                 <div className="detail-static-field">
                   <span>Órdenes completadas</span>
@@ -2988,7 +3040,7 @@ function WorkspacePanel({
                     </div>
                     <div className="detail-row">
                       <span>Clientes con actividad este mes</span>
-                      <strong>{clientsModuleSummary.clientsWithActivityThisMonth}</strong>
+                      <strong>{clientsModuleSummary.clientsWithActivityInRange}</strong>
                     </div>
                     <div className="detail-row">
                       <span>Direcciones con actividad del mes</span>
@@ -3752,6 +3804,8 @@ export default function DashboardPage() {
   const [clientsError, setClientsError] = useState("");
   const [isClientsLoading, setIsClientsLoading] = useState(false);
   const [clientsModuleTab, setClientsModuleTab] = useState(defaultClientsModuleTab);
+  const [clientsSummaryClientFilter, setClientsSummaryClientFilter] = useState("all");
+  const [clientsSummaryRangeFilter, setClientsSummaryRangeFilter] = useState("this_month");
   const [clientSubTab, setClientSubTab] = useState(defaultClientSubTab);
   const [clientForm, setClientForm] = useState(initialClientFormState);
   const [clientOptionalSections, setClientOptionalSections] = useState(
@@ -4629,8 +4683,19 @@ export default function DashboardPage() {
     activeDrawerClientId,
     branchesByClientId
   ]);
+  const clientsSummaryDateRange = useMemo(
+    () => getClientsSummaryDateRange(clientsSummaryRangeFilter),
+    [clientsSummaryRangeFilter]
+  );
+  const clientsSummaryRangeLabel =
+    clientsSummaryRangeOptions[clientsSummaryRangeFilter] || clientsSummaryRangeOptions.this_month;
+  const isClientsSummaryScopedToSingleClient = clientsSummaryClientFilter !== "all";
   const clientsModuleSummary = useMemo(() => {
-    const currentMonthKey = format(new Date(), "yyyy-MM");
+    const filteredClients =
+      clientsSummaryClientFilter === "all"
+        ? clients
+        : clients.filter((client) => client.id === clientsSummaryClientFilter);
+    const filteredClientIds = new Set(filteredClients.map((client) => client.id));
     const branchCountByClientId = allClientBranches.reduce((accumulator, branch) => {
       if (!branch.client_id) {
         return accumulator;
@@ -4639,18 +4704,28 @@ export default function DashboardPage() {
       accumulator[branch.client_id] = (accumulator[branch.client_id] || 0) + 1;
       return accumulator;
     }, {});
-    const currentMonthAppointments = appointments.filter(
+    const filteredAppointments = appointments.filter(
       (appointment) =>
         isClientSummaryActiveAppointment(appointment) &&
-        String(appointment.appointment_date || "").slice(0, 7) === currentMonthKey
+        (filteredClientIds.size === 0 || filteredClientIds.has(appointment.client_id)) &&
+        isDateWithinClientsSummaryRange(
+          appointment.appointment_date,
+          clientsSummaryDateRange.start,
+          clientsSummaryDateRange.end
+        )
     );
-    const currentMonthServiceOrders = serviceOrders.filter(
+    const filteredServiceOrders = serviceOrders.filter(
       (serviceOrder) =>
         !isClientSummaryCancelledServiceOrder(serviceOrder) &&
-        String(serviceOrder.service_date || "").slice(0, 7) === currentMonthKey
+        (filteredClientIds.size === 0 || filteredClientIds.has(serviceOrder.client_id)) &&
+        isDateWithinClientsSummaryRange(
+          serviceOrder.service_date,
+          clientsSummaryDateRange.start,
+          clientsSummaryDateRange.end
+        )
     );
-    const completedOrders = currentMonthServiceOrders.filter(isClientSummaryCompletedServiceOrder);
-    const overdueOrders = currentMonthServiceOrders.filter((serviceOrder) =>
+    const completedOrders = filteredServiceOrders.filter(isClientSummaryCompletedServiceOrder);
+    const overdueOrders = filteredServiceOrders.filter((serviceOrder) =>
       isOverdueServiceOrder(
         serviceOrder.service_date,
         serviceOrder.service_time,
@@ -4658,7 +4733,7 @@ export default function DashboardPage() {
         serviceOrder.duration_minutes
       )
     );
-    const pendingOrders = currentMonthServiceOrders.filter(
+    const pendingOrders = filteredServiceOrders.filter(
       (serviceOrder) =>
         isClientSummaryActiveServiceOrder(serviceOrder) &&
         !isOverdueServiceOrder(
@@ -4670,8 +4745,8 @@ export default function DashboardPage() {
     );
     const branchesWithActivity = new Set(
       [
-        ...currentMonthAppointments.map((appointment) => appointment.branch_id).filter(Boolean),
-        ...currentMonthServiceOrders.map((serviceOrder) => serviceOrder.branch_id).filter(Boolean)
+        ...filteredAppointments.map((appointment) => appointment.branch_id).filter(Boolean),
+        ...filteredServiceOrders.map((serviceOrder) => serviceOrder.branch_id).filter(Boolean)
       ]
     );
     const clientsWithOverdueOrders = new Set(
@@ -4679,26 +4754,41 @@ export default function DashboardPage() {
     );
     const clientsWithActivityThisMonth = new Set(
       [
-        ...currentMonthAppointments.map((appointment) => appointment.client_id).filter(Boolean),
-        ...currentMonthServiceOrders.map((serviceOrder) => serviceOrder.client_id).filter(Boolean)
+        ...filteredAppointments.map((appointment) => appointment.client_id).filter(Boolean),
+        ...filteredServiceOrders.map((serviceOrder) => serviceOrder.client_id).filter(Boolean)
       ]
+    );
+    const filteredBranches = allClientBranches.filter(
+      (branch) => filteredClientIds.size === 0 || filteredClientIds.has(branch.client_id)
     );
 
     return {
-      totalClients: clients.length,
-      singleAddressClients: clients.filter((client) => branchCountByClientId[client.id] === 1).length,
-      multiAddressClients: clients.filter((client) => branchCountByClientId[client.id] > 1).length,
-      totalBranches: allClientBranches.length,
-      activeAppointmentsThisMonth: currentMonthAppointments.length,
-      serviceOrdersThisMonth: currentMonthServiceOrders.length,
+      totalClients: filteredClients.length,
+      singleAddressClients: filteredClients.filter(
+        (client) => branchCountByClientId[client.id] === 1
+      ).length,
+      multiAddressClients: filteredClients.filter(
+        (client) => branchCountByClientId[client.id] > 1
+      ).length,
+      totalBranches: filteredBranches.length,
+      activeAppointmentsInRange: filteredAppointments.length,
+      serviceOrdersInRange: filteredServiceOrders.length,
       completedOrders: completedOrders.length,
       pendingOrders: pendingOrders.length,
       overdueOrders: overdueOrders.length,
       branchesWithActivity: branchesWithActivity.size,
       clientsWithOverdueOrders: clientsWithOverdueOrders.size,
-      clientsWithActivityThisMonth: clientsWithActivityThisMonth.size
+      clientsWithActivityInRange: clientsWithActivityThisMonth.size
     };
-  }, [allClientBranches, appointments, clients, serviceOrders]);
+  }, [
+    allClientBranches,
+    appointments,
+    clients,
+    clientsSummaryClientFilter,
+    clientsSummaryDateRange.end,
+    clientsSummaryDateRange.start,
+    serviceOrders
+  ]);
   const activeClientBranchProgress = useMemo(() => {
     const clientBranches = branchesByClientId[activeDrawerClientId] || [];
     const currentTime = Date.now();
@@ -12356,6 +12446,36 @@ export default function DashboardPage() {
                     <h3>Resumen de clientes</h3>
                     <p>Vista general de cartera, direcciones y actividad operativa.</p>
                   </div>
+                  <div className="service-list-filters">
+                    <label className="calendar-filter control-group-body service-list-filter">
+                      <span className="control-group-label">Cliente</span>
+                      <select
+                        value={clientsSummaryClientFilter}
+                        onChange={(event) => setClientsSummaryClientFilter(event.target.value)}
+                      >
+                        <option value="all">Todos los clientes</option>
+                        {clients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.displayName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="calendar-filter control-group-body service-list-filter">
+                      <span className="control-group-label">Rango</span>
+                      <select
+                        value={clientsSummaryRangeFilter}
+                        onChange={(event) => setClientsSummaryRangeFilter(event.target.value)}
+                      >
+                        {Object.entries(clientsSummaryRangeOptions).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
 
                 <section className="clients-summary-section">
@@ -12372,8 +12492,16 @@ export default function DashboardPage() {
                       <strong>{clientsModuleSummary.totalBranches}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Órdenes del mes</span>
-                      <strong>{clientsModuleSummary.serviceOrdersThisMonth}</strong>
+                      <span>
+                        {clientsSummaryRangeFilter === "today"
+                          ? "Órdenes de hoy"
+                          : clientsSummaryRangeFilter === "next_7_days"
+                          ? "Órdenes próximos 7 días"
+                          : clientsSummaryRangeFilter === "last_30_days"
+                          ? "Órdenes últimos 30 días"
+                          : "Órdenes del mes"}
+                      </span>
+                      <strong>{clientsModuleSummary.serviceOrdersInRange}</strong>
                     </div>
                     <div
                       className={
@@ -12402,8 +12530,16 @@ export default function DashboardPage() {
                       <strong>{clientsModuleSummary.multiAddressClients}</strong>
                     </div>
                     <div className="detail-static-field">
-                      <span>Citas activas del mes</span>
-                      <strong>{clientsModuleSummary.activeAppointmentsThisMonth}</strong>
+                      <span>
+                        {clientsSummaryRangeFilter === "today"
+                          ? "Citas activas de hoy"
+                          : clientsSummaryRangeFilter === "next_7_days"
+                          ? "Citas activas próximos 7 días"
+                          : clientsSummaryRangeFilter === "last_30_days"
+                          ? "Citas activas últimos 30 días"
+                          : "Citas activas del mes"}
+                      </span>
+                      <strong>{clientsModuleSummary.activeAppointmentsInRange}</strong>
                     </div>
                     <div className="detail-static-field">
                       <span>Órdenes completadas</span>
@@ -12428,8 +12564,16 @@ export default function DashboardPage() {
                     <div className="clients-summary-operational-list">
                       <div className="clients-summary-operational-row">
                         <div className="clients-summary-operational-copy">
-                          <strong>Clientes con órdenes vencidas</strong>
-                          <span>Clientes que requieren atención inmediata.</span>
+                          <strong>
+                            {isClientsSummaryScopedToSingleClient
+                              ? "Cliente con órdenes vencidas"
+                              : "Clientes con órdenes vencidas"}
+                          </strong>
+                          <span>
+                            {isClientsSummaryScopedToSingleClient
+                              ? "Indica si el cliente filtrado requiere atención inmediata."
+                              : "Clientes que requieren atención inmediata."}
+                          </span>
                         </div>
                         <strong className="clients-summary-operational-count">
                           {clientsModuleSummary.clientsWithOverdueOrders}
@@ -12437,16 +12581,32 @@ export default function DashboardPage() {
                       </div>
                       <div className="clients-summary-operational-row">
                         <div className="clients-summary-operational-copy">
-                          <strong>Clientes con actividad este mes</strong>
-                          <span>Clientes con citas u órdenes dentro del mes actual.</span>
+                          <strong>
+                            {isClientsSummaryScopedToSingleClient
+                              ? "Cliente con actividad en el rango"
+                              : `Clientes con actividad: ${clientsSummaryRangeLabel}`}
+                          </strong>
+                          <span>
+                            {isClientsSummaryScopedToSingleClient
+                              ? "Indica si el cliente filtrado tiene citas u órdenes en el rango seleccionado."
+                              : "Clientes con citas u órdenes dentro del rango seleccionado."}
+                          </span>
                         </div>
                         <strong className="clients-summary-operational-count">
-                          {clientsModuleSummary.clientsWithActivityThisMonth}
+                          {clientsModuleSummary.clientsWithActivityInRange}
                         </strong>
                       </div>
                       <div className="clients-summary-operational-row">
                       <div className="clients-summary-operational-copy">
-                          <strong>Direcciones con actividad del mes</strong>
+                          <strong>
+                            {clientsSummaryRangeFilter === "today"
+                              ? "Direcciones con actividad de hoy"
+                              : clientsSummaryRangeFilter === "next_7_days"
+                              ? "Direcciones con actividad próximos 7 días"
+                              : clientsSummaryRangeFilter === "last_30_days"
+                              ? "Direcciones con actividad últimos 30 días"
+                              : "Direcciones con actividad del mes"}
+                          </strong>
                           <span>Ubicaciones con trabajo planificado o ejecutado.</span>
                       </div>
                         <strong className="clients-summary-operational-count">
