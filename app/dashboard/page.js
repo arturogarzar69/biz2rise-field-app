@@ -2550,7 +2550,7 @@ function WorkspacePanel({
                 <h4 className="drawer-section-title">Programación</h4>
               </div>
 
-              <div className="workspace-grid service-order-grid">
+              <div className="workspace-grid service-order-grid form-grid-compact">
                 <SearchableQuickCreateSelect
                   label={uiText.serviceOrder.fields.client}
                   selectedValue={formState.clientId}
@@ -2894,7 +2894,7 @@ function WorkspacePanel({
                 <h4 className="drawer-section-title">Contexto del servicio</h4>
               </div>
 
-              <div className="workspace-grid">
+              <div className="workspace-grid form-grid-compact">
                 <label className="workspace-input-group workspace-field-wide">
                   <span>{uiText.serviceOrder.fields.serviceInstructions}</span>
                   <textarea
@@ -13817,7 +13817,7 @@ export default function DashboardPage() {
                     </section>
 
                     <section className="drawer-section detail-section-card">
-                      <div className="detail-edit-grid detail-edit-grid-2">
+                      <div className="detail-edit-grid detail-edit-grid-2 appointment-conversion-grid">
                         <SearchableQuickCreateSelect
                           label="Técnico requerido para la orden"
                           selectedValue={appointmentConversionForm.technicianName}
@@ -14292,7 +14292,7 @@ export default function DashboardPage() {
                     <h4 className="drawer-section-title">Asignacion y agenda</h4>
                   </div>
 
-                  <div className="detail-edit-grid detail-edit-grid-2">
+                  <div className="detail-edit-grid detail-edit-grid-2 service-order-edit-grid">
                     <label className="workspace-input-group">
                       <span>{uiText.serviceOrder.fields.client}</span>
                       <select
@@ -14912,7 +14912,7 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="detail-edit-grid">
+                      <div className="detail-edit-grid detail-edit-grid-2 service-order-execution-grid">
                         <label className="workspace-input-group workspace-field-wide">
                           <span>Qué se hizo</span>
                           <textarea
