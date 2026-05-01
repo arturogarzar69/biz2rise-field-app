@@ -310,14 +310,33 @@ function normalizeServiceAmountValue(value) {
     return null;
   }
 
-  const normalizedValue = trimmedValue.replace(/[$,\s]/g, "");
-  const parsedAmount = Number(normalizedValue);
+  const normalizedValue = trimmedValue.replace(/\s/g, "");
+
+  if (!/^\$?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?$/.test(normalizedValue)) {
+    throw new Error("Ingresa un importe válido.");
+  }
+
+  const parsedAmount = Number(normalizedValue.replace(/\$/g, "").replace(/,/g, ""));
 
   if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
     throw new Error("Ingresa un importe válido.");
   }
 
   return Math.round(parsedAmount * 100) / 100;
+}
+
+function formatServiceAmountInput(value) {
+  const trimmedValue = String(value ?? "").trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  try {
+    return formatServiceAmountDisplay(normalizeServiceAmountValue(trimmedValue));
+  } catch (_error) {
+    return trimmedValue;
+  }
 }
 
 function hasServiceAmountValue(value) {
@@ -4743,7 +4762,9 @@ export default function DashboardPage() {
       : rightPanelMode === rightPanelModes.edit
         ? "Orden de servicio"
         : selectedAppointment
-          ? "Cita"
+          ? isSelectedAppointmentConverted
+            ? "Orden de servicio"
+            : "Cita"
         : selectedServiceOrder
           ? "Orden de servicio"
           : uiText.dashboard.detailTitle;
@@ -4753,7 +4774,9 @@ export default function DashboardPage() {
       : rightPanelMode === rightPanelModes.edit
         ? "Orden de servicio"
         : selectedAppointment
-          ? "Cita"
+          ? isSelectedAppointmentConverted
+            ? "Cita convertida"
+            : "Cita"
         : selectedServiceOrder
           ? "Orden de servicio"
           : uiText.dashboard.detailTitle;
@@ -4767,11 +4790,13 @@ export default function DashboardPage() {
             )} · ${formatDisplayTime(selectedServiceOrder.service_time)}`
           : "Ajusta programación, estado y ejecución de la orden."
         : selectedAppointment
-          ? `${formatServiceDate(
-              selectedAppointment.appointment_date
-            )} · ${formatDisplayTime(selectedAppointment.appointment_time)} · ${getTechnicianDisplayName(
-              selectedAppointment.technician_name
-            )}`
+          ? isSelectedAppointmentConverted
+            ? "Esta cita ya fue convertida en orden de servicio. Usa la orden vinculada para continuar."
+            : `${formatServiceDate(
+                selectedAppointment.appointment_date
+              )} · ${formatDisplayTime(selectedAppointment.appointment_time)} · ${getTechnicianDisplayName(
+                selectedAppointment.technician_name
+              )}`
         : selectedServiceOrder
           ? `${getClientDisplayName(selectedServiceOrder.clients)} · ${formatServiceDate(
               selectedServiceOrder.service_date
@@ -7477,6 +7502,22 @@ export default function DashboardPage() {
     });
   };
 
+  const createServiceAmountBlurHandler = (setState, fieldName) => () => {
+    setState((currentState) => {
+      const currentValue = currentState[fieldName];
+      const formattedValue = formatServiceAmountInput(currentValue);
+
+      if (formattedValue === currentValue) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        [fieldName]: formattedValue
+      };
+    });
+  };
+
   const handleClientFormPhoneBlur = createPhoneBlurHandler(setClientForm, "mainPhone");
   const handleClientModalPhoneBlur = createPhoneBlurHandler(setClientModalState, "phone");
   const handleClientDrawerPhoneBlur = createPhoneBlurHandler(setClientDrawerForm, "mainPhone");
@@ -7485,6 +7526,14 @@ export default function DashboardPage() {
   const handleContactDrawerPhoneBlur = createPhoneBlurHandler(setContactDrawerForm, "phone");
   const handleTechnicianFormPhoneBlur = createPhoneBlurHandler(setTechnicianForm, "phone");
   const handleQuickTechnicianPhoneBlur = createPhoneBlurHandler(setQuickTechnicianState, "phone");
+  const handleDetailAmountBlur = createServiceAmountBlurHandler(
+    setDetailFormState,
+    "serviceAmount"
+  );
+  const handleAppointmentConversionAmountBlur = createServiceAmountBlurHandler(
+    setAppointmentConversionForm,
+    "serviceAmount"
+  );
 
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -12970,11 +13019,11 @@ export default function DashboardPage() {
                           <span>{uiText.serviceOrder.fields.serviceAmount}</span>
                           <input
                             name="serviceAmount"
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
+                            inputMode="decimal"
                             value={appointmentConversionForm.serviceAmount}
                             onChange={handleAppointmentConversionFormChange}
+                            onBlur={handleAppointmentConversionAmountBlur}
                             placeholder={uiText.serviceOrder.placeholders.serviceAmount}
                             disabled={isConfirmingAppointment}
                           />
@@ -13524,11 +13573,11 @@ export default function DashboardPage() {
                       <span>{uiText.serviceOrder.fields.serviceAmount}</span>
                       <input
                         name="serviceAmount"
-                        type="number"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={detailFormState.serviceAmount}
                         onChange={handleDetailFormChange}
+                        onBlur={handleDetailAmountBlur}
                         placeholder={uiText.serviceOrder.placeholders.serviceAmount}
                         disabled={isSavingDetail}
                       />
