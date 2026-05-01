@@ -240,6 +240,56 @@ function buildAppointmentConversionFormFromAppointmentRecord(appointment) {
   };
 }
 
+function getPhoneDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function isValidPhoneInput(value) {
+  const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue) {
+    return true;
+  }
+
+  if (!/^[\d\s()+.-]+$/.test(trimmedValue)) {
+    return false;
+  }
+
+  const digits = getPhoneDigits(trimmedValue);
+
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+function formatPhoneForDisplay(value) {
+  const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue || !isValidPhoneInput(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  const digits = getPhoneDigits(trimmedValue);
+
+  if (digits.length === 10 && !trimmedValue.startsWith("+")) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+
+  return trimmedValue;
+}
+
+function normalizePhoneBeforeSave(value) {
+  const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue) {
+    return "";
+  }
+
+  if (!isValidPhoneInput(trimmedValue)) {
+    throw new Error("Ingresa un teléfono válido.");
+  }
+
+  return formatPhoneForDisplay(trimmedValue);
+}
+
 const clientDrawerTabs = {
   summary: "summary",
   client: "client",
@@ -2228,6 +2278,7 @@ function WorkspacePanel({
   onFormChange,
   onSubmit,
   onClientFormChange,
+  onClientPhoneBlur,
   onClientOptionalFieldAdd,
   onClientSubmit,
   onOpenClientQuickCreate,
@@ -2238,12 +2289,14 @@ function WorkspacePanel({
   onBranchEdit,
   onBranchNew,
   onBranchFormChange,
+  onBranchPhoneBlur,
   onBranchSubmit,
   onOpenBranchQuickCreate,
   onTechnicianEdit,
   onTechnicianNew,
   onTechnicianSubTabChange,
   onTechnicianFormChange,
+  onTechnicianPhoneBlur,
   onTechnicianSubmit,
   isQuickCreate = false,
   clientSelectRef = null,
@@ -2992,6 +3045,7 @@ function WorkspacePanel({
                     type="tel"
                     value={clientForm.mainPhone}
                     onChange={onClientFormChange}
+                    onBlur={onClientPhoneBlur}
                     placeholder={uiText.clients.placeholders.mainPhone}
                     disabled={isSavingClient}
                   />
@@ -3208,6 +3262,7 @@ function WorkspacePanel({
                         type="text"
                         value={branchForm.phone}
                         onChange={onBranchFormChange}
+                        onBlur={onBranchPhoneBlur}
                         placeholder={uiText.clients.branchPlaceholders.phone}
                         disabled={isSavingBranch}
                       />
@@ -3478,6 +3533,7 @@ function WorkspacePanel({
                     type="text"
                     value={technicianForm.phone}
                     onChange={onTechnicianFormChange}
+                    onBlur={onTechnicianPhoneBlur}
                     placeholder={uiText.technicians.placeholders.phone}
                     disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
                   />
@@ -6483,6 +6539,7 @@ export default function DashboardPage() {
     const businessName = clientState.businessName.trim();
     const tradeName = clientState.tradeName.trim();
     const explicitName = (clientState.name || "").trim();
+    const normalizedMainPhone = normalizePhoneBeforeSave(clientState.mainPhone);
     const payload = {
       company_id: activeCompanyId,
       name: explicitName || tradeName || businessName,
@@ -6491,7 +6548,7 @@ export default function DashboardPage() {
       trade_name: tradeName,
       tax_id: clientState.taxId.trim(),
       main_address: clientState.mainAddress.trim(),
-      main_phone: clientState.mainPhone.trim(),
+      main_phone: normalizedMainPhone,
       main_contact: clientState.mainContact.trim(),
       main_email: clientState.mainEmail.trim()
     };
@@ -6555,6 +6612,7 @@ export default function DashboardPage() {
         const resolvedDefaultBranchPayload = defaultBranchPayload
           ? {
               ...defaultBranchPayload,
+              phone: normalizePhoneBeforeSave(defaultBranchPayload.phone),
               company_id: activeCompanyId,
               client_id: savedClient.id
             }
@@ -6595,7 +6653,7 @@ export default function DashboardPage() {
       client_id: clientId,
       name: branchState.name.trim(),
       address: branchState.address.trim(),
-      phone: (branchState.phone || "").trim(),
+      phone: normalizePhoneBeforeSave(branchState.phone),
       contact: (branchState.contact || "").trim(),
       notes: (branchState.notes || "").trim()
     };
@@ -6640,6 +6698,8 @@ export default function DashboardPage() {
       throw new Error(uiText.dashboard.profileLoadError);
     }
 
+    const normalizedTechnicianPhone = normalizePhoneBeforeSave(technicianState.phone);
+
     const payload = {
       company_id: activeCompanyId,
       full_name: technicianState.fullName.trim(),
@@ -6648,7 +6708,7 @@ export default function DashboardPage() {
     };
 
     if (supportsExtendedTechnicianFields) {
-      payload.phone = (technicianState.phone || "").trim();
+      payload.phone = normalizedTechnicianPhone;
       payload.address = (technicianState.address || "").trim();
       // Keep quick-create lightweight without changing schema: persist optional email
       // inside notes when the technicians table does not expose a dedicated email field.
@@ -7312,6 +7372,31 @@ export default function DashboardPage() {
   const confirmDiscardClientWorkspaceChanges = () =>
     (!isClientDrawerDirty && !isBranchDrawerDirty && !isContactDrawerDirty) ||
     confirmDiscardUnsavedChanges();
+
+  const createPhoneBlurHandler = (setState, fieldName) => () => {
+    setState((currentState) => {
+      const currentValue = currentState[fieldName];
+      const formattedValue = formatPhoneForDisplay(currentValue);
+
+      if (formattedValue === currentValue) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        [fieldName]: formattedValue
+      };
+    });
+  };
+
+  const handleClientFormPhoneBlur = createPhoneBlurHandler(setClientForm, "mainPhone");
+  const handleClientModalPhoneBlur = createPhoneBlurHandler(setClientModalState, "phone");
+  const handleClientDrawerPhoneBlur = createPhoneBlurHandler(setClientDrawerForm, "mainPhone");
+  const handleBranchFormPhoneBlur = createPhoneBlurHandler(setBranchForm, "phone");
+  const handleDrawerBranchPhoneBlur = createPhoneBlurHandler(setDrawerBranchForm, "phone");
+  const handleContactDrawerPhoneBlur = createPhoneBlurHandler(setContactDrawerForm, "phone");
+  const handleTechnicianFormPhoneBlur = createPhoneBlurHandler(setTechnicianForm, "phone");
+  const handleQuickTechnicianPhoneBlur = createPhoneBlurHandler(setQuickTechnicianState, "phone");
 
   const handleFormChange = (event) => {
     const { name, value, type, checked } = event.target;
@@ -8488,7 +8573,7 @@ export default function DashboardPage() {
         clientId: activeDrawerClientId,
         branchId: null,
         fullName: contactDrawerForm.fullName,
-        phone: contactDrawerForm.phone,
+        phone: normalizePhoneBeforeSave(contactDrawerForm.phone),
         email: contactDrawerForm.email,
         role: contactDrawerForm.role,
         notes: contactDrawerForm.notes,
@@ -12569,6 +12654,7 @@ export default function DashboardPage() {
                 onFormChange={handleFormChange}
                 onSubmit={handleCreateServiceOrder}
                 onClientFormChange={handleClientFormChange}
+                onClientPhoneBlur={handleClientFormPhoneBlur}
                 onClientOptionalFieldAdd={handleClientOptionalFieldAdd}
                 onClientSubmit={handleCreateClient}
                 onOpenClientQuickCreate={handleOpenClientModal}
@@ -12579,12 +12665,14 @@ export default function DashboardPage() {
                 onBranchEdit={handleBranchEdit}
                 onBranchNew={handleNewBranch}
                 onBranchFormChange={handleBranchFormChange}
+                onBranchPhoneBlur={handleBranchFormPhoneBlur}
                 onBranchSubmit={handleCreateBranch}
                 onOpenBranchQuickCreate={handleOpenBranchQuickCreate}
                 onTechnicianEdit={handleTechnicianEdit}
                 onTechnicianNew={handleNewTechnician}
                 onTechnicianSubTabChange={setTechnicianSubTab}
                 onTechnicianFormChange={handleTechnicianFormChange}
+                onTechnicianPhoneBlur={handleTechnicianFormPhoneBlur}
                 onTechnicianSubmit={handleCreateTechnician}
                 isQuickCreate={isCreateServiceOrderMode}
                 clientSelectRef={createServiceOrderClientSelectRef}
@@ -13971,6 +14059,7 @@ export default function DashboardPage() {
                     type="tel"
                     value={clientModalState.phone}
                     onChange={handleClientModalChange}
+                    onBlur={handleClientModalPhoneBlur}
                     disabled={isSavingClientModal}
                   />
                 </label>
@@ -14164,6 +14253,7 @@ export default function DashboardPage() {
                     type="tel"
                     value={quickTechnicianState.phone}
                     onChange={handleQuickTechnicianChange}
+                    onBlur={handleQuickTechnicianPhoneBlur}
                     disabled={isSavingQuickTechnician}
                   />
                 </label>
@@ -14611,6 +14701,7 @@ export default function DashboardPage() {
                                 type="tel"
                                 value={clientDrawerForm.mainPhone}
                                 onChange={handleClientDrawerFormChange}
+                                onBlur={handleClientDrawerPhoneBlur}
                                 disabled={isSavingClientDrawer}
                               />
                             </label>
@@ -14922,6 +15013,7 @@ export default function DashboardPage() {
                                     type="text"
                                     value={contactDrawerForm.phone}
                                     onChange={handleContactDrawerFormChange}
+                                    onBlur={handleContactDrawerPhoneBlur}
                                     disabled={isSavingContactDrawer}
                                   />
                                 </label>
@@ -15077,6 +15169,7 @@ export default function DashboardPage() {
                                     type="text"
                                     value={drawerBranchForm.phone}
                                     onChange={handleDrawerBranchFormChange}
+                                    onBlur={handleDrawerBranchPhoneBlur}
                                     disabled={isSavingDrawerBranch}
                                   />
                                 </label>
@@ -15212,6 +15305,7 @@ export default function DashboardPage() {
                         type="text"
                         value={drawerBranchForm.phone}
                         onChange={handleDrawerBranchFormChange}
+                        onBlur={handleDrawerBranchPhoneBlur}
                         disabled={isSavingDrawerBranch}
                       />
                     </label>
@@ -15504,6 +15598,7 @@ export default function DashboardPage() {
                           type="text"
                           value={technicianForm.phone}
                           onChange={handleTechnicianFormChange}
+                          onBlur={handleTechnicianFormPhoneBlur}
                           placeholder={uiText.technicians.placeholders.phone}
                           disabled={isSavingTechnician || !supportsExtendedTechnicianFields}
                         />
