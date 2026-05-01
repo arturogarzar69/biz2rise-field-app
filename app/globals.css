@@ -6,6 +6,8 @@
   --drawer-width-standard: clamp(380px, 28vw, 440px);
   --drawer-width-operational: clamp(440px, 34vw, 540px);
   --drawer-width-expanded: clamp(520px, 42vw, 680px);
+  --drawer-width-calendar-aware: clamp(420px, 36vw, 560px);
+  --drawer-width-worklayer: clamp(680px, 58vw, 920px);
   --sidebar-width-expanded: 276px;
   --sidebar-width-collapsed: 92px;
   --bg: #f6f7fb;
@@ -605,6 +607,72 @@ textarea {
 
 .main-workspace-surface-drawer-expanded {
   grid-template-columns: minmax(0, 1fr) minmax(520px, var(--drawer-width-expanded));
+}
+
+.main-workspace-surface-drawer-calendar-aware {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, var(--drawer-width-calendar-aware));
+}
+
+.main-workspace-surface-panel-compact .calendar-panel {
+  opacity: 1;
+}
+
+.main-workspace-surface-panel-expanded,
+.main-workspace-surface-panel-calendar-aware {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.main-workspace-surface-panel-expanded .calendar-panel,
+.main-workspace-surface-panel-calendar-aware .calendar-panel {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.main-workspace-surface-panel-expanded .calendar-panel::after,
+.main-workspace-surface-panel-calendar-aware .calendar-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 16px;
+}
+
+.main-workspace-surface-panel-expanded .calendar-panel::after {
+  background:
+    linear-gradient(90deg, rgba(248, 250, 252, 0.08) 0%, rgba(241, 245, 249, 0.74) 100%);
+}
+
+.main-workspace-surface-panel-calendar-aware .calendar-panel::after {
+  background:
+    linear-gradient(90deg, rgba(248, 250, 252, 0.02) 0%, rgba(241, 245, 249, 0.34) 100%);
+}
+
+.main-workspace-surface-panel-expanded .detail-sidebar,
+.main-workspace-surface-panel-calendar-aware .detail-sidebar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  left: auto;
+  align-self: auto;
+  justify-self: auto;
+  max-height: calc(100% - 28px);
+  z-index: 5;
+}
+
+.main-workspace-surface-panel-expanded .detail-sidebar {
+  box-shadow:
+    0 32px 64px rgba(15, 23, 42, 0.16),
+    -18px 0 36px rgba(15, 23, 42, 0.05);
+}
+
+.main-workspace-surface-panel-calendar-aware .detail-sidebar {
+  box-shadow:
+    0 24px 48px rgba(15, 23, 42, 0.12),
+    -12px 0 28px rgba(15, 23, 42, 0.04);
 }
 
 .main-workspace-surface-two-column {
@@ -2784,6 +2852,36 @@ textarea {
   max-width: min(100%, var(--drawer-width-expanded));
 }
 
+.detail-sidebar-layout-compact {
+  width: min(100%, var(--drawer-width-detail));
+  max-width: min(100%, var(--drawer-width-detail));
+  border-color: rgba(223, 228, 235, 0.88);
+  background: color-mix(in srgb, var(--surface-panel) 97%, #ffffff 3%);
+  box-shadow: var(--shadow-sm);
+}
+
+.detail-sidebar-layout-calendar-aware {
+  width: min(100%, var(--drawer-width-calendar-aware));
+  max-width: min(100%, var(--drawer-width-calendar-aware));
+  border-color: rgba(209, 219, 230, 0.96);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985) 0%, rgba(249, 251, 255, 0.985) 100%);
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.09),
+    -10px 0 26px rgba(15, 23, 42, 0.035);
+}
+
+.detail-sidebar-layout-expanded {
+  width: min(100%, var(--drawer-width-worklayer));
+  max-width: min(100%, var(--drawer-width-worklayer));
+  border-color: rgba(209, 219, 230, 0.98);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.992) 0%, rgba(248, 250, 255, 0.992) 100%);
+  box-shadow:
+    0 26px 56px rgba(15, 23, 42, 0.12),
+    -14px 0 32px rgba(15, 23, 42, 0.045);
+}
+
 .detail-sidebar:hover,
 .detail-sidebar-create-mode:hover {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.045);
@@ -3849,6 +3947,17 @@ textarea {
   max-width: min(100%, var(--drawer-width-standard));
 }
 
+.entity-drawer-worklayer {
+  width: min(100%, var(--drawer-width-worklayer));
+  max-width: min(100%, var(--drawer-width-worklayer));
+  border-color: rgba(209, 219, 230, 0.98);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.992) 0%, rgba(248, 250, 255, 0.992) 100%);
+  box-shadow:
+    0 24px 52px rgba(15, 23, 42, 0.115),
+    -14px 0 30px rgba(15, 23, 42, 0.04);
+}
+
 .entity-drawer-header {
   display: flex;
   justify-content: space-between;
@@ -4369,6 +4478,16 @@ button:focus-visible {
     max-width: none;
     margin-left: 0;
     transform: none;
+  }
+
+  .main-workspace-surface-panel-expanded .detail-sidebar,
+  .main-workspace-surface-panel-calendar-aware .detail-sidebar {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    max-height: none;
   }
 }
 
