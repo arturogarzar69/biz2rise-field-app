@@ -7,7 +7,7 @@
   --drawer-width-operational: clamp(440px, 34vw, 540px);
   --drawer-width-expanded: clamp(520px, 42vw, 680px);
   --drawer-width-calendar-aware: clamp(420px, 36vw, 560px);
-  --drawer-width-worklayer: clamp(680px, 58vw, 920px);
+  --drawer-width-worklayer: clamp(720px, 60vw, 980px);
   --sidebar-width-expanded: 276px;
   --sidebar-width-collapsed: 92px;
   --bg: #f6f7fb;

@@ -3943,6 +3943,8 @@ export default function DashboardPage() {
   const [detailFormMessage, setDetailFormMessage] = useState("");
   const [detailFormError, setDetailFormError] = useState("");
   const [isSavingDetail, setIsSavingDetail] = useState(false);
+  const [isCalendarAwareServiceOrderEdit, setIsCalendarAwareServiceOrderEdit] =
+    useState(false);
   const [isConfirmingAppointment, setIsConfirmingAppointment] = useState(false);
   const [isPreparingAppointmentConversion, setIsPreparingAppointmentConversion] = useState(false);
   const [appointmentConversionForm, setAppointmentConversionForm] = useState(
@@ -4047,9 +4049,16 @@ export default function DashboardPage() {
     rightPanelMode === rightPanelModes.detail &&
     Boolean(selectedAppointment);
   const isFocusedServiceOrderPanel = isCreateServiceOrderMode || isEditingServiceOrder;
-  const isOperationalDrawerExpanded =
-    isEditingServiceOrder ||
-    (isAppointmentDetailMode && isPreparingAppointmentConversion);
+  const hasOperationalPanelOpen =
+    isCreateServiceOrderMode || isEditingServiceOrder || isServiceOrderDetailMode || isAppointmentDetailMode;
+  const operationalPanelLayoutMode =
+    isEditingServiceOrder && isCalendarAwareServiceOrderEdit
+      ? "calendarAware"
+      : hasOperationalPanelOpen
+        ? "expanded"
+        : "compact";
+  const isOperationalDrawerExpanded = operationalPanelLayoutMode === "expanded";
+  const isOperationalDrawerCalendarAware = operationalPanelLayoutMode === "calendarAware";
   const serviceOrderPanelStage = isFocusedServiceOrderPanel
     ? "operational"
     : isServiceOrderDetailMode || isAppointmentDetailMode
@@ -7749,6 +7758,12 @@ export default function DashboardPage() {
   }, [selectedAppointment?.id]);
 
   useEffect(() => {
+    if (rightPanelMode !== rightPanelModes.edit) {
+      setIsCalendarAwareServiceOrderEdit(false);
+    }
+  }, [rightPanelMode]);
+
+  useEffect(() => {
     const supabase = getSupabaseClient();
 
     if (
@@ -8398,7 +8413,13 @@ export default function DashboardPage() {
       return;
     }
 
+    setIsCalendarAwareServiceOrderEdit(false);
     setRightPanelMode(rightPanelModes.detail);
+  };
+
+  const handleOpenServiceOrderEdit = () => {
+    setIsCalendarAwareServiceOrderEdit(false);
+    setRightPanelMode(rightPanelModes.edit);
   };
 
   const handleCancelAppointmentConversion = () => {
@@ -11272,6 +11293,7 @@ export default function DashboardPage() {
   };
 
   const handleStartReschedule = () => {
+    setIsCalendarAwareServiceOrderEdit(true);
     setRightPanelMode(rightPanelModes.edit);
     setTimeout(() => {
       detailDateInputRef.current?.focus();
@@ -12316,15 +12338,17 @@ export default function DashboardPage() {
         <div
           className={
             activeTopLevelTab === dashboardTabs.calendar
-              ? serviceOrderPanelStage === "operational"
-                ? `main-workspace-surface main-workspace-surface-operational-edit${
-                    isOperationalDrawerExpanded ? " main-workspace-surface-drawer-expanded" : ""
+              ? serviceOrderPanelStage === "idle"
+                ? "main-workspace-surface main-workspace-surface-operational-idle"
+                : `${serviceOrderPanelStage === "operational"
+                    ? "main-workspace-surface main-workspace-surface-operational-edit"
+                    : "main-workspace-surface main-workspace-surface-operational-detail"}${
+                    isOperationalDrawerExpanded
+                      ? " main-workspace-surface-drawer-expanded main-workspace-surface-panel-expanded"
+                      : isOperationalDrawerCalendarAware
+                        ? " main-workspace-surface-drawer-calendar-aware main-workspace-surface-panel-calendar-aware"
+                        : " main-workspace-surface-panel-compact"
                   }`
-                : serviceOrderPanelStage === "detail"
-                  ? `main-workspace-surface main-workspace-surface-operational-detail${
-                      isOperationalDrawerExpanded ? " main-workspace-surface-drawer-expanded" : ""
-                    }`
-                  : "main-workspace-surface main-workspace-surface-operational-idle"
               : "main-workspace-surface main-workspace-surface-two-column"
           }
         >
@@ -13524,9 +13548,19 @@ export default function DashboardPage() {
               ? "detail-sidebar detail-sidebar-idle"
               : isFocusedServiceOrderPanel
               ? `detail-sidebar detail-sidebar-create-mode${
-                  isOperationalDrawerExpanded ? " detail-sidebar-expanded" : ""
+                  isOperationalDrawerExpanded
+                    ? " detail-sidebar-layout-expanded"
+                    : isOperationalDrawerCalendarAware
+                      ? " detail-sidebar-layout-calendar-aware"
+                      : " detail-sidebar-layout-compact"
                 }`
-              : `detail-sidebar${isOperationalDrawerExpanded ? " detail-sidebar-expanded" : ""}`
+              : `detail-sidebar${
+                  isOperationalDrawerExpanded
+                    ? " detail-sidebar-layout-expanded"
+                    : isOperationalDrawerCalendarAware
+                      ? " detail-sidebar-layout-calendar-aware"
+                      : " detail-sidebar-layout-compact"
+                }`
           }
           aria-hidden={serviceOrderPanelStage === "idle"}
         >
@@ -13588,7 +13622,7 @@ export default function DashboardPage() {
                   <button
                     className="button"
                     type="button"
-                    onClick={() => setRightPanelMode(rightPanelModes.edit)}
+                    onClick={handleOpenServiceOrderEdit}
                     disabled={isSavingDetail || isDeletingServiceOrder}
                   >
                     Editar
@@ -15391,14 +15425,14 @@ export default function DashboardPage() {
           onClick={handleCloseClientsDrawer}
         >
           {(() => {
-            const isClientWorkspaceMode =
-              (activeEntityType === "client" && (activeMode === "create" || activeMode === "edit")) ||
-              activeEntityType === "branch";
+            const isClientExpandedWorkMode = Boolean(activeEntityType);
 
             return (
           <aside
             className={
-              isClientWorkspaceMode ? "entity-drawer entity-drawer-focused" : "entity-drawer"
+              isClientExpandedWorkMode
+                ? "entity-drawer entity-drawer-focused entity-drawer-worklayer"
+                : "entity-drawer"
             }
             role="dialog"
             aria-modal="true"
@@ -16550,8 +16584,8 @@ export default function DashboardPage() {
         >
           <aside
             className={
-              technicianDrawerMode === "create" || technicianDrawerMode === "edit"
-                ? "entity-drawer entity-drawer-focused"
+              technicianDrawerMode
+                ? "entity-drawer entity-drawer-focused entity-drawer-worklayer"
                 : "entity-drawer"
             }
             role="dialog"
