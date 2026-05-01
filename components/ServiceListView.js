@@ -19,6 +19,21 @@ function getFrequencyLabel(serviceOrder) {
   );
 }
 
+function formatServiceAmountDisplay(amountValue) {
+  const parsedAmount = Number(amountValue);
+
+  if (!Number.isFinite(parsedAmount)) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(parsedAmount);
+}
+
 export default function ServiceListView({
   serviceOrders,
   selectedServiceOrderId,
@@ -65,6 +80,7 @@ export default function ServiceListView({
                 <th>{uiText.serviceList.headers.recurring}</th>
                 <th>{uiText.serviceList.headers.frequency}</th>
                 <th>{uiText.serviceList.headers.duration}</th>
+                <th>{uiText.serviceList.headers.amount}</th>
               </tr>
             </thead>
             <tbody>
@@ -113,6 +129,7 @@ export default function ServiceListView({
                     </td>
                     <td>{getFrequencyLabel(serviceOrder)}</td>
                     <td>{resolveDurationMinutes(serviceOrder.duration_minutes)} min</td>
+                    <td>{formatServiceAmountDisplay(serviceOrder.service_amount)}</td>
                   </tr>
                 );
               })}

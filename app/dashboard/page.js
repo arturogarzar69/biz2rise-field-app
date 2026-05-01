@@ -124,6 +124,8 @@ const initialDetailFormState = {
   serviceDate: "",
   serviceTime: "9:00 AM",
   durationMinutes: 60,
+  serviceAmount: "",
+  serviceAmountVisibleToTechnician: false,
   isRecurring: false,
   recurrenceType: "weekly",
   recurrenceEndDate: "",
@@ -144,6 +146,8 @@ const initialAppointmentConversionForm = {
   serviceDate: "",
   serviceTime: "9:00 AM",
   durationMinutes: 60,
+  serviceAmount: "",
+  serviceAmountVisibleToTechnician: false,
   serviceInstructions: ""
 };
 
@@ -208,6 +212,13 @@ function buildDetailFormStateFromServiceOrderRecord(serviceOrder) {
     serviceDate: serviceOrder.service_date || "",
     serviceTime: serviceOrder.service_time || "9:00 AM",
     durationMinutes: resolveDurationMinutes(serviceOrder.duration_minutes),
+    serviceAmount:
+      serviceOrder.service_amount === null || serviceOrder.service_amount === undefined
+        ? ""
+        : String(serviceOrder.service_amount),
+    serviceAmountVisibleToTechnician: Boolean(
+      serviceOrder.service_amount_visible_to_technician
+    ),
     serviceInstructions: serviceOrder.service_instructions || "",
     serviceReport: serviceOrder.service_report || "",
     serviceSummary: serviceOrder.service_summary || "",
@@ -236,6 +247,8 @@ function buildAppointmentConversionFormFromAppointmentRecord(appointment) {
     serviceDate: appointment.appointment_date || "",
     serviceTime: appointment.appointment_time || "9:00 AM",
     durationMinutes: resolveDurationMinutes(appointment.duration_minutes),
+    serviceAmount: "",
+    serviceAmountVisibleToTechnician: false,
     serviceInstructions: appointment.notes || ""
   };
 }
@@ -288,6 +301,49 @@ function normalizePhoneBeforeSave(value) {
   }
 
   return formatPhoneForDisplay(trimmedValue);
+}
+
+function normalizeServiceAmountValue(value) {
+  const trimmedValue = String(value ?? "").trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const normalizedValue = trimmedValue.replace(/[$,\s]/g, "");
+  const parsedAmount = Number(normalizedValue);
+
+  if (!Number.isFinite(parsedAmount) || parsedAmount < 0) {
+    throw new Error("Ingresa un importe válido.");
+  }
+
+  return Math.round(parsedAmount * 100) / 100;
+}
+
+function hasServiceAmountValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function formatServiceAmountDisplay(amountValue) {
+  const parsedAmount = Number(amountValue);
+
+  if (!Number.isFinite(parsedAmount)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(parsedAmount);
+}
+
+function shouldShowServiceAmountToTechnician(serviceOrder) {
+  return Boolean(
+    serviceOrder?.service_amount_visible_to_technician &&
+      hasServiceAmountValue(serviceOrder?.service_amount)
+  );
 }
 
 const clientDrawerTabs = {
@@ -426,6 +482,8 @@ const serviceOrderSelectQuery = `
   actual_end_at,
   completed_by,
   completion_notes,
+  service_amount,
+  service_amount_visible_to_technician,
   client_id,
   branch_id,
   service_location_name,
@@ -5737,6 +5795,15 @@ export default function DashboardPage() {
     setError("");
     setSuccess("");
 
+    let normalizedServiceAmount = null;
+
+    try {
+      normalizedServiceAmount = normalizeServiceAmountValue(orderState.serviceAmount);
+    } catch (error) {
+      setError(error.message);
+      return;
+    }
+
     if (!activeCompanyId) {
       setError(uiText.dashboard.profileLoadError);
       return;
@@ -5795,6 +5862,11 @@ export default function DashboardPage() {
       service_date: orderState.serviceDate,
       service_time: orderState.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(orderState.durationMinutes),
+      service_amount: normalizedServiceAmount,
+      service_amount_visible_to_technician:
+        normalizedServiceAmount !== null
+          ? Boolean(orderState.serviceAmountVisibleToTechnician)
+          : false,
       status: orderState.status || "scheduled",
       execution_status: defaultExecutionStatus,
       service_instructions: orderState.serviceInstructions || "",
@@ -6124,6 +6196,8 @@ export default function DashboardPage() {
     durationMinutes,
     status,
     serviceInstructions = undefined,
+    serviceAmount = undefined,
+    serviceAmountVisibleToTechnician = undefined,
     serviceReport = undefined,
     serviceSummary = undefined,
     findings = undefined,
@@ -6207,6 +6281,16 @@ export default function DashboardPage() {
 
     if (serviceInstructions !== undefined) {
       persistencePayload.service_instructions = serviceInstructions;
+    }
+
+    if (serviceAmount !== undefined) {
+      persistencePayload.service_amount = serviceAmount;
+    }
+
+    if (serviceAmountVisibleToTechnician !== undefined) {
+      persistencePayload.service_amount_visible_to_technician = Boolean(
+        serviceAmountVisibleToTechnician
+      );
     }
 
     if (serviceReport !== undefined) {
@@ -6344,6 +6428,10 @@ export default function DashboardPage() {
           status: currentOrder.status,
           execution_status: currentOrder.execution_status || defaultExecutionStatus,
           service_instructions: currentOrder.service_instructions || "",
+          service_amount: currentOrder.service_amount ?? null,
+          service_amount_visible_to_technician: Boolean(
+            currentOrder.service_amount_visible_to_technician
+          ),
           service_report: currentOrder.service_report || "",
           started_at: currentOrder.started_at || null,
           completed_at: currentOrder.completed_at || null,
@@ -9319,6 +9407,15 @@ export default function DashboardPage() {
     setDetailFormError("");
     setDetailFormMessage("");
 
+    let normalizedDetailServiceAmount = null;
+
+    try {
+      normalizedDetailServiceAmount = normalizeServiceAmountValue(detailFormState.serviceAmount);
+    } catch (error) {
+      setDetailFormError(error.message);
+      return;
+    }
+
     if (!selectedServiceOrderId) {
       return;
     }
@@ -9355,6 +9452,11 @@ export default function DashboardPage() {
         durationMinutes: detailFormState.durationMinutes,
         status: nextStatus,
         serviceInstructions: detailFormState.serviceInstructions.trim(),
+        serviceAmount: normalizedDetailServiceAmount,
+        serviceAmountVisibleToTechnician:
+          normalizedDetailServiceAmount !== null
+            ? detailFormState.serviceAmountVisibleToTechnician
+            : false,
         serviceReport: detailFormState.serviceReport.trim(),
         serviceSummary: detailFormState.serviceSummary.trim(),
         findings: detailFormState.findings.trim(),
@@ -9376,6 +9478,16 @@ export default function DashboardPage() {
       setDetailFormState((currentState) => ({
         ...currentState,
         status: updatedServiceOrder?.status || nextStatus,
+        serviceAmount:
+          updatedServiceOrder && "service_amount" in updatedServiceOrder
+            ? updatedServiceOrder.service_amount === null ||
+              updatedServiceOrder.service_amount === undefined
+              ? ""
+              : String(updatedServiceOrder.service_amount)
+            : currentState.serviceAmount,
+        serviceAmountVisibleToTechnician:
+          updatedServiceOrder?.service_amount_visible_to_technician ??
+          currentState.serviceAmountVisibleToTechnician,
         serviceReport: updatedServiceOrder?.service_report || currentState.serviceReport,
         serviceSummary: updatedServiceOrder?.service_summary || currentState.serviceSummary,
         findings: updatedServiceOrder?.findings || currentState.findings,
@@ -10215,11 +10327,16 @@ export default function DashboardPage() {
   };
 
   const handleAppointmentConversionFormChange = (event) => {
-    const { name, value } = event.target;
+    const { name, value, type, checked } = event.target;
 
     setAppointmentConversionForm((currentState) => ({
       ...currentState,
-      [name]: name === "durationMinutes" ? Number(value) : value
+      [name]:
+        name === "durationMinutes"
+          ? Number(value)
+          : type === "checkbox"
+          ? checked
+          : value
     }));
   };
 
@@ -10247,6 +10364,17 @@ export default function DashboardPage() {
     }
 
     const now = new Date().toISOString();
+    let normalizedServiceAmount = null;
+
+    try {
+      normalizedServiceAmount = normalizeServiceAmountValue(
+        appointmentConversionForm.serviceAmount
+      );
+    } catch (error) {
+      setDetailFormError(error.message);
+      return;
+    }
+
     const appointmentUsesOneOffLocation =
       Boolean(selectedAppointment.is_one_off_location) ||
       Boolean(
@@ -10264,6 +10392,11 @@ export default function DashboardPage() {
       service_date: appointmentConversionForm.serviceDate,
       service_time: appointmentConversionForm.serviceTime.trim(),
       duration_minutes: resolveDurationMinutes(appointmentConversionForm.durationMinutes),
+      service_amount: normalizedServiceAmount,
+      service_amount_visible_to_technician:
+        normalizedServiceAmount !== null
+          ? Boolean(appointmentConversionForm.serviceAmountVisibleToTechnician)
+          : false,
       status: "scheduled",
       execution_status: defaultExecutionStatus,
       service_instructions: appointmentConversionForm.serviceInstructions.trim() || null,
@@ -10896,6 +11029,15 @@ export default function DashboardPage() {
                             <span>{uiText.technicianDashboard.fields.executionStatus}</span>
                             <strong>{getExecutionStatusLabel(executionStatus)}</strong>
                           </div>
+
+                          {shouldShowServiceAmountToTechnician(serviceOrder) ? (
+                            <div className="detail-row">
+                              <span>{uiText.technicianDashboard.fields.amount}</span>
+                              <strong>
+                                {formatServiceAmountDisplay(serviceOrder.service_amount)}
+                              </strong>
+                            </div>
+                          ) : null}
                         </div>
 
                         <div className="detail-row">
@@ -10999,6 +11141,15 @@ export default function DashboardPage() {
                     {getExecutionStatusLabel(getExecutionStatusValue(selectedTechnicianOrder))}
                   </strong>
                 </div>
+
+                {shouldShowServiceAmountToTechnician(selectedTechnicianOrder) ? (
+                  <div className="detail-row">
+                    <span>{uiText.technicianDashboard.fields.amount}</span>
+                    <strong>
+                      {formatServiceAmountDisplay(selectedTechnicianOrder.service_amount)}
+                    </strong>
+                  </div>
+                ) : null}
 
                 {selectedTechnicianOrder.started_at ? (
                   <div className="detail-row">
@@ -12815,6 +12966,36 @@ export default function DashboardPage() {
                           </select>
                         </label>
 
+                        <label className="workspace-input-group">
+                          <span>{uiText.serviceOrder.fields.serviceAmount}</span>
+                          <input
+                            name="serviceAmount"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={appointmentConversionForm.serviceAmount}
+                            onChange={handleAppointmentConversionFormChange}
+                            placeholder={uiText.serviceOrder.placeholders.serviceAmount}
+                            disabled={isConfirmingAppointment}
+                          />
+                        </label>
+
+                        <label className="workspace-checkbox workspace-checkbox-compact">
+                          <input
+                            name="serviceAmountVisibleToTechnician"
+                            type="checkbox"
+                            checked={appointmentConversionForm.serviceAmountVisibleToTechnician}
+                            onChange={handleAppointmentConversionFormChange}
+                            disabled={
+                              isConfirmingAppointment ||
+                              !String(appointmentConversionForm.serviceAmount || "").trim()
+                            }
+                          />
+                          <span>
+                            {uiText.serviceOrder.fields.serviceAmountVisibleToTechnician}
+                          </span>
+                        </label>
+
                         <label className="workspace-input-group workspace-field-wide">
                           <span>Instrucciones de servicio</span>
                           <textarea
@@ -13331,6 +13512,36 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
+                    <label className="workspace-input-group">
+                      <span>{uiText.serviceOrder.fields.serviceAmount}</span>
+                      <input
+                        name="serviceAmount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={detailFormState.serviceAmount}
+                        onChange={handleDetailFormChange}
+                        placeholder={uiText.serviceOrder.placeholders.serviceAmount}
+                        disabled={isSavingDetail}
+                      />
+                    </label>
+
+                    <label className="workspace-checkbox workspace-checkbox-compact">
+                      <input
+                        name="serviceAmountVisibleToTechnician"
+                        type="checkbox"
+                        checked={detailFormState.serviceAmountVisibleToTechnician}
+                        onChange={handleDetailFormChange}
+                        disabled={
+                          isSavingDetail ||
+                          !String(detailFormState.serviceAmount || "").trim()
+                        }
+                      />
+                      <span>
+                        {uiText.serviceOrder.fields.serviceAmountVisibleToTechnician}
+                      </span>
+                    </label>
+
                     {detailFormState.isOneOffLocation ? (
                       <>
                         <label className="workspace-input-group">
@@ -13682,6 +13893,26 @@ export default function DashboardPage() {
                       <span>Técnico asignado</span>
                       <strong>{getTechnicianDisplayName(selectedOrder.technician_name)}</strong>
                     </div>
+                    {hasServiceAmountValue(selectedOrder.service_amount) ? (
+                      <>
+                        <div className="detail-row">
+                          <span>{uiText.serviceOrder.fields.serviceAmount}</span>
+                          <strong>
+                            {formatServiceAmountDisplay(selectedOrder.service_amount)}
+                          </strong>
+                        </div>
+                        <div className="detail-row">
+                          <span>
+                            {uiText.serviceOrder.fields.serviceAmountVisibleToTechnician}
+                          </span>
+                          <strong>
+                            {selectedOrder.service_amount_visible_to_technician
+                              ? "Sí"
+                              : "No"}
+                          </strong>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                   <div className="detail-section-grid">
                     <div className="detail-row detail-row-notes">
