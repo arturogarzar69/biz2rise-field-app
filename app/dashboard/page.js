@@ -72,11 +72,17 @@ const debugLog = (...args) => {
 const defaultClientSubTab = uiText.clients.subTabs.list;
 const defaultClientsModuleTab = "summary";
 const defaultTechnicianSubTab = uiText.technicians.subTabs.list;
+const defaultTechniciansModuleTab = "summary";
 const clientsSummaryRangeOptions = {
   this_month: "Este mes",
   today: "Hoy",
   next_7_days: "Próximos 7 días",
   last_30_days: "Últimos 30 días"
+};
+const techniciansSummaryRangeOptions = {
+  today: "Hoy",
+  next_7_days: "Próximos 7 días",
+  this_month: "Este mes"
 };
 
 const initialFormState = {
@@ -3885,6 +3891,10 @@ export default function DashboardPage() {
   const [techniciansError, setTechniciansError] = useState("");
   const [isTechniciansLoading, setIsTechniciansLoading] = useState(false);
   const [technicianSubTab, setTechnicianSubTab] = useState(defaultTechnicianSubTab);
+  const [techniciansModuleTab, setTechniciansModuleTab] = useState(
+    defaultTechniciansModuleTab
+  );
+  const [techniciansSummaryRangeFilter, setTechniciansSummaryRangeFilter] = useState("today");
   const [selectedTechnicianId, setSelectedTechnicianId] = useState(null);
   const [technicianDrawerMode, setTechnicianDrawerMode] = useState(null);
   const [technicianForm, setTechnicianForm] = useState(initialTechnicianFormState);
@@ -4446,6 +4456,136 @@ export default function DashboardPage() {
 
     return workloadMap;
   }, [serviceOrders]);
+  const techniciansSummaryDateRange = useMemo(
+    () => getClientsSummaryDateRange(techniciansSummaryRangeFilter),
+    [techniciansSummaryRangeFilter]
+  );
+  const techniciansSummaryRangeLabel =
+    techniciansSummaryRangeOptions[techniciansSummaryRangeFilter] ||
+    techniciansSummaryRangeOptions.today;
+  const filteredTechnicianNames = useMemo(
+    () => new Set(filteredTechnicians.map((technician) => technician.full_name).filter(Boolean)),
+    [filteredTechnicians]
+  );
+  const techniciansSummaryOrdersInRange = useMemo(
+    () =>
+      serviceOrders.filter((serviceOrder) => {
+        const technicianName = String(serviceOrder.technician_name || "").trim();
+
+        return (
+          filteredTechnicianNames.has(technicianName) &&
+          String(serviceOrder.status || "").trim().toLowerCase() !== "cancelled" &&
+          isDateWithinClientsSummaryRange(
+            serviceOrder.service_date,
+            techniciansSummaryDateRange.start,
+            techniciansSummaryDateRange.end
+          )
+        );
+      }),
+    [filteredTechnicianNames, serviceOrders, techniciansSummaryDateRange.end, techniciansSummaryDateRange.start]
+  );
+  const techniciansSummaryMetrics = useMemo(() => {
+    const pendingOrders = techniciansSummaryOrdersInRange.filter(
+      (serviceOrder) =>
+        isClientSummaryActiveServiceOrder(serviceOrder) &&
+        !isOverdueServiceOrder(
+          serviceOrder.service_date,
+          serviceOrder.service_time,
+          serviceOrder.status,
+          serviceOrder.duration_minutes
+        )
+    );
+    const overdueOrders = serviceOrders.filter((serviceOrder) => {
+      const technicianName = String(serviceOrder.technician_name || "").trim();
+
+      return (
+        filteredTechnicianNames.has(technicianName) &&
+        String(serviceOrder.status || "").trim().toLowerCase() !== "cancelled" &&
+        isOverdueServiceOrder(
+          serviceOrder.service_date,
+          serviceOrder.service_time,
+          serviceOrder.status,
+          serviceOrder.duration_minutes
+        )
+      );
+    });
+    const techniciansWithLoad = new Set(
+      techniciansSummaryOrdersInRange.map((serviceOrder) => serviceOrder.technician_name).filter(Boolean)
+    );
+
+    return {
+      activeTechnicians: filteredTechnicians.filter((technician) => technician.is_active).length,
+      inactiveTechnicians: filteredTechnicians.filter((technician) => !technician.is_active).length,
+      ordersInRange: techniciansSummaryOrdersInRange.length,
+      pendingOrdersInRange: pendingOrders.length,
+      overdueOrders: overdueOrders.length,
+      techniciansWithLoad: techniciansWithLoad.size,
+      techniciansWithoutLoad: Math.max(filteredTechnicians.length - techniciansWithLoad.size, 0)
+    };
+  }, [filteredTechnicianNames, filteredTechnicians, serviceOrders, techniciansSummaryOrdersInRange]);
+  const techniciansSummaryRows = useMemo(
+    () =>
+      filteredTechnicians
+        .map((technician) => {
+          const technicianName = technician.full_name;
+          const ordersInRange = techniciansSummaryOrdersInRange.filter(
+            (serviceOrder) => serviceOrder.technician_name === technicianName
+          );
+          const pendingInRange = ordersInRange.filter(
+            (serviceOrder) =>
+              isClientSummaryActiveServiceOrder(serviceOrder) &&
+              !isOverdueServiceOrder(
+                serviceOrder.service_date,
+                serviceOrder.service_time,
+                serviceOrder.status,
+                serviceOrder.duration_minutes
+              )
+          ).length;
+          const overdueAssigned = serviceOrders.filter(
+            (serviceOrder) =>
+              serviceOrder.technician_name === technicianName &&
+              String(serviceOrder.status || "").trim().toLowerCase() !== "cancelled" &&
+              isOverdueServiceOrder(
+                serviceOrder.service_date,
+                serviceOrder.service_time,
+                serviceOrder.status,
+                serviceOrder.duration_minutes
+              )
+          ).length;
+          const nextScheduledService = ordersInRange
+            .filter(
+              (serviceOrder) =>
+                !isClientSummaryCompletedServiceOrder(serviceOrder) &&
+                parseServiceOrderStart(
+                  serviceOrder.service_date,
+                  serviceOrder.service_time
+                ).getTime() >= Date.now()
+            )
+            .sort(
+              (leftOrder, rightOrder) =>
+                parseServiceOrderStart(leftOrder.service_date, leftOrder.service_time).getTime() -
+                parseServiceOrderStart(rightOrder.service_date, rightOrder.service_time).getTime()
+            )[0];
+
+          return {
+            id: technician.id,
+            name: technicianName,
+            isActive: Boolean(technician.is_active),
+            ordersInRange: ordersInRange.length,
+            pendingInRange,
+            overdueAssigned,
+            nextScheduledService: nextScheduledService
+              ? `${formatServiceDate(nextScheduledService.service_date)} · ${formatDisplayTime(
+                  nextScheduledService.service_time
+                )}`
+              : "Sin servicio programado"
+          };
+        })
+        .sort((leftTechnician, rightTechnician) =>
+          leftTechnician.name.localeCompare(rightTechnician.name, "es")
+        ),
+    [filteredTechnicians, serviceOrders, techniciansSummaryOrdersInRange]
+  );
   const activeTechnician =
     technicians.find((technician) => technician.id === selectedTechnicianId) || null;
   const activeTechniciansCount = technicians.filter((technician) => technician.is_active).length;
@@ -12760,12 +12900,46 @@ export default function DashboardPage() {
           </section>
           ) : null}
 
-          {activeTopLevelTab === dashboardTabs.technicians ? (
+        {activeTopLevelTab === dashboardTabs.technicians ? (
           <section className="calendar-panel admin-secondary-panel">
             <div className="calendar-panel-header">
               <div className="calendar-panel-row calendar-panel-row-1">
                 <div className="calendar-panel-row-left">
-                  <h2>{uiText.dashboard.techniciansPanelTitle}</h2>
+                  <h2>{uiText.technicians.title}</h2>
+                </div>
+                <div className="calendar-panel-row-right">
+                  <div
+                    className="admin-view-tabs segmented-control calendar-segmented-control"
+                    role="tablist"
+                    aria-label={uiText.technicians.title}
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={techniciansModuleTab === "summary"}
+                      className={
+                        techniciansModuleTab === "summary"
+                          ? "admin-view-tab segmented-control-option calendar-segmented-control-option segmented-control-option-active"
+                          : "admin-view-tab segmented-control-option calendar-segmented-control-option"
+                      }
+                      onClick={() => setTechniciansModuleTab("summary")}
+                    >
+                      {uiText.technicians.moduleTabs.summary}
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={techniciansModuleTab === "list"}
+                      className={
+                        techniciansModuleTab === "list"
+                          ? "admin-view-tab segmented-control-option calendar-segmented-control-option segmented-control-option-active"
+                          : "admin-view-tab segmented-control-option calendar-segmented-control-option"
+                      }
+                      onClick={() => setTechniciansModuleTab("list")}
+                    >
+                      {uiText.technicians.moduleTabs.list}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="calendar-panel-row calendar-panel-row-2">
@@ -12775,79 +12949,222 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="workspace-table-wrapper service-list-table-wrapper">
-              <table className="workspace-table">
-                <thead>
-                  <tr>
-                    <th>{uiText.technicians.headers.fullName}</th>
-                    <th>{uiText.technicians.headers.phone}</th>
-                    <th>{uiText.technicians.headers.status}</th>
-                    <th>Carga hoy</th>
-                    <th>{uiText.clients.headers.actions}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTechnicians.map((technician) => {
-                    const technicianWorkload =
-                      technicianWorkloadByName.get(technician.full_name) || null;
-                    const scheduledToday = technicianWorkload?.scheduledToday || 0;
-                    const overdueAssigned = technicianWorkload?.overdueAssigned || 0;
-
-                    return (
-                      <tr
-                        key={technician.id}
-                        className={
-                          technician.id === selectedTechnicianId && technicianDrawerMode
-                            ? "workspace-table-row-action workspace-table-row-selected"
-                            : "workspace-table-row-action"
-                        }
-                        onClick={() => handleOpenTechnicianDrawerDetail(technician)}
+            {techniciansModuleTab === "summary" ? (
+              <div className="clients-module-summary-body">
+                <div className="clients-summary-header">
+                  <div className="clients-summary-header-copy">
+                    <h3>Resumen de técnicos</h3>
+                    <p>Vista general de disponibilidad, carga operativa y próximos servicios del equipo.</p>
+                  </div>
+                  <div className="service-list-filters">
+                    <label className="calendar-filter control-group-body service-list-filter">
+                      <span className="control-group-label">Rango</span>
+                      <select
+                        value={techniciansSummaryRangeFilter}
+                        onChange={(event) => setTechniciansSummaryRangeFilter(event.target.value)}
                       >
-                        <td>{technician.full_name}</td>
-                        <td>{technician.phone || "-"}</td>
-                        <td>
-                          {technician.is_active
-                            ? uiText.technicians.active
-                            : uiText.technicians.inactive}
-                        </td>
-                        <td>
-                          <div className="technician-workload-cell">
-                            <strong>{scheduledToday} servicios hoy</strong>
-                            {overdueAssigned > 0 ? (
-                              <span>{overdueAssigned} pendientes asignados</span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td>
-                          <div className="clients-row-actions">
-                            <button
-                              type="button"
-                              className="clients-row-action-button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenTechnicianDrawerEdit(technician);
-                              }}
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              className="clients-row-action-button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleViewTechnicianInCalendar(technician);
-                              }}
-                            >
-                              Ver en calendario
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        {Object.entries(techniciansSummaryRangeOptions).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="calendar-filter control-group-body service-list-filter">
+                      <span className="control-group-label">Estado</span>
+                      <select
+                        value={technicianSidebarStatus}
+                        onChange={(event) => setTechnicianSidebarStatus(event.target.value)}
+                      >
+                        <option value="all">{uiText.dashboard.technicianStatusAll}</option>
+                        <option value="active">{uiText.dashboard.technicianStatusActive}</option>
+                        <option value="inactive">{uiText.dashboard.technicianStatusInactive}</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <section className="clients-summary-section">
+                  <div className="clients-summary-section-header">
+                    <h4>Carga operativa</h4>
+                  </div>
+                  <div className="client-summary-kpis client-summary-kpis-primary">
+                    <div className="detail-static-field">
+                      <span>Técnicos activos</span>
+                      <strong>{techniciansSummaryMetrics.activeTechnicians}</strong>
+                    </div>
+                    <div className="detail-static-field">
+                      <span>Técnicos inactivos</span>
+                      <strong>{techniciansSummaryMetrics.inactiveTechnicians}</strong>
+                    </div>
+                    <div className="detail-static-field">
+                      <span>
+                        {techniciansSummaryRangeFilter === "today"
+                          ? "Órdenes de hoy"
+                          : techniciansSummaryRangeFilter === "next_7_days"
+                          ? "Órdenes próximos 7 días"
+                          : "Órdenes del mes"}
+                      </span>
+                      <strong>{techniciansSummaryMetrics.ordersInRange}</strong>
+                    </div>
+                    <div
+                      className={
+                        techniciansSummaryMetrics.overdueOrders > 0
+                          ? "detail-static-field detail-static-field-warning"
+                          : "detail-static-field"
+                      }
+                    >
+                      <span>Órdenes vencidas</span>
+                      <strong>{techniciansSummaryMetrics.overdueOrders}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="clients-summary-section">
+                  <div className="clients-summary-section-header">
+                    <h4>Distribución del equipo</h4>
+                  </div>
+                  <div className="client-summary-kpis client-summary-kpis-secondary">
+                    <div className="detail-static-field">
+                      <span>
+                        {techniciansSummaryRangeFilter === "today"
+                          ? "Órdenes pendientes hoy"
+                          : techniciansSummaryRangeFilter === "next_7_days"
+                          ? "Órdenes pendientes próximos 7 días"
+                          : "Órdenes pendientes del mes"}
+                      </span>
+                      <strong>{techniciansSummaryMetrics.pendingOrdersInRange}</strong>
+                    </div>
+                    <div className="detail-static-field">
+                      <span>Técnicos con carga</span>
+                      <strong>{techniciansSummaryMetrics.techniciansWithLoad}</strong>
+                    </div>
+                    <div className="detail-static-field">
+                      <span>Técnicos sin carga</span>
+                      <strong>{techniciansSummaryMetrics.techniciansWithoutLoad}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="drawer-section detail-section-card">
+                  <div className="clients-summary-section-header">
+                    <h4>Carga por técnico</h4>
+                  </div>
+
+                  {techniciansSummaryRows.length === 0 ? (
+                    <p className="detail-subcopy">
+                      No hay técnicos que coincidan con los filtros seleccionados.
+                    </p>
+                  ) : (
+                    <div className="workspace-table-wrapper service-list-table-wrapper">
+                      <table className="workspace-table">
+                        <thead>
+                          <tr>
+                            <th>{uiText.technicians.headers.fullName}</th>
+                            <th>{uiText.technicians.headers.status}</th>
+                            <th>Órdenes</th>
+                            <th>Pendientes</th>
+                            <th>Vencidas</th>
+                            <th>Siguiente servicio</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {techniciansSummaryRows.map((technicianRow) => (
+                            <tr key={technicianRow.id}>
+                              <td>{technicianRow.name}</td>
+                              <td>
+                                {technicianRow.isActive
+                                  ? uiText.technicians.active
+                                  : uiText.technicians.inactive}
+                              </td>
+                              <td>{technicianRow.ordersInRange}</td>
+                              <td>{technicianRow.pendingInRange}</td>
+                              <td>{technicianRow.overdueAssigned}</td>
+                              <td>{technicianRow.nextScheduledService}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              </div>
+            ) : (
+              <div className="workspace-table-wrapper service-list-table-wrapper">
+                <table className="workspace-table">
+                  <thead>
+                    <tr>
+                      <th>{uiText.technicians.headers.fullName}</th>
+                      <th>{uiText.technicians.headers.phone}</th>
+                      <th>{uiText.technicians.headers.status}</th>
+                      <th>Carga hoy</th>
+                      <th>{uiText.clients.headers.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTechnicians.map((technician) => {
+                      const technicianWorkload =
+                        technicianWorkloadByName.get(technician.full_name) || null;
+                      const scheduledToday = technicianWorkload?.scheduledToday || 0;
+                      const overdueAssigned = technicianWorkload?.overdueAssigned || 0;
+
+                      return (
+                        <tr
+                          key={technician.id}
+                          className={
+                            technician.id === selectedTechnicianId && technicianDrawerMode
+                              ? "workspace-table-row-action workspace-table-row-selected"
+                              : "workspace-table-row-action"
+                          }
+                          onClick={() => handleOpenTechnicianDrawerDetail(technician)}
+                        >
+                          <td>{technician.full_name}</td>
+                          <td>{technician.phone || "-"}</td>
+                          <td>
+                            {technician.is_active
+                              ? uiText.technicians.active
+                              : uiText.technicians.inactive}
+                          </td>
+                          <td>
+                            <div className="technician-workload-cell">
+                              <strong>{scheduledToday} servicios hoy</strong>
+                              {overdueAssigned > 0 ? (
+                                <span>{overdueAssigned} pendientes asignados</span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td>
+                            <div className="clients-row-actions">
+                              <button
+                                type="button"
+                                className="clients-row-action-button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleOpenTechnicianDrawerEdit(technician);
+                                }}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="clients-row-action-button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleViewTechnicianInCalendar(technician);
+                                }}
+                              >
+                                Ver en calendario
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
           ) : null}
 
