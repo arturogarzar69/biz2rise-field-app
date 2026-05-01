@@ -210,6 +210,20 @@ function buildClientFormStateFromRecord(clientRecord) {
   };
 }
 
+function buildClientFormComparisonState(clientState) {
+  return {
+    name: String(clientState?.name || "").trim(),
+    clientType: String(clientState?.clientType || clientState?.client_type || "commercial"),
+    businessName: String(clientState?.businessName || clientState?.business_name || "").trim(),
+    tradeName: String(clientState?.tradeName || clientState?.trade_name || "").trim(),
+    taxId: String(clientState?.taxId || clientState?.tax_id || "").trim(),
+    mainAddress: String(clientState?.mainAddress || clientState?.main_address || "").trim(),
+    mainPhone: String(clientState?.mainPhone || clientState?.main_phone || "").trim(),
+    mainContact: String(clientState?.mainContact || clientState?.main_contact || "").trim(),
+    mainEmail: String(clientState?.mainEmail || clientState?.main_email || "").trim()
+  };
+}
+
 function buildDetailFormStateFromServiceOrderRecord(serviceOrder) {
   if (!serviceOrder) {
     return initialDetailFormState;
@@ -3325,7 +3339,7 @@ function WorkspacePanel({
                   <button
                     className="button button-secondary"
                     type="button"
-                    onClick={onClientNew}
+                    onClick={() => onClientNew()}
                     disabled={isSavingClient}
                   >
                     {uiText.clients.newClient}
@@ -5274,11 +5288,11 @@ export default function DashboardPage() {
     clients.find((client) => client.id === selectedClientId) || null;
   const isClientWorkspaceFormDirty =
     clientSubTab === uiText.clients.subTabs.form &&
-    JSON.stringify(clientForm) !==
+    JSON.stringify(buildClientFormComparisonState(clientForm)) !==
       JSON.stringify(
         selectedWorkspaceClient
-          ? buildClientFormStateFromRecord(selectedWorkspaceClient)
-          : initialClientFormState
+          ? buildClientFormComparisonState(buildClientFormStateFromRecord(selectedWorkspaceClient))
+          : buildClientFormComparisonState(initialClientFormState)
       );
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
@@ -8226,8 +8240,8 @@ export default function DashboardPage() {
 
     setSelectedClientId(null);
     setClientSubTab(uiText.clients.subTabs.form);
-    setClientForm(initialClientFormState);
-    setClientOptionalSections(initialClientOptionalSections);
+    setClientForm({ ...initialClientFormState });
+    setClientOptionalSections({ ...initialClientOptionalSections });
     setClientOptionalFieldSelection("");
     setClientFormError("");
     setClientFormMessage("");
