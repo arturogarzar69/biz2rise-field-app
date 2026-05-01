@@ -1926,7 +1926,11 @@ function buildExternalDragPreview(serviceOrder) {
 }
 
 function getBranchDisplayName(branch) {
-  return branch?.name || uiText.dashboard.branchEmpty;
+  if (!branch) {
+    return uiText.dashboard.branchEmpty;
+  }
+
+  return branch.name || branch.address || "Dirección sin etiqueta";
 }
 
 function getBranchSummary(branch) {
@@ -2071,7 +2075,7 @@ function buildDefaultBranchPayload(client, companyId) {
   return {
     company_id: companyId,
     client_id: client.id,
-    name: "Principal",
+    name: "",
     address: client.main_address || "",
     phone: client.main_phone || "",
     contact: client.main_contact || "",
@@ -5339,6 +5343,32 @@ export default function DashboardPage() {
     selectedAppointment &&
     JSON.stringify(appointmentConversionForm) !==
       JSON.stringify(buildAppointmentConversionFormFromAppointmentRecord(selectedAppointment));
+  const appointmentConversionRequiredPendingFields = {
+    technicianName: !appointmentConversionForm.technicianName.trim(),
+    serviceDate: !appointmentConversionForm.serviceDate,
+    serviceTime: !appointmentConversionForm.serviceTime,
+    durationMinutes: !resolveDurationMinutes(appointmentConversionForm.durationMinutes)
+  };
+  const isAppointmentConversionReady = !Object.values(
+    appointmentConversionRequiredPendingFields
+  ).some(Boolean);
+  const getAppointmentConversionFieldClassName = (
+    fieldName,
+    baseClassName = "workspace-input-group"
+  ) =>
+    appointmentConversionRequiredPendingFields[fieldName]
+      ? `${baseClassName} field-required-pending`
+      : baseClassName;
+  const renderAppointmentConversionRequiredHint = (fieldName) =>
+    appointmentConversionRequiredPendingFields[fieldName] ? (
+      <small className="field-required-pending-copy">Campo requerido</small>
+    ) : null;
+  const appointmentConversionMissingFieldLabels = [
+    appointmentConversionRequiredPendingFields.technicianName ? "técnico" : null,
+    appointmentConversionRequiredPendingFields.serviceDate ? "fecha planificada" : null,
+    appointmentConversionRequiredPendingFields.serviceTime ? "hora planificada" : null,
+    appointmentConversionRequiredPendingFields.durationMinutes ? "duración planificada" : null
+  ].filter(Boolean);
   const isClientQuickCreateDirty =
     isClientModalOpen &&
     JSON.stringify(clientModalState) !== JSON.stringify(clientModalInitialStateRef.current);
@@ -7154,10 +7184,22 @@ export default function DashboardPage() {
       throw new Error(uiText.clients.branchesSelectClient);
     }
 
+    const normalizedBranchName = String(branchState.name || "").trim();
+    const existingClientBranches = branchesByClientId[clientId] || [];
+    const duplicateBranch = existingClientBranches.find(
+      (branch) =>
+        branch.id !== branchId &&
+        String(branch.name || "").trim().toLowerCase() === normalizedBranchName.toLowerCase()
+    );
+
+    if (duplicateBranch) {
+      throw new Error("Ya existe una dirección con esa etiqueta para este cliente.");
+    }
+
     const payload = {
       company_id: activeCompanyId,
       client_id: clientId,
-      name: branchState.name.trim(),
+      name: normalizedBranchName,
       address: branchState.address.trim(),
       phone: normalizePhoneBeforeSave(branchState.phone),
       contact: (branchState.contact || "").trim(),
@@ -7577,10 +7619,7 @@ export default function DashboardPage() {
             contact: activeBranch.contact || "",
             notes: activeBranch.notes || ""
           }
-        : {
-            ...initialBranchFormState,
-            name: "Principal"
-          }
+        : { ...initialBranchFormState }
     );
     setActiveBranchFormId(activeBranch?.id || null);
     setContactDrawerForm(initialContactDrawerForm);
@@ -8074,6 +8113,10 @@ export default function DashboardPage() {
     setActiveParentClientId(client.id);
     setActiveMode("create");
     setActiveClientDrawerTab(clientDrawerTabs.branches);
+    setActiveBranchFormId(null);
+    setDrawerBranchForm({ ...initialBranchFormState });
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
     debugLog("Create branch for client", client);
   };
 
@@ -8172,7 +8215,7 @@ export default function DashboardPage() {
     setActiveBranchFormId(null);
     setIsConfirmingDeleteBranch(false);
     setIsDeletingBranch(false);
-    setDrawerBranchForm(initialBranchFormState);
+    setDrawerBranchForm({ ...initialBranchFormState });
     setDrawerBranchError("");
     setDrawerBranchMessage("");
   };
@@ -8700,8 +8743,7 @@ export default function DashboardPage() {
 
     setPendingBranchClient(client);
     const nextBranchModalState = {
-      ...initialQuickBranchState,
-      name: "Principal"
+      ...initialQuickBranchState
     };
     branchModalInitialStateRef.current = nextBranchModalState;
     setBranchModalState(nextBranchModalState);
@@ -9370,7 +9412,7 @@ export default function DashboardPage() {
         autoCreateDefaultBranch: Boolean(primaryAddress),
         defaultBranchPayload: primaryAddress
           ? {
-              name: "Principal",
+              name: "",
               address: primaryAddress,
               phone: clientModalState.phone.trim(),
               contact: "",
@@ -9500,6 +9542,20 @@ export default function DashboardPage() {
 
     setIsSavingBranch(true);
 
+    const normalizedBranchName = String(branchForm.name || "").trim();
+    const existingClientBranches = branchesByClientId[selectedBranchClientId] || [];
+    const duplicateBranch = existingClientBranches.find(
+      (branch) =>
+        branch.id !== selectedBranchId &&
+        String(branch.name || "").trim().toLowerCase() === normalizedBranchName.toLowerCase()
+    );
+
+    if (duplicateBranch) {
+      setBranchFormError("Ya existe una dirección con esa etiqueta para este cliente.");
+      setIsSavingBranch(false);
+      return;
+    }
+
     if (selectedBranchId) {
       const supabase = getSupabaseClient();
 
@@ -9519,7 +9575,7 @@ export default function DashboardPage() {
       const payload = {
         company_id: activeCompanyId,
         client_id: selectedBranchClientId,
-        name: branchForm.name.trim(),
+        name: normalizedBranchName,
         address: branchForm.address.trim(),
         phone: branchForm.phone.trim(),
         contact: branchForm.contact.trim(),
@@ -9635,9 +9691,10 @@ export default function DashboardPage() {
       if (savedTechnician?.full_name) {
         setAppointmentConversionForm((currentState) => ({
           ...currentState,
-          technicianName: savedTechnician.full_name
+          technicianName: savedTechnician.full_name.trim()
         }));
-        setAppointmentConversionTechnicianQuery(savedTechnician.full_name);
+        setAppointmentConversionTechnicianQuery(savedTechnician.full_name.trim());
+        setDetailFormError("");
       }
 
       setIsQuickTechnicianModalOpen(false);
@@ -12923,7 +12980,7 @@ export default function DashboardPage() {
                               clientBranches.map((branch) => (
                                 <div key={branch.id} className="clients-child-row">
                                   <span>└</span>
-                                  <strong>{branch.name}</strong>
+                                  <strong>{getBranchDisplayName(branch)}</strong>
                                   <span>{branch.address || "-"}</span>
                                   <span>{branch.phone || "-"}</span>
                                   <span>{branch.contact || "-"}</span>
@@ -13687,26 +13744,18 @@ export default function DashboardPage() {
                           loadingPlaceholder={uiText.serviceOrder.placeholders.technicianLoading}
                           disabled={isConfirmingAppointment || isTechniciansLoading}
                           isLoading={isTechniciansLoading}
-                          helperText="Escribe para buscar un técnico activo o crear uno nuevo."
+                          requiredHint={renderAppointmentConversionRequiredHint("technicianName")}
+                          helperText={
+                            appointmentConversionRequiredPendingFields.technicianName
+                              ? "Selecciona un técnico activo o crea uno nuevo para continuar."
+                              : "Escribe para buscar un técnico activo o crear uno nuevo."
+                          }
                           onQueryChange={setAppointmentConversionTechnicianQuery}
                         />
 
-                        <div className="workspace-field-wide workspace-inline-actions workspace-inline-actions-start">
-                          <button
-                            className="button button-secondary workspace-table-button"
-                            type="button"
-                            onClick={() =>
-                              handleOpenQuickTechnicianModal(
-                                appointmentConversionTechnicianQuery.trim()
-                              )
-                            }
-                            disabled={isConfirmingAppointment}
-                          >
-                            + Crear técnico
-                          </button>
-                        </div>
-
-                        <label className="workspace-input-group">
+                        <label
+                          className={getAppointmentConversionFieldClassName("serviceDate")}
+                        >
                           <span>Fecha planificada</span>
                           <input
                             name="serviceDate"
@@ -13716,9 +13765,12 @@ export default function DashboardPage() {
                             disabled={isConfirmingAppointment}
                             required
                           />
+                          {renderAppointmentConversionRequiredHint("serviceDate")}
                         </label>
 
-                        <label className="workspace-input-group">
+                        <label
+                          className={getAppointmentConversionFieldClassName("serviceTime")}
+                        >
                           <span>Hora planificada</span>
                           <select
                             name="serviceTime"
@@ -13733,9 +13785,12 @@ export default function DashboardPage() {
                               </option>
                             ))}
                           </select>
+                          {renderAppointmentConversionRequiredHint("serviceTime")}
                         </label>
 
-                        <label className="workspace-input-group">
+                        <label
+                          className={getAppointmentConversionFieldClassName("durationMinutes")}
+                        >
                           <span>Duración planificada</span>
                           <select
                             name="durationMinutes"
@@ -13750,6 +13805,7 @@ export default function DashboardPage() {
                               </option>
                             ))}
                           </select>
+                          {renderAppointmentConversionRequiredHint("durationMinutes")}
                         </label>
 
                         <label className="workspace-input-group">
@@ -13810,15 +13866,19 @@ export default function DashboardPage() {
                             disabled={
                               isConfirmingAppointment ||
                               isDeletingAppointment ||
-                              !appointmentConversionForm.technicianName.trim() ||
-                              !appointmentConversionForm.serviceDate ||
-                              !appointmentConversionForm.serviceTime ||
-                              !appointmentConversionForm.durationMinutes
+                              !isAppointmentConversionReady
                             }
                           >
                             {isConfirmingAppointment ? "Creando..." : "Crear orden de servicio"}
                           </button>
                         </div>
+
+                        {appointmentConversionMissingFieldLabels.length ? (
+                          <p className="detail-subcopy workspace-field-wide">
+                            Completa estos campos para crear la orden:{" "}
+                            {appointmentConversionMissingFieldLabels.join(", ")}.
+                          </p>
+                        ) : null}
                       </div>
                     </section>
 
@@ -15151,6 +15211,7 @@ export default function DashboardPage() {
                     type="text"
                     value={branchModalState.name}
                     onChange={handleBranchModalChange}
+                    placeholder={uiText.clients.branchPlaceholders.name}
                     disabled={isSavingBranchModal}
                     required
                   />
@@ -15549,7 +15610,7 @@ export default function DashboardPage() {
                                 className="entity-drawer-list-item drawer-card-row"
                               >
                                 <div className="drawer-card-row-heading">
-                                  <strong>{branch.name}</strong>
+                                  <strong>{getBranchDisplayName(branch)}</strong>
                                 </div>
                                 {branch.address ? <span>{branch.address}</span> : null}
                                 {branch.phone ? <span>Teléfono: {branch.phone}</span> : null}
@@ -16170,7 +16231,7 @@ export default function DashboardPage() {
                                     onClick={() => handleEditBranchFromDrawer(branch)}
                                   >
                                     <div className="drawer-card-row-heading">
-                                      <strong>{branch.name}</strong>
+                                      <strong>{getBranchDisplayName(branch)}</strong>
                                     </div>
                                     {branch.address ? <span>{branch.address}</span> : null}
                                     {branch.phone ? <span>Teléfono: {branch.phone}</span> : null}
@@ -16189,7 +16250,7 @@ export default function DashboardPage() {
                               <div className="entity-drawer-subform-header">
                                 <strong>
                                   {activeEditingBranch
-                                    ? `Editando dirección: ${activeEditingBranch.name}`
+                                    ? `Editando dirección: ${getBranchDisplayName(activeEditingBranch)}`
                                     : "Nueva dirección"}
                                 </strong>
                                 {activeEditingBranch ? (
@@ -16210,6 +16271,7 @@ export default function DashboardPage() {
                                     type="text"
                                     value={drawerBranchForm.name}
                                     onChange={handleDrawerBranchFormChange}
+                                    placeholder={uiText.clients.branchPlaceholders.name}
                                     disabled={isSavingDrawerBranch}
                                     required
                                   />
@@ -16346,6 +16408,7 @@ export default function DashboardPage() {
                         type="text"
                         value={drawerBranchForm.name}
                         onChange={handleDrawerBranchFormChange}
+                        placeholder={uiText.clients.branchPlaceholders.name}
                         disabled={isSavingDrawerBranch}
                         required
                       />
