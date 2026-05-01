@@ -224,6 +224,26 @@ function buildClientFormComparisonState(clientState) {
   };
 }
 
+function getClientModalDirtySnapshot(state) {
+  return {
+    name: String(state?.name || "").trim(),
+    phone: String(state?.phone || "").trim(),
+    clientType: String(state?.clientType || "commercial").trim() || "commercial",
+    mainAddress: String(state?.mainAddress || "").trim()
+  };
+}
+
+function getBranchModalDirtySnapshot(state) {
+  return {
+    name: String(state?.name || "").trim(),
+    address: String(state?.address || "").trim(),
+    city: String(state?.city || "").trim(),
+    state: String(state?.state || "").trim(),
+    postalCode: String(state?.postalCode || "").trim(),
+    notes: String(state?.notes || "").trim()
+  };
+}
+
 function buildDetailFormStateFromServiceOrderRecord(serviceOrder) {
   if (!serviceOrder) {
     return initialDetailFormState;
@@ -5381,10 +5401,12 @@ export default function DashboardPage() {
   ].filter(Boolean);
   const isClientQuickCreateDirty =
     isClientModalOpen &&
-    JSON.stringify(clientModalState) !== JSON.stringify(clientModalInitialStateRef.current);
+    JSON.stringify(getClientModalDirtySnapshot(clientModalState)) !==
+      JSON.stringify(getClientModalDirtySnapshot(clientModalInitialStateRef.current));
   const isBranchQuickCreateDirty =
     isBranchModalOpen &&
-    JSON.stringify(branchModalState) !== JSON.stringify(branchModalInitialStateRef.current);
+    JSON.stringify(getBranchModalDirtySnapshot(branchModalState)) !==
+      JSON.stringify(getBranchModalDirtySnapshot(branchModalInitialStateRef.current));
   const isQuickTechnicianCreateDirty =
     isQuickTechnicianModalOpen &&
     JSON.stringify(quickTechnicianState) !==
@@ -6452,9 +6474,9 @@ export default function DashboardPage() {
         await fetchServiceOrders(supabase, activeCompanyId);
         setSelectedServiceOrderId(null);
         setSelectedServiceOrderSnapshot(null);
-        setSelectedAppointment(createdAppointment);
-        setRightPanelMode(rightPanelModes.detail);
-        setSuccess("Cita creada correctamente.");
+        setSelectedAppointment(null);
+        setRightPanelMode(rightPanelModes.empty);
+        setCalendarActionMessage("Cita creada correctamente.");
         resetState();
         onSuccess?.(createdAppointment);
         return;
@@ -6547,9 +6569,9 @@ export default function DashboardPage() {
       setAppointmentSeries((currentSeries) => [createdSeries, ...currentSeries]);
       setSelectedServiceOrderId(null);
       setSelectedServiceOrderSnapshot(null);
-      setSelectedAppointment(createdAppointments?.[0] || null);
-      setRightPanelMode(rightPanelModes.detail);
-      setSuccess(`Serie creada con ${createdAppointments?.length || 0} citas.`);
+      setSelectedAppointment(null);
+      setRightPanelMode(rightPanelModes.empty);
+      setCalendarActionMessage(`Serie creada con ${createdAppointments?.length || 0} citas.`);
       resetState();
       onSuccess?.(createdAppointments?.[0] || createdSeries);
     } catch (error) {
@@ -8671,10 +8693,7 @@ export default function DashboardPage() {
       setError: setFormError,
       setSuccess: setFormMessage,
       setSaving: setIsSavingOrder,
-      resetState: () => setFormState(initialFormState),
-      onSuccess: () => {
-        setRightPanelMode(rightPanelModes.detail);
-      }
+      resetState: () => setFormState(initialFormState)
     });
   };
 
@@ -12166,7 +12185,7 @@ export default function DashboardPage() {
               <button
                 className="button button-secondary"
                 type="button"
-                onClick={handleOpenClientModal}
+                onClick={() => handleOpenClientModal()}
               >
                 + Cliente
               </button>
@@ -13847,7 +13866,10 @@ export default function DashboardPage() {
                         />
 
                         <label
-                          className={getAppointmentConversionFieldClassName("serviceDate")}
+                          className={getAppointmentConversionFieldClassName(
+                            "serviceDate",
+                            "workspace-input-group appointment-conversion-field appointment-conversion-field-date"
+                          )}
                         >
                           <span>Fecha planificada</span>
                           <input
@@ -13862,7 +13884,10 @@ export default function DashboardPage() {
                         </label>
 
                         <label
-                          className={getAppointmentConversionFieldClassName("serviceTime")}
+                          className={getAppointmentConversionFieldClassName(
+                            "serviceTime",
+                            "workspace-input-group appointment-conversion-field appointment-conversion-field-time"
+                          )}
                         >
                           <span>Hora planificada</span>
                           <select
@@ -13882,7 +13907,10 @@ export default function DashboardPage() {
                         </label>
 
                         <label
-                          className={getAppointmentConversionFieldClassName("durationMinutes")}
+                          className={getAppointmentConversionFieldClassName(
+                            "durationMinutes",
+                            "workspace-input-group appointment-conversion-field appointment-conversion-field-duration"
+                          )}
                         >
                           <span>Duración planificada</span>
                           <select
@@ -13901,7 +13929,7 @@ export default function DashboardPage() {
                           {renderAppointmentConversionRequiredHint("durationMinutes")}
                         </label>
 
-                        <label className="workspace-input-group">
+                        <label className="workspace-input-group appointment-conversion-field appointment-conversion-field-amount">
                           <span>{uiText.serviceOrder.fields.serviceAmount}</span>
                           <input
                             name="serviceAmount"
@@ -13915,7 +13943,7 @@ export default function DashboardPage() {
                           />
                         </label>
 
-                        <label className="workspace-checkbox workspace-checkbox-compact">
+                        <label className="workspace-checkbox workspace-checkbox-compact appointment-conversion-field appointment-conversion-field-visibility">
                           <input
                             name="serviceAmountVisibleToTechnician"
                             type="checkbox"
@@ -14293,7 +14321,7 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="detail-edit-grid detail-edit-grid-2 service-order-edit-grid">
-                    <label className="workspace-input-group">
+                    <label className="workspace-input-group service-order-edit-field service-order-edit-field-technician">
                       <span>{uiText.serviceOrder.fields.client}</span>
                       <select
                         name="clientId"
@@ -14378,7 +14406,7 @@ export default function DashboardPage() {
                       </label>
                     ) : null}
 
-                    <label className="workspace-input-group">
+                    <label className="workspace-input-group service-order-edit-field service-order-edit-field-date">
                       <span>{uiText.dashboard.detailFields.technicianName}</span>
                       <select
                         name="technicianName"
@@ -14412,7 +14440,7 @@ export default function DashboardPage() {
                       />
                     </label>
 
-                    <label className="workspace-input-group">
+                    <label className="workspace-input-group service-order-edit-field service-order-edit-field-time">
                       <span>{uiText.dashboard.detailFields.serviceDate}</span>
                       <input
                         ref={detailDateInputRef}
@@ -14425,7 +14453,7 @@ export default function DashboardPage() {
                       />
                     </label>
 
-                    <label className="workspace-input-group">
+                    <label className="workspace-input-group service-order-edit-field service-order-edit-field-duration">
                       <span>{uiText.dashboard.detailFields.serviceTime}</span>
                       <select
                         name="serviceTime"
@@ -14442,7 +14470,7 @@ export default function DashboardPage() {
                       </select>
                     </label>
 
-                    <label className="workspace-input-group">
+                    <label className="workspace-input-group service-order-edit-field service-order-edit-field-amount">
                       <span>{uiText.serviceOrder.fields.duration}</span>
                       <select
                         name="durationMinutes"
@@ -14473,7 +14501,7 @@ export default function DashboardPage() {
                       />
                     </label>
 
-                    <label className="workspace-checkbox workspace-checkbox-compact">
+                    <label className="workspace-checkbox workspace-checkbox-compact service-order-edit-field service-order-edit-field-visibility">
                       <input
                         name="serviceAmountVisibleToTechnician"
                         type="checkbox"
@@ -15035,8 +15063,8 @@ export default function DashboardPage() {
 
                   {!isSelectedOrderCompleted ? (
                     <>
-                      <div className="detail-edit-grid">
-                        <label className="workspace-input-group">
+                      <div className="detail-edit-grid detail-edit-grid-2 service-order-execution-grid">
+                        <label className="workspace-input-group service-order-execution-field service-order-execution-field-start">
                           <span>Inicio real</span>
                           <input
                             name="actualStartAt"
@@ -15047,7 +15075,7 @@ export default function DashboardPage() {
                           />
                         </label>
 
-                        <label className="workspace-input-group">
+                        <label className="workspace-input-group service-order-execution-field service-order-execution-field-end">
                           <span>Fin real</span>
                           <input
                             name="actualEndAt"

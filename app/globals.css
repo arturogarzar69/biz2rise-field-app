@@ -3184,10 +3184,62 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.appointment-conversion-field-date {
+  grid-column: 1;
+}
+
+.appointment-conversion-field-time {
+  grid-column: 2;
+}
+
+.appointment-conversion-field-duration {
+  grid-column: 1;
+}
+
+.appointment-conversion-field-amount {
+  grid-column: 1;
+}
+
+.appointment-conversion-field-visibility {
+  grid-column: 2;
+}
+
 .service-order-edit-grid > .service-order-location-type,
 .service-order-edit-grid > .workspace-field-wide,
 .service-order-execution-grid > .workspace-field-wide {
   grid-column: 1 / -1;
+}
+
+.service-order-edit-field-date {
+  grid-column: 1;
+}
+
+.service-order-edit-field-time {
+  grid-column: 2;
+}
+
+.service-order-edit-field-duration {
+  grid-column: 1;
+}
+
+.service-order-edit-field-technician {
+  grid-column: 2;
+}
+
+.service-order-edit-field-amount {
+  grid-column: 1;
+}
+
+.service-order-edit-field-visibility {
+  grid-column: 2;
+}
+
+.service-order-execution-field-start {
+  grid-column: 1;
+}
+
+.service-order-execution-field-end {
+  grid-column: 2;
 }
 
 .service-order-edit-grid > .workspace-checkbox,
@@ -4637,6 +4689,22 @@ button:focus-visible {
   .detail-edit-grid-2,
   .detail-edit-grid-3 {
     grid-template-columns: 1fr;
+  }
+
+  .appointment-conversion-field-date,
+  .appointment-conversion-field-time,
+  .appointment-conversion-field-duration,
+  .appointment-conversion-field-amount,
+  .appointment-conversion-field-visibility,
+  .service-order-edit-field-date,
+  .service-order-edit-field-time,
+  .service-order-edit-field-duration,
+  .service-order-edit-field-technician,
+  .service-order-edit-field-amount,
+  .service-order-edit-field-visibility,
+  .service-order-execution-field-start,
+  .service-order-execution-field-end {
+    grid-column: auto;
   }
 
   .service-order-inline-row {
