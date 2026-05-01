@@ -448,6 +448,7 @@ const initialClientDrawerForm = {
 };
 
 const initialContactDrawerForm = {
+  branchId: "",
   fullName: "",
   phone: "",
   email: "",
@@ -1920,6 +1921,21 @@ function getBranchSummary(branch) {
   }
 
   return [branch.address, branch.contact, branch.phone].filter(Boolean).join(" | ");
+}
+
+function getBranchContextLabel(branch) {
+  if (!branch) {
+    return "Dirección sin definir";
+  }
+
+  const branchName = String(branch.name || "").trim();
+  const branchAddress = String(branch.address || "").trim();
+
+  if (branchName && branchAddress) {
+    return `${branchName} · ${branchAddress}`;
+  }
+
+  return branchName || branchAddress || "Dirección sin definir";
 }
 
 function buildServiceLocationOverridePayload(orderState) {
@@ -5053,12 +5069,19 @@ export default function DashboardPage() {
   const activeClientContacts = activeDrawerClientId
     ? contactsByClientId[activeDrawerClientId] || []
     : [];
+  const activeClientContactBranches = activeDrawerClientId
+    ? branchesByClientId[activeDrawerClientId] || []
+    : [];
   const activeEditingContact =
     activeContactId && activeDrawerClientId
       ? (contactsByClientId[activeDrawerClientId] || []).find(
           (contact) => contact.id === activeContactId
         ) || null
       : null;
+  const activeClientContactBranchMap = useMemo(
+    () => new Map(activeClientContactBranches.map((branch) => [branch.id, branch])),
+    [activeClientContactBranches]
+  );
   const activeEditingBranch =
     activeBranchFormId && activeDrawerClientId
       ? (branchesByClientId[activeDrawerClientId] || []).find(
@@ -8110,6 +8133,7 @@ export default function DashboardPage() {
     setContactDrawerError("");
     setContactsMessage("");
     setContactDrawerForm({
+      branchId: contact.branch_id || "",
       fullName: contact.full_name || "",
       phone: contact.phone || "",
       email: contact.email || "",
@@ -9053,7 +9077,7 @@ export default function DashboardPage() {
     try {
       const nextContactState = {
         clientId: activeDrawerClientId,
-        branchId: null,
+        branchId: contactDrawerForm.branchId || null,
         fullName: contactDrawerForm.fullName,
         phone: normalizePhoneBeforeSave(contactDrawerForm.phone),
         email: contactDrawerForm.email,
@@ -9089,6 +9113,7 @@ export default function DashboardPage() {
       setContactDrawerForm(
         savedContact
           ? {
+              branchId: savedContact.branch_id || "",
               fullName: savedContact.full_name || "",
               phone: savedContact.phone || "",
               email: savedContact.email || "",
@@ -15924,7 +15949,12 @@ export default function DashboardPage() {
                               </p>
                             ) : (
                               <div className="entity-drawer-list">
-                                {activeClientContacts.map((contact) => (
+                                {activeClientContacts.map((contact) => {
+                                  const relatedBranch = contact.branch_id
+                                    ? activeClientContactBranchMap.get(contact.branch_id) || null
+                                    : null;
+
+                                  return (
                                   <button
                                     key={contact.id}
                                     type="button"
@@ -15941,6 +15971,11 @@ export default function DashboardPage() {
                                         <span className="drawer-card-badge">Principal</span>
                                       ) : null}
                                     </div>
+                                    <span className="detail-subcopy">
+                                      {relatedBranch
+                                        ? `Dirección: ${getBranchContextLabel(relatedBranch)}`
+                                        : "General del cliente"}
+                                    </span>
                                     {contact.role ? <span>{contact.role}</span> : null}
                                     {contact.phone ? <span>{contact.phone}</span> : null}
                                     {contact.email ? <span>{contact.email}</span> : null}
@@ -15948,7 +15983,8 @@ export default function DashboardPage() {
                                       <span>Sin datos complementarios</span>
                                     ) : null}
                                   </button>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
 
@@ -15980,6 +16016,22 @@ export default function DashboardPage() {
                                     disabled={isSavingContactDrawer}
                                     required
                                   />
+                                </label>
+                                <label className="workspace-input-group workspace-field-wide">
+                                  <span>Dirección relacionada</span>
+                                  <select
+                                    name="branchId"
+                                    value={contactDrawerForm.branchId}
+                                    onChange={handleContactDrawerFormChange}
+                                    disabled={isSavingContactDrawer}
+                                  >
+                                    <option value="">General del cliente</option>
+                                    {activeClientContactBranches.map((branch) => (
+                                      <option key={branch.id} value={branch.id}>
+                                        {getBranchContextLabel(branch)}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </label>
                                 <label className="workspace-input-group">
                                   <span>Teléfono</span>
