@@ -17648,6 +17648,7 @@ export default function DashboardPage() {
                                         <div className="client-draft-summary-copy">
                                           <span className="client-draft-summary-type">Contacto</span>
                                           <strong>
+                                            {contact.role ? `${contact.role} · ` : ""}
                                             {contact.fullName || "Contacto sin nombre"} ·{" "}
                                             {relatedDirection
                                               ? `Dirección: ${getClientDraftDirectionDisplayName(relatedDirection)}`
