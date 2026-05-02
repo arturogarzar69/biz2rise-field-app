@@ -2425,6 +2425,47 @@ textarea {
   margin: 0;
 }
 
+.client-add-field-row-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.client-add-field-row-label {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.client-add-field-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.client-add-field-type,
+.client-add-field-value {
+  margin: 0;
+}
+
+.client-add-field-type select,
+.client-add-field-value input {
+  width: 100%;
+}
+
+.client-add-field-value-wide {
+  grid-column: span 1;
+}
+
+.client-add-field-submit {
+  width: 38px;
+  height: 38px;
+  font-size: var(--font-size-base-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
 .client-draft-summary-list {
   display: grid;
   gap: 8px;
@@ -2523,6 +2564,14 @@ textarea {
 }
 
 @media (max-width: 720px) {
+  .client-add-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .client-add-field-submit {
+    justify-self: flex-end;
+  }
+
   .client-draft-summary-row,
   .client-draft-editor-header {
     align-items: flex-start;

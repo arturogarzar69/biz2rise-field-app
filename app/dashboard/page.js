@@ -196,6 +196,16 @@ const initialQuickTechnicianState = {
   email: ""
 };
 
+const initialClientAddDirectionState = {
+  name: "",
+  address: ""
+};
+
+const initialClientAddContactState = {
+  fullName: "",
+  phone: ""
+};
+
 function createEmptyClientDraftDirection() {
   return {
     id: generateSafeUuid(),
@@ -292,7 +302,10 @@ function buildClientCreationFormComparisonState({
   clientForm,
   clientOptionalSections,
   directions,
-  contacts
+  contacts,
+  activeFieldType,
+  pendingDirection,
+  pendingContact
 }) {
   return {
     client: buildClientFormComparisonState(clientForm),
@@ -303,7 +316,16 @@ function buildClientCreationFormComparisonState({
       business: Boolean(clientOptionalSections?.business)
     },
     directions: (directions || []).map(buildClientDraftDirectionComparisonState),
-    contacts: (contacts || []).map(buildClientDraftContactComparisonState)
+    contacts: (contacts || []).map(buildClientDraftContactComparisonState),
+    activeFieldType: String(activeFieldType || ""),
+    pendingDirection: {
+      name: String(pendingDirection?.name || "").trim(),
+      address: String(pendingDirection?.address || "").trim()
+    },
+    pendingContact: {
+      fullName: String(pendingContact?.fullName || "").trim(),
+      phone: String(pendingContact?.phone || "").trim()
+    }
   };
 }
 
@@ -2545,6 +2567,8 @@ function WorkspacePanel({
   clientDraftDirections,
   clientDraftContacts,
   clientOptionalFieldSelection,
+  clientPendingDirection,
+  clientPendingContact,
   activeClientDraftDirectionId,
   activeClientDraftContactId,
   selectedClientId,
@@ -2588,6 +2612,7 @@ function WorkspacePanel({
   onClientFormChange,
   onClientPhoneBlur,
   onClientOptionalFieldAdd,
+  onClientOptionalFieldCommit,
   onClientDraftDirectionAdd,
   onClientDraftDirectionChange,
   onClientDraftDirectionEdit,
@@ -2598,6 +2623,9 @@ function WorkspacePanel({
   onClientDraftContactEdit,
   onClientDraftContactRemove,
   onClientDraftContactPhoneBlur,
+  onClientPendingDirectionChange,
+  onClientPendingContactChange,
+  onClientPendingContactPhoneBlur,
   onCloseClientDraftEditor,
   onClientSubmit,
   onOpenClientQuickCreate,
@@ -3860,28 +3888,102 @@ function WorkspacePanel({
                   </>
                 ) : null}
 
-                <label className="workspace-input-group workspace-field-wide client-form-add-field-group">
-                  <span>+ Agregar campo</span>
-                  <select
-                    value={clientOptionalFieldSelection}
-                    onChange={handleClientOptionalFieldAdd}
-                    disabled={
-                      isSavingClient ||
-                      clientCreateOptionalFieldOptions.length === 0
-                    }
-                  >
-                    <option value="">
-                      {clientCreateOptionalFieldOptions.length === 0
-                        ? "Todos los campos opcionales ya estan visibles"
-                        : "Selecciona un campo opcional"}
-                    </option>
-                    {clientCreateOptionalFieldOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="workspace-field-wide client-add-field-row-shell">
+                  <div className="client-add-field-row-label">+ Agregar campo</div>
+                  <div className="client-add-field-row">
+                    <label className="workspace-input-group client-add-field-type">
+                      <span className="sr-only">Tipo de campo opcional</span>
+                      <select
+                        value={clientOptionalFieldSelection}
+                        onChange={handleClientOptionalFieldAdd}
+                        disabled={
+                          isSavingClient || clientCreateOptionalFieldOptions.length === 0
+                        }
+                      >
+                        <option value="">
+                          {clientCreateOptionalFieldOptions.length === 0
+                            ? "Sin campos disponibles"
+                            : "Selecciona un campo"}
+                        </option>
+                        {clientCreateOptionalFieldOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {isClientCreateMode && clientOptionalFieldSelection === "address" ? (
+                      <>
+                        <label className="workspace-input-group client-add-field-value">
+                          <span className="sr-only">Etiqueta de la dirección</span>
+                          <input
+                            name="name"
+                            type="text"
+                            value={clientPendingDirection.name}
+                            onChange={onClientPendingDirectionChange}
+                            placeholder="Casa, Oficina, Bodega, Casa de mamá"
+                            disabled={isSavingClient}
+                          />
+                        </label>
+                        <label className="workspace-input-group client-add-field-value client-add-field-value-wide">
+                          <span className="sr-only">Dirección del servicio</span>
+                          <input
+                            name="address"
+                            type="text"
+                            value={clientPendingDirection.address}
+                            onChange={onClientPendingDirectionChange}
+                            placeholder="Dirección del servicio"
+                            disabled={isSavingClient}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    {isClientCreateMode && clientOptionalFieldSelection === "contact" ? (
+                      <>
+                        <label className="workspace-input-group client-add-field-value">
+                          <span className="sr-only">Nombre del contacto</span>
+                          <input
+                            name="fullName"
+                            type="text"
+                            value={clientPendingContact.fullName}
+                            onChange={onClientPendingContactChange}
+                            placeholder="Sergio López"
+                            disabled={isSavingClient}
+                          />
+                        </label>
+                        <label className="workspace-input-group client-add-field-value">
+                          <span className="sr-only">Teléfono del contacto</span>
+                          <input
+                            name="phone"
+                            type="tel"
+                            value={clientPendingContact.phone}
+                            onChange={onClientPendingContactChange}
+                            onBlur={onClientPendingContactPhoneBlur}
+                            placeholder="(229) 937-0595"
+                            disabled={isSavingClient}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    <button
+                      className="icon-action-button client-add-field-submit"
+                      type="button"
+                      onClick={onClientOptionalFieldCommit}
+                      disabled={
+                        isSavingClient ||
+                        !clientOptionalFieldSelection ||
+                        clientCreateOptionalFieldOptions.length === 0
+                      }
+                      aria-label="Agregar campo"
+                      title="Agregar campo"
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="workspace-form-footer">
@@ -4407,6 +4509,10 @@ export default function DashboardPage() {
   );
   const [clientDraftDirections, setClientDraftDirections] = useState([]);
   const [clientDraftContacts, setClientDraftContacts] = useState([]);
+  const [clientPendingDirection, setClientPendingDirection] = useState(
+    initialClientAddDirectionState
+  );
+  const [clientPendingContact, setClientPendingContact] = useState(initialClientAddContactState);
   const [activeClientDraftDirectionId, setActiveClientDraftDirectionId] = useState(null);
   const [activeClientDraftContactId, setActiveClientDraftContactId] = useState(null);
   const [clientOptionalFieldSelection, setClientOptionalFieldSelection] = useState("");
@@ -5701,7 +5807,7 @@ export default function DashboardPage() {
     activeEntityType === "client" && activeMode === "edit"
       ? "Actualiza la informacion esencial del cliente y agrega solo los campos que hagan falta."
       : activeEntityType === "client" && activeMode === "create"
-        ? "Crea el cliente con lo esencial y agrega direcciones o contactos después si los necesitas."
+        ? "Agrega solo los datos que necesites. Puedes añadir direcciones o contactos antes de guardar."
         : activeEntityType === "client" && activeMode === "detail"
           ? "Consulta el resumen del cliente y entra a edición solo cuando realmente necesites trabajar."
         : activeEntityType === "branch" && activeMode === "create"
@@ -5878,7 +5984,10 @@ export default function DashboardPage() {
             clientForm,
             clientOptionalSections,
             directions: clientDraftDirections,
-            contacts: clientDraftContacts
+            contacts: clientDraftContacts,
+            activeFieldType: clientOptionalFieldSelection,
+            pendingDirection: clientPendingDirection,
+            pendingContact: clientPendingContact
           })
     ) !==
       JSON.stringify(
@@ -5888,7 +5997,10 @@ export default function DashboardPage() {
               clientForm: initialClientFormState,
               clientOptionalSections: initialClientOptionalSections,
               directions: [],
-              contacts: []
+              contacts: [],
+              activeFieldType: "",
+              pendingDirection: initialClientAddDirectionState,
+              pendingContact: initialClientAddContactState
             })
       );
   const selectedFormClient =
@@ -8628,40 +8740,104 @@ export default function DashboardPage() {
   const handleClientOptionalFieldAdd = (event) => {
     const { value } = event.target;
     setClientOptionalFieldSelection(value);
+  };
 
-    if (!value) {
+  const handleClientPendingDirectionChange = (event) => {
+    const { name, value } = event.target;
+    setClientFormError("");
+    setClientFormMessage("");
+    setClientPendingDirection((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleClientPendingContactChange = (event) => {
+    const { name, value } = event.target;
+    setClientFormError("");
+    setClientFormMessage("");
+    setClientPendingContact((currentState) => ({
+      ...currentState,
+      [name]: value
+    }));
+  };
+
+  const handleClientPendingContactPhoneBlur = () => {
+    setClientPendingContact((currentState) => ({
+      ...currentState,
+      phone: formatPhoneForDisplay(currentState.phone)
+    }));
+  };
+
+  const handleCommitClientOptionalField = () => {
+    setClientFormError("");
+    setClientFormMessage("");
+
+    if (!clientOptionalFieldSelection) {
       return;
     }
 
-    if (!selectedClientId && value === "address") {
-      const nextDirection = createEmptyClientDraftDirection();
+    if (!selectedClientId && clientOptionalFieldSelection === "address") {
+      const normalizedName = clientPendingDirection.name.trim().toLowerCase();
+
+      if (!clientPendingDirection.address.trim()) {
+        setClientFormError("Ingresa una dirección antes de agregarla.");
+        return;
+      }
+
+      if (
+        normalizedName &&
+        clientDraftDirections.some(
+          (direction) => String(direction.name || "").trim().toLowerCase() === normalizedName
+        )
+      ) {
+        setClientFormError("Ya existe una dirección con esa etiqueta para este cliente.");
+        return;
+      }
+
+      const nextDirection = {
+        ...createEmptyClientDraftDirection(),
+        name: clientPendingDirection.name.trim(),
+        address: clientPendingDirection.address.trim()
+      };
+
       setClientOptionalSections((currentState) => ({
         ...currentState,
         address: true
       }));
       setClientDraftDirections((currentState) => [...currentState, nextDirection]);
-      setActiveClientDraftDirectionId(nextDirection.id);
+      setClientPendingDirection(initialClientAddDirectionState);
+      setActiveClientDraftDirectionId(null);
       setActiveClientDraftContactId(null);
-      setClientOptionalFieldSelection("");
       return;
     }
 
-    if (!selectedClientId && value === "contact") {
-      const nextContact = createEmptyClientDraftContact();
+    if (!selectedClientId && clientOptionalFieldSelection === "contact") {
+      if (!clientPendingContact.fullName.trim()) {
+        setClientFormError("Ingresa el nombre del contacto antes de agregarlo.");
+        return;
+      }
+
+      const nextContact = {
+        ...createEmptyClientDraftContact(),
+        fullName: clientPendingContact.fullName.trim(),
+        phone: formatPhoneForDisplay(clientPendingContact.phone)
+      };
+
       setClientOptionalSections((currentState) => ({
         ...currentState,
         contact: true
       }));
       setClientDraftContacts((currentState) => [...currentState, nextContact]);
-      setActiveClientDraftContactId(nextContact.id);
+      setClientPendingContact(initialClientAddContactState);
       setActiveClientDraftDirectionId(null);
-      setClientOptionalFieldSelection("");
+      setActiveClientDraftContactId(null);
       return;
     }
 
     setClientOptionalSections((currentState) => ({
       ...currentState,
-      [value]: true
+      [clientOptionalFieldSelection]: true
     }));
     setClientOptionalFieldSelection("");
   };
@@ -9141,6 +9317,8 @@ export default function DashboardPage() {
     setClientOptionalSections(getClientOptionalSections(nextClientForm));
     setClientDraftDirections([]);
     setClientDraftContacts([]);
+    setClientPendingDirection(initialClientAddDirectionState);
+    setClientPendingContact(initialClientAddContactState);
     setActiveClientDraftDirectionId(null);
     setActiveClientDraftContactId(null);
     setClientOptionalFieldSelection("");
@@ -9157,6 +9335,8 @@ export default function DashboardPage() {
     setClientOptionalSections({ ...initialClientOptionalSections });
     setClientDraftDirections([]);
     setClientDraftContacts([]);
+    setClientPendingDirection(initialClientAddDirectionState);
+    setClientPendingContact(initialClientAddContactState);
     setActiveClientDraftDirectionId(null);
     setActiveClientDraftContactId(null);
     setClientOptionalFieldSelection("");
@@ -10507,6 +10687,8 @@ export default function DashboardPage() {
       setClientOptionalSections({ ...initialClientOptionalSections });
       setClientDraftDirections([]);
       setClientDraftContacts([]);
+      setClientPendingDirection(initialClientAddDirectionState);
+      setClientPendingContact(initialClientAddContactState);
       setActiveClientDraftDirectionId(null);
       setActiveClientDraftContactId(null);
       setClientOptionalFieldSelection("");
@@ -10523,6 +10705,8 @@ export default function DashboardPage() {
         setClientOptionalSections(getClientOptionalSections(recoveredClientForm));
         setClientDraftDirections([]);
         setClientDraftContacts([]);
+        setClientPendingDirection(initialClientAddDirectionState);
+        setClientPendingContact(initialClientAddContactState);
         setActiveClientDraftDirectionId(null);
         setActiveClientDraftContactId(null);
         setClientOptionalFieldSelection("");
@@ -13106,7 +13290,7 @@ export default function DashboardPage() {
               <button
                 className="button button-secondary"
                 type="button"
-                onClick={() => handleOpenClientModal()}
+                onClick={handleOpenClientDrawerCreate}
               >
                 + Cliente
               </button>
@@ -14644,6 +14828,8 @@ export default function DashboardPage() {
                 clientDraftDirections={clientDraftDirections}
                 clientDraftContacts={clientDraftContacts}
                 clientOptionalFieldSelection={clientOptionalFieldSelection}
+                clientPendingDirection={clientPendingDirection}
+                clientPendingContact={clientPendingContact}
                 activeClientDraftDirectionId={activeClientDraftDirectionId}
                 activeClientDraftContactId={activeClientDraftContactId}
                 selectedClientId={selectedClientId}
@@ -14687,6 +14873,7 @@ export default function DashboardPage() {
                 onClientFormChange={handleClientFormChange}
                 onClientPhoneBlur={handleClientFormPhoneBlur}
                 onClientOptionalFieldAdd={handleClientOptionalFieldAdd}
+                onClientOptionalFieldCommit={handleCommitClientOptionalField}
                 onClientDraftDirectionAdd={handleClientDraftDirectionAdd}
                 onClientDraftDirectionChange={handleClientDraftDirectionChange}
                 onClientDraftDirectionEdit={handleClientDraftDirectionEdit}
@@ -14697,6 +14884,9 @@ export default function DashboardPage() {
                 onClientDraftContactEdit={handleClientDraftContactEdit}
                 onClientDraftContactRemove={handleClientDraftContactRemove}
                 onClientDraftContactPhoneBlur={handleClientDraftContactPhoneBlur}
+                onClientPendingDirectionChange={handleClientPendingDirectionChange}
+                onClientPendingContactChange={handleClientPendingContactChange}
+                onClientPendingContactPhoneBlur={handleClientPendingContactPhoneBlur}
                 onCloseClientDraftEditor={handleCloseClientDraftEditor}
                 onClientSubmit={handleCreateClient}
                 onOpenClientQuickCreate={handleOpenClientModal}
