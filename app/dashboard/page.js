@@ -9184,6 +9184,48 @@ export default function DashboardPage() {
     setIsConfirmingDeleteClient(false);
   };
 
+  const handleOpenClientWorkspaceCreate = () => {
+    if (
+      (isClientWorkspaceFormDirty ||
+        isClientDrawerDirty ||
+        isBranchDrawerDirty ||
+        isContactDrawerDirty) &&
+      !confirmDiscardUnsavedChanges()
+    ) {
+      return;
+    }
+
+    setActiveTopLevelTab(dashboardTabs.clients);
+    setClientsModuleTab(clientsModuleTabs.list);
+    setClientSubTab(uiText.clients.subTabs.form);
+    setSelectedClientId(null);
+    setClientForm({ ...initialClientFormState });
+    setClientOptionalSections({ ...initialClientOptionalSections });
+    setClientDraftDirections([]);
+    setClientDraftContacts([]);
+    setClientPendingDirection(initialClientAddDirectionState);
+    setClientPendingContact(initialClientAddContactState);
+    setActiveClientDraftDirectionId(null);
+    setActiveClientDraftContactId(null);
+    setClientOptionalFieldSelection("address");
+    setClientFormError("");
+    setClientFormMessage("");
+    setActiveEntityType(null);
+    setActiveEntityId(null);
+    setActiveParentClientId(null);
+    setActiveMode(null);
+    setActiveClientDrawerTab(clientDrawerTabs.client);
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+    setContactsError("");
+    setContactsMessage("");
+    setDrawerBranchError("");
+    setDrawerBranchMessage("");
+    setActiveBranchFormId(null);
+    setActiveContactId(null);
+    setIsConfirmingDeleteClient(false);
+  };
+
   const resetContactDrawerEditor = () => {
     setActiveContactId(null);
     setContactDrawerForm(initialContactDrawerForm);
@@ -13290,7 +13332,7 @@ export default function DashboardPage() {
               <button
                 className="button button-secondary"
                 type="button"
-                onClick={handleOpenClientDrawerCreate}
+                onClick={handleOpenClientWorkspaceCreate}
               >
                 + Cliente
               </button>
@@ -13367,7 +13409,7 @@ export default function DashboardPage() {
                 <p>Busca clientes, revisa sus direcciones y crea nuevos registros rápidamente.</p>
               </div>
               <div className="operations-panel-actions">
-                <button className="button" type="button" onClick={handleOpenClientDrawerCreate}>
+                <button className="button" type="button" onClick={handleOpenClientWorkspaceCreate}>
                   + Cliente
                 </button>
               </div>
