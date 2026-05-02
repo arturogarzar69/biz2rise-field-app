@@ -2469,6 +2469,63 @@ textarea {
   color: var(--text-muted);
 }
 
+.repeatable-row {
+  display: grid;
+  gap: 10px;
+}
+
+.repeatable-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.repeatable-row-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.repeatable-row-type {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.repeatable-row-summary {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repeatable-row-meta {
+  font-size: var(--font-size-meta);
+  line-height: var(--line-height-copy);
+  color: var(--text-muted);
+}
+
+.repeatable-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.repeatable-row-expanded {
+  display: grid;
+  gap: 10px;
+}
+
 .client-draft-summary-list {
   display: grid;
   gap: 8px;

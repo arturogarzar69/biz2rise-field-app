@@ -8,6 +8,7 @@ import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import TimeGrid from "react-big-calendar/lib/TimeGrid";
 import SegmentedControl from "../../components/SegmentedControl";
 import IconButton from "../../components/ui/IconButton";
+import RepeatableRow from "../../components/ui/repeatable/RepeatableRow";
 import {
   addDays,
   format,
@@ -3510,170 +3511,172 @@ function WorkspacePanel({
 
                         <div className="client-draft-summary-list">
                           {clientDraftDirections.map((direction) => (
-                            <div key={direction.id} className="client-draft-summary-row">
-                              <div className="client-draft-summary-copy">
-                                <span className="client-draft-summary-type">Dirección</span>
-                                <strong>{getClientDraftDirectionSummary(direction)}</strong>
-                              </div>
-                              <div className="client-draft-summary-actions">
-                                <IconButton
-                                  type="button"
-                                  onClick={() => onClientDraftDirectionEdit(direction.id)}
-                                  disabled={isSavingClient}
-                                  label="Editar dirección"
-                                >
-                                  <Pencil size={16} strokeWidth={1.8} />
-                                </IconButton>
-                                <IconButton
-                                  variant="danger"
-                                  type="button"
-                                  onClick={() => onClientDraftDirectionRemove(direction.id)}
-                                  disabled={isSavingClient}
-                                  label="Quitar dirección"
-                                >
-                                  <Trash2 size={16} strokeWidth={1.8} />
-                                </IconButton>
-                              </div>
-                            </div>
+                            <RepeatableRow
+                              key={direction.id}
+                              typeLabel="Dirección"
+                              summary={getClientDraftDirectionSummary(direction)}
+                              actions={
+                                <>
+                                  <IconButton
+                                    type="button"
+                                    onClick={() => onClientDraftDirectionEdit(direction.id)}
+                                    disabled={isSavingClient}
+                                    label="Editar dirección"
+                                  >
+                                    <Pencil size={16} strokeWidth={1.8} />
+                                  </IconButton>
+                                  <IconButton
+                                    variant="danger"
+                                    type="button"
+                                    onClick={() => onClientDraftDirectionRemove(direction.id)}
+                                    disabled={isSavingClient}
+                                    label="Quitar dirección"
+                                  >
+                                    <Trash2 size={16} strokeWidth={1.8} />
+                                  </IconButton>
+                                </>
+                              }
+                              expanded={activeClientDraftDirection?.id === direction.id}
+                            >
+                              {activeClientDraftDirection?.id === direction.id ? (
+                                <section className="client-draft-editor drawer-section">
+                                  <div className="client-draft-editor-header">
+                                    <strong>Editar dirección</strong>
+                                    <button
+                                      className="button button-secondary workspace-table-button"
+                                      type="button"
+                                      onClick={onCloseClientDraftEditor}
+                                      disabled={isSavingClient}
+                                    >
+                                      Listo
+                                    </button>
+                                  </div>
+
+                                  <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                    <label className="workspace-input-group">
+                                      <span>{uiText.clients.branchFields.name}</span>
+                                      <input
+                                        name="name"
+                                        type="text"
+                                        value={activeClientDraftDirection.name}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        placeholder={uiText.clients.branchPlaceholders.name}
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group">
+                                      <span>{uiText.clients.branchFields.phone}</span>
+                                      <input
+                                        name="phone"
+                                        type="tel"
+                                        value={activeClientDraftDirection.phone}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        onBlur={() =>
+                                          onClientDraftDirectionPhoneBlur(activeClientDraftDirection.id)
+                                        }
+                                        placeholder={uiText.clients.branchPlaceholders.phone}
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group workspace-field-wide">
+                                      <span>{uiText.clients.branchFields.address}</span>
+                                      <input
+                                        name="address"
+                                        type="text"
+                                        value={activeClientDraftDirection.address}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        placeholder={uiText.clients.branchPlaceholders.address}
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group">
+                                      <span>Ciudad</span>
+                                      <input
+                                        name="city"
+                                        type="text"
+                                        value={activeClientDraftDirection.city}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group">
+                                      <span>Estado</span>
+                                      <input
+                                        name="state"
+                                        type="text"
+                                        value={activeClientDraftDirection.state}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group">
+                                      <span>Código postal</span>
+                                      <input
+                                        name="postalCode"
+                                        type="text"
+                                        value={activeClientDraftDirection.postalCode}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        disabled={isSavingClient}
+                                      />
+                                    </label>
+
+                                    <label className="workspace-input-group workspace-field-wide">
+                                      <span>{uiText.clients.branchFields.notes}</span>
+                                      <textarea
+                                        name="notes"
+                                        value={activeClientDraftDirection.notes}
+                                        onChange={(event) =>
+                                          onClientDraftDirectionChange(
+                                            activeClientDraftDirection.id,
+                                            event
+                                          )
+                                        }
+                                        placeholder={uiText.clients.branchPlaceholders.notes}
+                                        disabled={isSavingClient}
+                                        rows={3}
+                                      />
+                                    </label>
+                                  </div>
+                                </section>
+                              ) : null}
+                            </RepeatableRow>
                           ))}
                         </div>
-
-                        {activeClientDraftDirection ? (
-                          <section className="client-draft-editor drawer-section">
-                            <div className="client-draft-editor-header">
-                              <strong>Editar dirección</strong>
-                              <button
-                                className="button button-secondary workspace-table-button"
-                                type="button"
-                                onClick={onCloseClientDraftEditor}
-                                disabled={isSavingClient}
-                              >
-                                Listo
-                              </button>
-                            </div>
-
-                            <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
-                              <label className="workspace-input-group">
-                                <span>{uiText.clients.branchFields.name}</span>
-                                <input
-                                  name="name"
-                                  type="text"
-                                  value={activeClientDraftDirection.name}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  placeholder={uiText.clients.branchPlaceholders.name}
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group">
-                                <span>{uiText.clients.branchFields.phone}</span>
-                                <input
-                                  name="phone"
-                                  type="tel"
-                                  value={activeClientDraftDirection.phone}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  onBlur={() =>
-                                    onClientDraftDirectionPhoneBlur(activeClientDraftDirection.id)
-                                  }
-                                  placeholder={uiText.clients.branchPlaceholders.phone}
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group workspace-field-wide">
-                                <span>{uiText.clients.branchFields.address}</span>
-                                <input
-                                  name="address"
-                                  type="text"
-                                  value={activeClientDraftDirection.address}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  placeholder={uiText.clients.branchPlaceholders.address}
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group">
-                                <span>Ciudad</span>
-                                <input
-                                  name="city"
-                                  type="text"
-                                  value={activeClientDraftDirection.city}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group">
-                                <span>Estado</span>
-                                <input
-                                  name="state"
-                                  type="text"
-                                  value={activeClientDraftDirection.state}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group">
-                                <span>Código postal</span>
-                                <input
-                                  name="postalCode"
-                                  type="text"
-                                  value={activeClientDraftDirection.postalCode}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  disabled={isSavingClient}
-                                />
-                              </label>
-
-                              <label className="workspace-input-group workspace-field-wide">
-                                <span>{uiText.clients.branchFields.notes}</span>
-                                <textarea
-                                  name="notes"
-                                  value={activeClientDraftDirection.notes}
-                                  onChange={(event) =>
-                                    onClientDraftDirectionChange(
-                                      activeClientDraftDirection.id,
-                                      event
-                                    )
-                                  }
-                                  placeholder={uiText.clients.branchPlaceholders.notes}
-                                  disabled={isSavingClient}
-                                  rows={3}
-                                />
-                              </label>
-                            </div>
-                          </section>
-                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -3717,151 +3720,153 @@ function WorkspacePanel({
 
                     <div className="client-draft-summary-list">
                       {clientDraftContacts.map((contact) => (
-                        <div key={contact.id} className="client-draft-summary-row">
-                          <div className="client-draft-summary-copy">
-                            <span className="client-draft-summary-type">Contacto</span>
-                            <strong>{getClientDraftContactSummary(contact)}</strong>
-                          </div>
-                          <div className="client-draft-summary-actions">
-                            <IconButton
-                              type="button"
-                              onClick={() => onClientDraftContactEdit(contact.id)}
-                              disabled={isSavingClient}
-                              label="Editar contacto"
-                            >
-                              <Pencil size={16} strokeWidth={1.8} />
-                            </IconButton>
-                            <IconButton
-                              variant="danger"
-                              type="button"
-                              onClick={() => onClientDraftContactRemove(contact.id)}
-                              disabled={isSavingClient}
-                              label="Quitar contacto"
-                            >
-                              <Trash2 size={16} strokeWidth={1.8} />
-                            </IconButton>
-                          </div>
-                        </div>
+                        <RepeatableRow
+                          key={contact.id}
+                          typeLabel="Contacto"
+                          summary={getClientDraftContactSummary(contact)}
+                          actions={
+                            <>
+                              <IconButton
+                                type="button"
+                                onClick={() => onClientDraftContactEdit(contact.id)}
+                                disabled={isSavingClient}
+                                label="Editar contacto"
+                              >
+                                <Pencil size={16} strokeWidth={1.8} />
+                              </IconButton>
+                              <IconButton
+                                variant="danger"
+                                type="button"
+                                onClick={() => onClientDraftContactRemove(contact.id)}
+                                disabled={isSavingClient}
+                                label="Quitar contacto"
+                              >
+                                <Trash2 size={16} strokeWidth={1.8} />
+                              </IconButton>
+                            </>
+                          }
+                          expanded={activeClientDraftContact?.id === contact.id}
+                        >
+                          {activeClientDraftContact?.id === contact.id ? (
+                            <section className="client-draft-editor drawer-section">
+                              <div className="client-draft-editor-header">
+                                <strong>Editar contacto</strong>
+                                <button
+                                  className="button button-secondary workspace-table-button"
+                                  type="button"
+                                  onClick={onCloseClientDraftEditor}
+                                  disabled={isSavingClient}
+                                >
+                                  Listo
+                                </button>
+                              </div>
+
+                              <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                <label className="workspace-input-group">
+                                  <span>Nombre</span>
+                                  <input
+                                    name="fullName"
+                                    type="text"
+                                    value={activeClientDraftContact.fullName}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                  />
+                                </label>
+
+                                <label className="workspace-input-group">
+                                  <span>Dirección relacionada</span>
+                                  <select
+                                    name="relatedDirectionId"
+                                    value={activeClientDraftContact.relatedDirectionId}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                  >
+                                    <option value="">General del cliente</option>
+                                    {clientDraftDirectionOptions.map((directionOption) => (
+                                      <option key={directionOption.id} value={directionOption.id}>
+                                        {directionOption.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="workspace-input-group">
+                                  <span>Teléfono</span>
+                                  <input
+                                    name="phone"
+                                    type="tel"
+                                    value={activeClientDraftContact.phone}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    onBlur={() =>
+                                      onClientDraftContactPhoneBlur(activeClientDraftContact.id)
+                                    }
+                                    disabled={isSavingClient}
+                                  />
+                                </label>
+
+                                <label className="workspace-input-group">
+                                  <span>Email</span>
+                                  <input
+                                    name="email"
+                                    type="email"
+                                    value={activeClientDraftContact.email}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                  />
+                                </label>
+
+                                <label className="workspace-input-group">
+                                  <span>Rol</span>
+                                  <input
+                                    name="role"
+                                    type="text"
+                                    value={activeClientDraftContact.role}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                  />
+                                </label>
+
+                                <label className="workspace-checkbox workspace-checkbox-compact">
+                                  <input
+                                    name="isPrimary"
+                                    type="checkbox"
+                                    checked={activeClientDraftContact.isPrimary}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                  />
+                                  <span>Contacto principal</span>
+                                </label>
+
+                                <label className="workspace-input-group workspace-field-wide">
+                                  <span>Notas</span>
+                                  <textarea
+                                    name="notes"
+                                    value={activeClientDraftContact.notes}
+                                    onChange={(event) =>
+                                      onClientDraftContactChange(activeClientDraftContact.id, event)
+                                    }
+                                    disabled={isSavingClient}
+                                    rows={3}
+                                  />
+                                </label>
+                              </div>
+                            </section>
+                          ) : null}
+                        </RepeatableRow>
                       ))}
                     </div>
-
-                    {activeClientDraftContact ? (
-                      <section className="client-draft-editor drawer-section">
-                        <div className="client-draft-editor-header">
-                          <strong>Editar contacto</strong>
-                          <button
-                            className="button button-secondary workspace-table-button"
-                            type="button"
-                            onClick={onCloseClientDraftEditor}
-                            disabled={isSavingClient}
-                          >
-                            Listo
-                          </button>
-                        </div>
-
-                        <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
-                          <label className="workspace-input-group">
-                            <span>Nombre</span>
-                            <input
-                              name="fullName"
-                              type="text"
-                              value={activeClientDraftContact.fullName}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                            />
-                          </label>
-
-                          <label className="workspace-input-group">
-                            <span>Dirección relacionada</span>
-                            <select
-                              name="relatedDirectionId"
-                              value={activeClientDraftContact.relatedDirectionId}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                            >
-                              <option value="">General del cliente</option>
-                              {clientDraftDirectionOptions.map((directionOption) => (
-                                <option key={directionOption.id} value={directionOption.id}>
-                                  {directionOption.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          <label className="workspace-input-group">
-                            <span>Teléfono</span>
-                            <input
-                              name="phone"
-                              type="tel"
-                              value={activeClientDraftContact.phone}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              onBlur={() =>
-                                onClientDraftContactPhoneBlur(activeClientDraftContact.id)
-                              }
-                              disabled={isSavingClient}
-                            />
-                          </label>
-
-                          <label className="workspace-input-group">
-                            <span>Email</span>
-                            <input
-                              name="email"
-                              type="email"
-                              value={activeClientDraftContact.email}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                            />
-                          </label>
-
-                          <label className="workspace-input-group">
-                            <span>Rol</span>
-                            <input
-                              name="role"
-                              type="text"
-                              value={activeClientDraftContact.role}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                            />
-                          </label>
-
-                          <label className="workspace-checkbox workspace-checkbox-compact">
-                            <input
-                              name="isPrimary"
-                              type="checkbox"
-                              checked={activeClientDraftContact.isPrimary}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                            />
-                            <span>Contacto principal</span>
-                          </label>
-
-                          <label className="workspace-input-group workspace-field-wide">
-                            <span>Notas</span>
-                            <textarea
-                              name="notes"
-                              value={activeClientDraftContact.notes}
-                              onChange={(event) =>
-                                onClientDraftContactChange(activeClientDraftContact.id, event)
-                              }
-                              disabled={isSavingClient}
-                              rows={3}
-                            />
-                          </label>
-                        </div>
-                      </section>
-                    ) : null}
                   </div>
                 ) : null}
 
@@ -17379,143 +17384,170 @@ export default function DashboardPage() {
                             </div>
                             <div className="client-draft-summary-list">
                               {clientDraftDirections.map((direction) => (
-                                <div key={direction.id} className="client-draft-summary-row">
-                                  <div className="client-draft-summary-copy">
-                                    <span className="client-draft-summary-type">Dirección</span>
-                                    <strong>{getClientDraftDirectionSummaryText(direction)}</strong>
-                                  </div>
-                                  <div className="client-draft-summary-actions">
-                                          <IconButton
-                                            type="button"
-                                            onClick={() => handleClientDraftDirectionEdit(direction.id)}
-                                            disabled={isSavingClientDrawer}
-                                            label="Editar dirección"
-                                          >
-                                            <Pencil size={16} strokeWidth={1.8} />
-                                          </IconButton>
-                                          <IconButton
-                                            variant="danger"
-                                            type="button"
-                                            onClick={() => handleClientDraftDirectionRemove(direction.id)}
-                                            disabled={isSavingClientDrawer}
-                                            label="Quitar dirección"
-                                          >
-                                            <Trash2 size={16} strokeWidth={1.8} />
-                                          </IconButton>
-                                  </div>
-                                </div>
+                                <RepeatableRow
+                                  key={direction.id}
+                                  typeLabel="Dirección"
+                                  summary={getClientDraftDirectionSummaryText(direction)}
+                                  actions={
+                                    <>
+                                      <IconButton
+                                        type="button"
+                                        onClick={() => handleClientDraftDirectionEdit(direction.id)}
+                                        disabled={isSavingClientDrawer}
+                                        label="Editar dirección"
+                                      >
+                                        <Pencil size={16} strokeWidth={1.8} />
+                                      </IconButton>
+                                      <IconButton
+                                        variant="danger"
+                                        type="button"
+                                        onClick={() => handleClientDraftDirectionRemove(direction.id)}
+                                        disabled={isSavingClientDrawer}
+                                        label="Quitar dirección"
+                                      >
+                                        <Trash2 size={16} strokeWidth={1.8} />
+                                      </IconButton>
+                                    </>
+                                  }
+                                  expanded={activeClientDraftDirectionId === direction.id}
+                                >
+                                  {activeClientDraftDirectionId === direction.id ? (
+                                    <section className="client-draft-editor drawer-section">
+                                      <div className="client-draft-editor-header">
+                                        <strong>Editar dirección</strong>
+                                        <button
+                                          className="button button-secondary workspace-table-button"
+                                          type="button"
+                                          onClick={handleCloseClientDraftEditor}
+                                          disabled={isSavingClientDrawer}
+                                        >
+                                          Listo
+                                        </button>
+                                      </div>
+                                      {(() => {
+                                        const activeDirection = clientDraftDirections.find(
+                                          (draftDirection) =>
+                                            draftDirection.id === activeClientDraftDirectionId
+                                        );
+
+                                        return activeDirection ? (
+                                          <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                            <label className="workspace-input-group">
+                                              <span>{uiText.clients.branchFields.name}</span>
+                                              <input
+                                                name="name"
+                                                type="text"
+                                                value={activeDirection.name}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group">
+                                              <span>{uiText.clients.branchFields.phone}</span>
+                                              <input
+                                                name="phone"
+                                                type="tel"
+                                                value={activeDirection.phone}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                onBlur={() =>
+                                                  handleClientDraftDirectionPhoneBlur(activeDirection.id)
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group workspace-field-wide">
+                                              <span>{uiText.clients.branchFields.address}</span>
+                                              <input
+                                                name="address"
+                                                type="text"
+                                                value={activeDirection.address}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group">
+                                              <span>Ciudad</span>
+                                              <input
+                                                name="city"
+                                                type="text"
+                                                value={activeDirection.city}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group">
+                                              <span>Estado</span>
+                                              <input
+                                                name="state"
+                                                type="text"
+                                                value={activeDirection.state}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group">
+                                              <span>Código postal</span>
+                                              <input
+                                                name="postalCode"
+                                                type="text"
+                                                value={activeDirection.postalCode}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                            <label className="workspace-input-group workspace-field-wide">
+                                              <span>{uiText.clients.branchFields.notes}</span>
+                                              <textarea
+                                                name="notes"
+                                                value={activeDirection.notes}
+                                                onChange={(event) =>
+                                                  handleClientDraftDirectionChange(
+                                                    activeDirection.id,
+                                                    event
+                                                  )
+                                                }
+                                                rows={3}
+                                                disabled={isSavingClientDrawer}
+                                              />
+                                            </label>
+                                          </div>
+                                        ) : null;
+                                      })()}
+                                    </section>
+                                  ) : null}
+                                </RepeatableRow>
                               ))}
                             </div>
-                            {activeClientDraftDirectionId ? (
-                              <section className="client-draft-editor drawer-section">
-                                <div className="client-draft-editor-header">
-                                  <strong>Editar dirección</strong>
-                                  <button
-                                    className="button button-secondary workspace-table-button"
-                                    type="button"
-                                    onClick={handleCloseClientDraftEditor}
-                                    disabled={isSavingClientDrawer}
-                                  >
-                                    Listo
-                                  </button>
-                                </div>
-                                {(() => {
-                                  const activeDirection = clientDraftDirections.find(
-                                    (direction) => direction.id === activeClientDraftDirectionId
-                                  );
-
-                                  return activeDirection ? (
-                                    <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
-                                      <label className="workspace-input-group">
-                                        <span>{uiText.clients.branchFields.name}</span>
-                                        <input
-                                          name="name"
-                                          type="text"
-                                          value={activeDirection.name}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group">
-                                        <span>{uiText.clients.branchFields.phone}</span>
-                                        <input
-                                          name="phone"
-                                          type="tel"
-                                          value={activeDirection.phone}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          onBlur={() => handleClientDraftDirectionPhoneBlur(activeDirection.id)}
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group workspace-field-wide">
-                                        <span>{uiText.clients.branchFields.address}</span>
-                                        <input
-                                          name="address"
-                                          type="text"
-                                          value={activeDirection.address}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group">
-                                        <span>Ciudad</span>
-                                        <input
-                                          name="city"
-                                          type="text"
-                                          value={activeDirection.city}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group">
-                                        <span>Estado</span>
-                                        <input
-                                          name="state"
-                                          type="text"
-                                          value={activeDirection.state}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group">
-                                        <span>Código postal</span>
-                                        <input
-                                          name="postalCode"
-                                          type="text"
-                                          value={activeDirection.postalCode}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                      <label className="workspace-input-group workspace-field-wide">
-                                        <span>{uiText.clients.branchFields.notes}</span>
-                                        <textarea
-                                          name="notes"
-                                          value={activeDirection.notes}
-                                          onChange={(event) =>
-                                            handleClientDraftDirectionChange(activeDirection.id, event)
-                                          }
-                                          rows={3}
-                                          disabled={isSavingClientDrawer}
-                                        />
-                                      </label>
-                                    </div>
-                                  ) : null;
-                                })()}
-                              </section>
-                            ) : null}
                           </div>
                         ) : null}
 
@@ -17635,156 +17667,181 @@ export default function DashboardPage() {
                                       : null;
 
                                     return (
-                                      <div key={contact.id} className="client-draft-summary-row">
-                                        <div className="client-draft-summary-copy">
-                                          <span className="client-draft-summary-type">Contacto</span>
-                                          <strong>
-                                            {contact.role ? `${contact.role} · ` : ""}
-                                            {contact.fullName || "Contacto sin nombre"} ·{" "}
-                                            {relatedDirection
-                                              ? `Dirección: ${getClientDraftDirectionDisplayName(relatedDirection)}`
-                                              : "General del cliente"}
-                                          </strong>
-                                        </div>
-                                        <div className="client-draft-summary-actions">
-                                          <IconButton
-                                            type="button"
-                                            onClick={() => handleClientDraftContactEdit(contact.id)}
-                                            disabled={isSavingClientDrawer}
-                                            label="Editar contacto"
-                                          >
-                                            <Pencil size={16} strokeWidth={1.8} />
-                                          </IconButton>
-                                          <IconButton
-                                            variant="danger"
-                                            type="button"
-                                            onClick={() => handleClientDraftContactRemove(contact.id)}
-                                            disabled={isSavingClientDrawer}
-                                            label="Quitar contacto"
-                                          >
-                                            <Trash2 size={16} strokeWidth={1.8} />
-                                          </IconButton>
-                                        </div>
-                                      </div>
+                                      <RepeatableRow
+                                        key={contact.id}
+                                        typeLabel="Contacto"
+                                        summary={`${contact.role ? `${contact.role} · ` : ""}${contact.fullName || "Contacto sin nombre"} · ${
+                                          relatedDirection
+                                            ? `Dirección: ${getClientDraftDirectionDisplayName(relatedDirection)}`
+                                            : "General del cliente"
+                                        }`}
+                                        actions={
+                                          <>
+                                            <IconButton
+                                              type="button"
+                                              onClick={() => handleClientDraftContactEdit(contact.id)}
+                                              disabled={isSavingClientDrawer}
+                                              label="Editar contacto"
+                                            >
+                                              <Pencil size={16} strokeWidth={1.8} />
+                                            </IconButton>
+                                            <IconButton
+                                              variant="danger"
+                                              type="button"
+                                              onClick={() => handleClientDraftContactRemove(contact.id)}
+                                              disabled={isSavingClientDrawer}
+                                              label="Quitar contacto"
+                                            >
+                                              <Trash2 size={16} strokeWidth={1.8} />
+                                            </IconButton>
+                                          </>
+                                        }
+                                        expanded={activeClientDraftContactId === contact.id}
+                                      >
+                                        {activeClientDraftContactId === contact.id ? (
+                                          <section className="client-draft-editor drawer-section">
+                                            <div className="client-draft-editor-header">
+                                              <strong>Editar contacto</strong>
+                                              <button
+                                                className="button button-secondary workspace-table-button"
+                                                type="button"
+                                                onClick={handleCloseClientDraftEditor}
+                                                disabled={isSavingClientDrawer}
+                                              >
+                                                Listo
+                                              </button>
+                                            </div>
+                                            {(() => {
+                                              const activeContact = clientDraftContacts.find(
+                                                (draftContact) =>
+                                                  draftContact.id === activeClientDraftContactId
+                                              );
+
+                                              return activeContact ? (
+                                                <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                                  <label className="workspace-input-group">
+                                                    <span>Nombre</span>
+                                                    <input
+                                                      name="fullName"
+                                                      type="text"
+                                                      value={activeContact.fullName}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                  </label>
+                                                  <label className="workspace-input-group">
+                                                    <span>Dirección relacionada</span>
+                                                    <select
+                                                      name="relatedDirectionId"
+                                                      value={activeContact.relatedDirectionId}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    >
+                                                      <option value="">General del cliente</option>
+                                                      {clientDraftDirections.map((direction) => (
+                                                        <option key={direction.id} value={direction.id}>
+                                                          {getClientDraftDirectionDisplayName(direction)}
+                                                        </option>
+                                                      ))}
+                                                    </select>
+                                                  </label>
+                                                  <label className="workspace-input-group">
+                                                    <span>Teléfono</span>
+                                                    <input
+                                                      name="phone"
+                                                      type="tel"
+                                                      value={activeContact.phone}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      onBlur={() =>
+                                                        handleClientDraftContactPhoneBlur(activeContact.id)
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                  </label>
+                                                  <label className="workspace-input-group">
+                                                    <span>Email</span>
+                                                    <input
+                                                      name="email"
+                                                      type="email"
+                                                      value={activeContact.email}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                  </label>
+                                                  <label className="workspace-input-group">
+                                                    <span>Rol</span>
+                                                    <input
+                                                      name="role"
+                                                      type="text"
+                                                      value={activeContact.role}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                  </label>
+                                                  <label className="workspace-checkbox workspace-checkbox-compact">
+                                                    <input
+                                                      name="isPrimary"
+                                                      type="checkbox"
+                                                      checked={activeContact.isPrimary}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                    <span>Contacto principal</span>
+                                                  </label>
+                                                  <label className="workspace-input-group workspace-field-wide">
+                                                    <span>Notas</span>
+                                                    <textarea
+                                                      name="notes"
+                                                      value={activeContact.notes}
+                                                      onChange={(event) =>
+                                                        handleClientDraftContactChange(
+                                                          activeContact.id,
+                                                          event
+                                                        )
+                                                      }
+                                                      rows={3}
+                                                      disabled={isSavingClientDrawer}
+                                                    />
+                                                  </label>
+                                                </div>
+                                              ) : null;
+                                            })()}
+                                          </section>
+                                        ) : null}
+                                      </RepeatableRow>
                                     );
                                   })}
                                 </div>
-                                {activeClientDraftContactId ? (
-                                  <section className="client-draft-editor drawer-section">
-                                    <div className="client-draft-editor-header">
-                                      <strong>Editar contacto</strong>
-                                      <button
-                                        className="button button-secondary workspace-table-button"
-                                        type="button"
-                                        onClick={handleCloseClientDraftEditor}
-                                        disabled={isSavingClientDrawer}
-                                      >
-                                        Listo
-                                      </button>
-                                    </div>
-                                    {(() => {
-                                      const activeContact = clientDraftContacts.find(
-                                        (contact) => contact.id === activeClientDraftContactId
-                                      );
-
-                                      return activeContact ? (
-                                        <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
-                                          <label className="workspace-input-group">
-                                            <span>Nombre</span>
-                                            <input
-                                              name="fullName"
-                                              type="text"
-                                              value={activeContact.fullName}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                          </label>
-                                          <label className="workspace-input-group">
-                                            <span>Dirección relacionada</span>
-                                            <select
-                                              name="relatedDirectionId"
-                                              value={activeContact.relatedDirectionId}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              disabled={isSavingClientDrawer}
-                                            >
-                                              <option value="">General del cliente</option>
-                                              {clientDraftDirections.map((direction) => (
-                                                <option key={direction.id} value={direction.id}>
-                                                  {getClientDraftDirectionDisplayName(direction)}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </label>
-                                          <label className="workspace-input-group">
-                                            <span>Teléfono</span>
-                                            <input
-                                              name="phone"
-                                              type="tel"
-                                              value={activeContact.phone}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              onBlur={() => handleClientDraftContactPhoneBlur(activeContact.id)}
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                          </label>
-                                          <label className="workspace-input-group">
-                                            <span>Email</span>
-                                            <input
-                                              name="email"
-                                              type="email"
-                                              value={activeContact.email}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                          </label>
-                                          <label className="workspace-input-group">
-                                            <span>Rol</span>
-                                            <input
-                                              name="role"
-                                              type="text"
-                                              value={activeContact.role}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                          </label>
-                                          <label className="workspace-checkbox workspace-checkbox-compact">
-                                            <input
-                                              name="isPrimary"
-                                              type="checkbox"
-                                              checked={activeContact.isPrimary}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                            <span>Contacto principal</span>
-                                          </label>
-                                          <label className="workspace-input-group workspace-field-wide">
-                                            <span>Notas</span>
-                                            <textarea
-                                              name="notes"
-                                              value={activeContact.notes}
-                                              onChange={(event) =>
-                                                handleClientDraftContactChange(activeContact.id, event)
-                                              }
-                                              rows={3}
-                                              disabled={isSavingClientDrawer}
-                                            />
-                                          </label>
-                                        </div>
-                                      ) : null;
-                                    })()}
-                                  </section>
-                                ) : null}
                               </div>
                             ) : null}
 
