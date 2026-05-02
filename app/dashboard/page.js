@@ -244,6 +244,22 @@ function getClientDraftDirectionDisplayName(direction) {
   return explicitName || resolvedAddress || "Dirección sin etiqueta";
 }
 
+function getClientDraftDirectionSummaryText(direction) {
+  const explicitName = String(direction?.name || "").trim();
+  const resolvedAddress = buildQuickDirectionAddress({
+    address: String(direction?.address || "").trim(),
+    city: String(direction?.city || "").trim(),
+    state: String(direction?.state || "").trim(),
+    postalCode: String(direction?.postalCode || "").trim()
+  });
+
+  if (explicitName && resolvedAddress) {
+    return `${explicitName} · ${resolvedAddress}`;
+  }
+
+  return resolvedAddress || explicitName || "Dirección sin etiqueta";
+}
+
 function buildClientDraftDirectionComparisonState(direction) {
   return {
     id: String(direction?.id || ""),
@@ -327,6 +343,26 @@ function buildClientCreationFormComparisonState({
       phone: String(pendingContact?.phone || "").trim()
     }
   };
+}
+
+function buildClientDrawerCreateComparisonState({
+  clientForm,
+  optionalSections,
+  directions,
+  contacts,
+  activeFieldType,
+  pendingDirection,
+  pendingContact
+}) {
+  return buildClientCreationFormComparisonState({
+    clientForm,
+    clientOptionalSections: optionalSections,
+    directions,
+    contacts,
+    activeFieldType,
+    pendingDirection,
+    pendingContact
+  });
 }
 
 function buildClientFormStateFromRecord(clientRecord) {
@@ -5930,7 +5966,28 @@ export default function DashboardPage() {
   );
   const isClientDrawerDirty =
     activeMode === "create"
-      ? Boolean(clientDrawerForm.name.trim())
+      ? JSON.stringify(
+          buildClientDrawerCreateComparisonState({
+            clientForm: clientDrawerForm,
+            optionalSections: clientDrawerOptionalSections,
+            directions: clientDraftDirections,
+            contacts: clientDraftContacts,
+            activeFieldType: clientDrawerOptionalFieldSelection,
+            pendingDirection: clientPendingDirection,
+            pendingContact: clientPendingContact
+          })
+        ) !==
+        JSON.stringify(
+          buildClientDrawerCreateComparisonState({
+            clientForm: initialClientDrawerForm,
+            optionalSections: initialClientOptionalSections,
+            directions: [],
+            contacts: [],
+            activeFieldType: "",
+            pendingDirection: initialClientAddDirectionState,
+            pendingContact: initialClientAddContactState
+          })
+        )
       : Boolean(activeClient) &&
         JSON.stringify({
           name: clientDrawerForm.name.trim(),
@@ -9197,7 +9254,7 @@ export default function DashboardPage() {
 
     setActiveTopLevelTab(dashboardTabs.clients);
     setClientsModuleTab(clientsModuleTabs.list);
-    setClientSubTab(uiText.clients.subTabs.form);
+    setClientSubTab(uiText.clients.subTabs.list);
     setSelectedClientId(null);
     setClientForm({ ...initialClientFormState });
     setClientOptionalSections({ ...initialClientOptionalSections });
@@ -9207,20 +9264,25 @@ export default function DashboardPage() {
     setClientPendingContact(initialClientAddContactState);
     setActiveClientDraftDirectionId(null);
     setActiveClientDraftContactId(null);
-    setClientOptionalFieldSelection("address");
+    setClientOptionalFieldSelection("");
     setClientFormError("");
     setClientFormMessage("");
-    setActiveEntityType(null);
+    setActiveEntityType("client");
     setActiveEntityId(null);
     setActiveParentClientId(null);
-    setActiveMode(null);
+    setActiveMode("create");
     setActiveClientDrawerTab(clientDrawerTabs.client);
     setClientDrawerError("");
     setClientDrawerMessage("");
+    setClientDrawerForm({ ...initialClientDrawerForm });
+    setClientDrawerOptionalSections({ ...initialClientOptionalSections });
+    setClientDrawerOptionalFieldSelection("");
     setContactsError("");
     setContactsMessage("");
+    setContactDrawerForm({ ...initialContactDrawerForm });
     setDrawerBranchError("");
     setDrawerBranchMessage("");
+    setDrawerBranchForm({ ...initialBranchFormState });
     setActiveBranchFormId(null);
     setActiveContactId(null);
     setIsConfirmingDeleteClient(false);
@@ -9878,14 +9940,71 @@ export default function DashboardPage() {
   const handleClientDrawerOptionalFieldAdd = (event) => {
     const { value } = event.target;
     setClientDrawerOptionalFieldSelection(value);
+  };
 
-    if (!value) {
+  const handleCommitClientDrawerOptionalField = () => {
+    setClientDrawerError("");
+    setClientDrawerMessage("");
+
+    if (!clientDrawerOptionalFieldSelection) {
+      return;
+    }
+
+    if (clientDrawerOptionalFieldSelection === "address") {
+      const normalizedName = clientPendingDirection.name.trim().toLowerCase();
+
+      if (!clientPendingDirection.address.trim()) {
+        setClientDrawerError("Ingresa una dirección antes de agregarla.");
+        return;
+      }
+
+      if (
+        normalizedName &&
+        clientDraftDirections.some(
+          (direction) => String(direction.name || "").trim().toLowerCase() === normalizedName
+        )
+      ) {
+        setClientDrawerError("Ya existe una dirección con esa etiqueta para este cliente.");
+        return;
+      }
+
+      const nextDirection = {
+        ...createEmptyClientDraftDirection(),
+        name: clientPendingDirection.name.trim(),
+        address: clientPendingDirection.address.trim()
+      };
+
+      setClientDraftDirections((currentState) => [...currentState, nextDirection]);
+      setClientPendingDirection(initialClientAddDirectionState);
+      setClientDrawerOptionalFieldSelection("address");
+      setActiveClientDraftDirectionId(null);
+      setActiveClientDraftContactId(null);
+      return;
+    }
+
+    if (clientDrawerOptionalFieldSelection === "contact") {
+      if (!clientPendingContact.fullName.trim()) {
+        setClientDrawerError("Ingresa el nombre del contacto antes de agregarlo.");
+        return;
+      }
+
+      const nextContact = {
+        ...createEmptyClientDraftContact(),
+        fullName: clientPendingContact.fullName.trim(),
+        phone: formatPhoneForDisplay(clientPendingContact.phone)
+      };
+
+      setClientDraftContacts((currentState) => [...currentState, nextContact]);
+      setClientPendingContact(initialClientAddContactState);
+      setClientDrawerOptionalFieldSelection("contact");
+      setActiveClientDraftDirectionId(null);
+      setActiveClientDraftContactId(null);
       return;
     }
 
     setClientDrawerOptionalSections((currentState) => ({
       ...currentState,
-      [value]: true
+      [clientDrawerOptionalFieldSelection]: true
     }));
     setClientDrawerOptionalFieldSelection("");
   };
@@ -10008,28 +10127,192 @@ export default function DashboardPage() {
     setIsConfirmingDeleteClient(false);
     setClientDeleteImpact({ branches: 0, contacts: 0 });
     setIsSavingClientDrawer(true);
+    let createdClientRecord = null;
 
     try {
-      const savedClient = await saveClientRecord({
-        clientState: {
-          name: clientDrawerForm.name,
-          clientType: clientDrawerForm.clientType,
-          businessName: clientDrawerForm.businessName,
-          tradeName: clientDrawerForm.tradeName,
-          taxId: clientDrawerForm.taxId,
-          mainAddress: clientDrawerForm.mainAddress,
-          mainPhone: clientDrawerForm.mainPhone,
-          mainContact: clientDrawerForm.mainContact,
-          mainEmail: clientDrawerForm.mainEmail
-        },
-        clientId: activeMode === "edit" ? activeEntityId : null
-      });
+      let savedClient = null;
+
+      if (activeMode === "edit") {
+        savedClient = await saveClientRecord({
+          clientState: {
+            name: clientDrawerForm.name,
+            clientType: clientDrawerForm.clientType,
+            businessName: clientDrawerForm.businessName,
+            tradeName: clientDrawerForm.tradeName,
+            taxId: clientDrawerForm.taxId,
+            mainAddress: clientDrawerForm.mainAddress,
+            mainPhone: clientDrawerForm.mainPhone,
+            mainContact: clientDrawerForm.mainContact,
+            mainEmail: clientDrawerForm.mainEmail
+          },
+          clientId: activeEntityId
+        });
+      } else {
+        const hasPendingDirectionDraft = Boolean(
+          clientPendingDirection.name.trim() || clientPendingDirection.address.trim()
+        );
+        const hasPendingContactDraft = Boolean(
+          clientPendingContact.fullName.trim() || clientPendingContact.phone.trim()
+        );
+        const draftDirections = [...clientDraftDirections];
+        const draftContacts = [...clientDraftContacts];
+        const normalizedDirectionLabels = new Set();
+
+        if (hasPendingDirectionDraft) {
+          if (!clientPendingDirection.address.trim()) {
+            throw new Error("Completa la dirección activa antes de guardar el cliente.");
+          }
+
+          const normalizedPendingDirectionLabel = clientPendingDirection.name.trim().toLowerCase();
+
+          if (
+            normalizedPendingDirectionLabel &&
+            draftDirections.some(
+              (direction) =>
+                String(direction.name || "").trim().toLowerCase() === normalizedPendingDirectionLabel
+            )
+          ) {
+            throw new Error("Ya existe una dirección con esa etiqueta para este cliente.");
+          }
+
+          draftDirections.push({
+            ...createEmptyClientDraftDirection(),
+            name: clientPendingDirection.name.trim(),
+            address: clientPendingDirection.address.trim()
+          });
+        }
+
+        if (hasPendingContactDraft) {
+          if (!clientPendingContact.fullName.trim()) {
+            throw new Error("Completa el nombre del contacto activo antes de guardar el cliente.");
+          }
+
+          draftContacts.push({
+            ...createEmptyClientDraftContact(),
+            fullName: clientPendingContact.fullName.trim(),
+            phone: formatPhoneForDisplay(clientPendingContact.phone)
+          });
+        }
+
+        for (const direction of draftDirections) {
+          const normalizedLabel = String(direction.name || "").trim().toLowerCase();
+
+          if (!String(direction.address || "").trim()) {
+            throw new Error("Completa la dirección en cada bloque agregado antes de guardar.");
+          }
+
+          if (normalizedLabel) {
+            if (normalizedDirectionLabels.has(normalizedLabel)) {
+              throw new Error("Ya existe una dirección con esa etiqueta para este cliente.");
+            }
+
+            normalizedDirectionLabels.add(normalizedLabel);
+          }
+        }
+
+        for (const contact of draftContacts) {
+          if (!String(contact.fullName || "").trim()) {
+            throw new Error("Completa el nombre en cada contacto agregado antes de guardar.");
+          }
+        }
+
+        const primaryDraftDirection = draftDirections[0] || null;
+        const primaryDraftContact =
+          draftContacts.find((contact) => contact.isPrimary) || draftContacts[0] || null;
+        const clientMainAddress = primaryDraftDirection
+          ? buildQuickDirectionAddress({
+              address: primaryDraftDirection.address.trim(),
+              city: primaryDraftDirection.city.trim(),
+              state: primaryDraftDirection.state.trim(),
+              postalCode: primaryDraftDirection.postalCode.trim()
+            })
+          : clientDrawerForm.mainAddress;
+
+        savedClient = await saveClientRecord({
+          clientState: {
+            ...clientDrawerForm,
+            mainAddress: clientMainAddress,
+            mainContact: primaryDraftContact?.fullName?.trim() || clientDrawerForm.mainContact
+          },
+          autoCreateDefaultBranch: false
+        });
+        createdClientRecord = savedClient;
+
+        const savedDirectionIdByDraftId = new Map();
+        const savedContacts = [];
+        const supabase = getSupabaseClient();
+
+        if (!supabase || !savedClient?.id) {
+          throw new Error(uiText.clients.configError);
+        }
+
+        for (const direction of draftDirections) {
+          const resolvedAddress = buildQuickDirectionAddress({
+            address: direction.address.trim(),
+            city: direction.city.trim(),
+            state: direction.state.trim(),
+            postalCode: direction.postalCode.trim()
+          });
+          const savedDirection = await saveBranchRecord({
+            branchState: {
+              name: direction.name,
+              address: resolvedAddress,
+              phone: direction.phone,
+              contact: "",
+              notes: direction.notes
+            },
+            clientId: savedClient.id,
+            preserveOrderClient: true
+          });
+
+          if (savedDirection?.id) {
+            savedDirectionIdByDraftId.set(direction.id, savedDirection.id);
+          }
+        }
+
+        for (const contact of draftContacts) {
+          const savedContact = await saveContactRecord({
+            supabase,
+            companyId: activeCompanyId,
+            contactState: {
+              clientId: savedClient.id,
+              branchId: contact.relatedDirectionId
+                ? savedDirectionIdByDraftId.get(contact.relatedDirectionId) || null
+                : null,
+              fullName: contact.fullName,
+              phone: normalizePhoneBeforeSave(contact.phone),
+              email: contact.email,
+              role: contact.role,
+              notes: contact.notes,
+              isPrimary: contact.isPrimary
+            }
+          });
+
+          if (savedContact) {
+            savedContacts.push(savedContact);
+          }
+        }
+
+        if (savedContacts.length > 0) {
+          setContactsByClientId((currentState) => ({
+            ...currentState,
+            [savedClient.id]: savedContacts
+          }));
+        }
+      }
 
       setSelectedClientId(savedClient.id);
       setExpandedClientIds((currentState) => ({
         ...currentState,
         [savedClient.id]: Boolean(currentState[savedClient.id])
       }));
+      setClientDraftDirections([]);
+      setClientDraftContacts([]);
+      setClientPendingDirection(initialClientAddDirectionState);
+      setClientPendingContact(initialClientAddContactState);
+      setActiveClientDraftDirectionId(null);
+      setActiveClientDraftContactId(null);
+      setClientDrawerOptionalFieldSelection("");
       setActiveEntityType("client");
       setActiveEntityId(savedClient.id);
       setActiveParentClientId(null);
@@ -10038,6 +10321,13 @@ export default function DashboardPage() {
         activeMode === "edit" ? uiText.clients.updateSuccess : uiText.clients.success
       );
     } catch (error) {
+      if (createdClientRecord?.id && activeMode !== "edit") {
+        setSelectedClientId(createdClientRecord.id);
+        setActiveEntityType("client");
+        setActiveEntityId(createdClientRecord.id);
+        setActiveParentClientId(null);
+        setActiveMode("edit");
+      }
       setClientDrawerError(error.message || uiText.clients.createError);
     } finally {
       setIsSavingClientDrawer(false);
@@ -16771,7 +17061,6 @@ export default function DashboardPage() {
                         Servicios / órdenes
                       </button>
                     </div>
-
                     {activeClientDrawerTab === clientDrawerTabs.summary ? (
                       <>
                         <section className="drawer-section detail-section-card">
@@ -17011,6 +17300,7 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <>
+                    {activeMode !== "create" ? (
                     <div className="entity-drawer-tabs">
                       <button
                         type="button"
@@ -17048,6 +17338,7 @@ export default function DashboardPage() {
                         Direcciones
                       </button>
                     </div>
+                    ) : null}
 
                     {activeClientDrawerTab === clientDrawerTabs.client ? (
                       <form className="workspace-form entity-drawer-form" onSubmit={handleSaveClientFromDrawer}>
@@ -17056,8 +17347,9 @@ export default function DashboardPage() {
                             <h4 className="drawer-section-title">Cliente</h4>
                           </div>
                           <p className="detail-subcopy">
-                            Empieza con lo esencial. Agrega dirección, email o datos
-                            administrativos solo cuando hagan falta.
+                            {activeMode === "create"
+                              ? "Agrega solo los datos que necesites. Puedes añadir direcciones o contactos antes de guardar."
+                              : "Empieza con lo esencial. Agrega dirección, email o datos administrativos solo cuando hagan falta."}
                           </p>
                           <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                             <label className="workspace-input-group workspace-field-wide">
@@ -17086,7 +17378,157 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        {clientDrawerOptionalSections.address ? (
+                        {activeMode === "create" && clientDraftDirections.length > 0 ? (
+                          <div className="entity-drawer-section drawer-section client-draft-section">
+                            <div className="client-draft-section-header">
+                              <strong>Direcciones</strong>
+                            </div>
+                            <div className="client-draft-summary-list">
+                              {clientDraftDirections.map((direction) => (
+                                <div key={direction.id} className="client-draft-summary-row">
+                                  <div className="client-draft-summary-copy">
+                                    <span className="client-draft-summary-type">Dirección</span>
+                                    <strong>{getClientDraftDirectionSummaryText(direction)}</strong>
+                                  </div>
+                                  <div className="client-draft-summary-actions">
+                                    <button
+                                      className="icon-action-button"
+                                      type="button"
+                                      onClick={() => handleClientDraftDirectionEdit(direction.id)}
+                                      disabled={isSavingClientDrawer}
+                                      aria-label="Editar dirección"
+                                      title="Editar dirección"
+                                    >
+                                      <Pencil size={16} strokeWidth={1.8} />
+                                    </button>
+                                    <button
+                                      className="icon-action-button icon-action-button-danger"
+                                      type="button"
+                                      onClick={() => handleClientDraftDirectionRemove(direction.id)}
+                                      disabled={isSavingClientDrawer}
+                                      aria-label="Quitar dirección"
+                                      title="Quitar dirección"
+                                    >
+                                      <Trash2 size={16} strokeWidth={1.8} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            {activeClientDraftDirectionId ? (
+                              <section className="client-draft-editor drawer-section">
+                                <div className="client-draft-editor-header">
+                                  <strong>Editar dirección</strong>
+                                  <button
+                                    className="button button-secondary workspace-table-button"
+                                    type="button"
+                                    onClick={handleCloseClientDraftEditor}
+                                    disabled={isSavingClientDrawer}
+                                  >
+                                    Listo
+                                  </button>
+                                </div>
+                                {(() => {
+                                  const activeDirection = clientDraftDirections.find(
+                                    (direction) => direction.id === activeClientDraftDirectionId
+                                  );
+
+                                  return activeDirection ? (
+                                    <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                      <label className="workspace-input-group">
+                                        <span>{uiText.clients.branchFields.name}</span>
+                                        <input
+                                          name="name"
+                                          type="text"
+                                          value={activeDirection.name}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group">
+                                        <span>{uiText.clients.branchFields.phone}</span>
+                                        <input
+                                          name="phone"
+                                          type="tel"
+                                          value={activeDirection.phone}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          onBlur={() => handleClientDraftDirectionPhoneBlur(activeDirection.id)}
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group workspace-field-wide">
+                                        <span>{uiText.clients.branchFields.address}</span>
+                                        <input
+                                          name="address"
+                                          type="text"
+                                          value={activeDirection.address}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group">
+                                        <span>Ciudad</span>
+                                        <input
+                                          name="city"
+                                          type="text"
+                                          value={activeDirection.city}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group">
+                                        <span>Estado</span>
+                                        <input
+                                          name="state"
+                                          type="text"
+                                          value={activeDirection.state}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group">
+                                        <span>Código postal</span>
+                                        <input
+                                          name="postalCode"
+                                          type="text"
+                                          value={activeDirection.postalCode}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group workspace-field-wide">
+                                        <span>{uiText.clients.branchFields.notes}</span>
+                                        <textarea
+                                          name="notes"
+                                          value={activeDirection.notes}
+                                          onChange={(event) =>
+                                            handleClientDraftDirectionChange(activeDirection.id, event)
+                                          }
+                                          rows={3}
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                    </div>
+                                  ) : null;
+                                })()}
+                              </section>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {activeMode !== "create" && clientDrawerOptionalSections.address ? (
                           <div className="entity-drawer-section drawer-section">
                             <div className="entity-drawer-section-header">
                               <h4 className="drawer-section-title">Dirección principal</h4>
@@ -17106,7 +17548,8 @@ export default function DashboardPage() {
                           </div>
                         ) : null}
 
-                        {clientDrawerOptionalSections.email || clientDrawerOptionalSections.contact ? (
+                        {activeMode !== "create" &&
+                        (clientDrawerOptionalSections.email || clientDrawerOptionalSections.contact) ? (
                           <div className="entity-drawer-section drawer-section">
                             <div className="entity-drawer-section-header">
                               <h4 className="drawer-section-title">Contacto</h4>
@@ -17141,7 +17584,7 @@ export default function DashboardPage() {
                           </div>
                         ) : null}
 
-                        {clientDrawerOptionalSections.business ? (
+                        {activeMode !== "create" && clientDrawerOptionalSections.business ? (
                           <div className="entity-drawer-section drawer-section">
                             <div className="entity-drawer-section-header">
                               <h4 className="drawer-section-title">
@@ -17185,6 +17628,338 @@ export default function DashboardPage() {
                           </div>
                         ) : null}
 
+                        {activeMode === "create" ? (
+                          <>
+                            {clientDraftContacts.length > 0 ? (
+                              <div className="entity-drawer-section drawer-section client-draft-section">
+                                <div className="client-draft-section-header">
+                                  <strong>Contactos</strong>
+                                </div>
+                                <div className="client-draft-summary-list">
+                                  {clientDraftContacts.map((contact) => {
+                                    const relatedDirection = contact.relatedDirectionId
+                                      ? clientDraftDirections.find(
+                                          (direction) => direction.id === contact.relatedDirectionId
+                                        ) || null
+                                      : null;
+
+                                    return (
+                                      <div key={contact.id} className="client-draft-summary-row">
+                                        <div className="client-draft-summary-copy">
+                                          <span className="client-draft-summary-type">Contacto</span>
+                                          <strong>
+                                            {contact.fullName || "Contacto sin nombre"} ·{" "}
+                                            {relatedDirection
+                                              ? `Dirección: ${getClientDraftDirectionDisplayName(relatedDirection)}`
+                                              : "General del cliente"}
+                                          </strong>
+                                        </div>
+                                        <div className="client-draft-summary-actions">
+                                          <button
+                                            className="icon-action-button"
+                                            type="button"
+                                            onClick={() => handleClientDraftContactEdit(contact.id)}
+                                            disabled={isSavingClientDrawer}
+                                            aria-label="Editar contacto"
+                                            title="Editar contacto"
+                                          >
+                                            <Pencil size={16} strokeWidth={1.8} />
+                                          </button>
+                                          <button
+                                            className="icon-action-button icon-action-button-danger"
+                                            type="button"
+                                            onClick={() => handleClientDraftContactRemove(contact.id)}
+                                            disabled={isSavingClientDrawer}
+                                            aria-label="Quitar contacto"
+                                            title="Quitar contacto"
+                                          >
+                                            <Trash2 size={16} strokeWidth={1.8} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {activeClientDraftContactId ? (
+                                  <section className="client-draft-editor drawer-section">
+                                    <div className="client-draft-editor-header">
+                                      <strong>Editar contacto</strong>
+                                      <button
+                                        className="button button-secondary workspace-table-button"
+                                        type="button"
+                                        onClick={handleCloseClientDraftEditor}
+                                        disabled={isSavingClientDrawer}
+                                      >
+                                        Listo
+                                      </button>
+                                    </div>
+                                    {(() => {
+                                      const activeContact = clientDraftContacts.find(
+                                        (contact) => contact.id === activeClientDraftContactId
+                                      );
+
+                                      return activeContact ? (
+                                        <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                                          <label className="workspace-input-group">
+                                            <span>Nombre</span>
+                                            <input
+                                              name="fullName"
+                                              type="text"
+                                              value={activeContact.fullName}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                          </label>
+                                          <label className="workspace-input-group">
+                                            <span>Dirección relacionada</span>
+                                            <select
+                                              name="relatedDirectionId"
+                                              value={activeContact.relatedDirectionId}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              disabled={isSavingClientDrawer}
+                                            >
+                                              <option value="">General del cliente</option>
+                                              {clientDraftDirections.map((direction) => (
+                                                <option key={direction.id} value={direction.id}>
+                                                  {getClientDraftDirectionDisplayName(direction)}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </label>
+                                          <label className="workspace-input-group">
+                                            <span>Teléfono</span>
+                                            <input
+                                              name="phone"
+                                              type="tel"
+                                              value={activeContact.phone}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              onBlur={() => handleClientDraftContactPhoneBlur(activeContact.id)}
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                          </label>
+                                          <label className="workspace-input-group">
+                                            <span>Email</span>
+                                            <input
+                                              name="email"
+                                              type="email"
+                                              value={activeContact.email}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                          </label>
+                                          <label className="workspace-input-group">
+                                            <span>Rol</span>
+                                            <input
+                                              name="role"
+                                              type="text"
+                                              value={activeContact.role}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                          </label>
+                                          <label className="workspace-checkbox workspace-checkbox-compact">
+                                            <input
+                                              name="isPrimary"
+                                              type="checkbox"
+                                              checked={activeContact.isPrimary}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                            <span>Contacto principal</span>
+                                          </label>
+                                          <label className="workspace-input-group workspace-field-wide">
+                                            <span>Notas</span>
+                                            <textarea
+                                              name="notes"
+                                              value={activeContact.notes}
+                                              onChange={(event) =>
+                                                handleClientDraftContactChange(activeContact.id, event)
+                                              }
+                                              rows={3}
+                                              disabled={isSavingClientDrawer}
+                                            />
+                                          </label>
+                                        </div>
+                                      ) : null;
+                                    })()}
+                                  </section>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            {clientDrawerOptionalSections.email ? (
+                              <div className="entity-drawer-section drawer-section">
+                                <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                                  <label className="workspace-input-group workspace-field-wide">
+                                    <span>{uiText.clients.fields.mainEmail}</span>
+                                    <input
+                                      name="mainEmail"
+                                      type="email"
+                                      value={clientDrawerForm.mainEmail}
+                                      onChange={handleClientDrawerFormChange}
+                                      disabled={isSavingClientDrawer}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {clientDrawerOptionalSections.business ? (
+                              <div className="entity-drawer-section drawer-section">
+                                <div className="workspace-grid entity-drawer-grid drawer-form-grid">
+                                  <label className="workspace-input-group">
+                                    <span>{uiText.clients.fields.businessName}</span>
+                                    <input
+                                      name="businessName"
+                                      type="text"
+                                      value={clientDrawerForm.businessName}
+                                      onChange={handleClientDrawerFormChange}
+                                      disabled={isSavingClientDrawer}
+                                    />
+                                  </label>
+                                  <label className="workspace-input-group">
+                                    <span>{uiText.clients.fields.tradeName}</span>
+                                    <input
+                                      name="tradeName"
+                                      type="text"
+                                      value={clientDrawerForm.tradeName}
+                                      onChange={handleClientDrawerFormChange}
+                                      disabled={isSavingClientDrawer}
+                                    />
+                                  </label>
+                                  <label className="workspace-input-group">
+                                    <span>{uiText.clients.fields.taxId}</span>
+                                    <input
+                                      name="taxId"
+                                      type="text"
+                                      value={clientDrawerForm.taxId}
+                                      onChange={handleClientDrawerFormChange}
+                                      disabled={isSavingClientDrawer}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <div className="entity-drawer-section drawer-section">
+                              <div className="client-add-field-row-shell">
+                                <div className="client-add-field-row-label">+ Agregar campo</div>
+                                <div className="client-add-field-row">
+                                  <label className="workspace-input-group client-add-field-type">
+                                    <span className="sr-only">Tipo de campo opcional</span>
+                                    <select
+                                      value={clientDrawerOptionalFieldSelection}
+                                      onChange={handleClientDrawerOptionalFieldAdd}
+                                      disabled={isSavingClientDrawer}
+                                    >
+                                      <option value="">Selecciona un campo</option>
+                                      <option value="address">Dirección</option>
+                                      <option value="contact">Contacto</option>
+                                      {!clientDrawerOptionalSections.email ? (
+                                        <option value="email">Email</option>
+                                      ) : null}
+                                      {!clientDrawerOptionalSections.business ? (
+                                        <option value="business">Datos fiscales / comerciales</option>
+                                      ) : null}
+                                    </select>
+                                  </label>
+
+                                  {clientDrawerOptionalFieldSelection === "address" ? (
+                                    <>
+                                      <label className="workspace-input-group client-add-field-value">
+                                        <span className="sr-only">Etiqueta de la dirección</span>
+                                        <input
+                                          name="name"
+                                          type="text"
+                                          value={clientPendingDirection.name}
+                                          onChange={handleClientPendingDirectionChange}
+                                          placeholder="Casa, Oficina, Bodega, Casa de mamá"
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group client-add-field-value client-add-field-value-wide">
+                                        <span className="sr-only">Dirección del servicio</span>
+                                        <input
+                                          name="address"
+                                          type="text"
+                                          value={clientPendingDirection.address}
+                                          onChange={handleClientPendingDirectionChange}
+                                          placeholder="Dirección del servicio"
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                    </>
+                                  ) : null}
+
+                                  {clientDrawerOptionalFieldSelection === "contact" ? (
+                                    <>
+                                      <label className="workspace-input-group client-add-field-value">
+                                        <span className="sr-only">Nombre del contacto</span>
+                                        <input
+                                          name="fullName"
+                                          type="text"
+                                          value={clientPendingContact.fullName}
+                                          onChange={handleClientPendingContactChange}
+                                          placeholder="Sergio López"
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                      <label className="workspace-input-group client-add-field-value">
+                                        <span className="sr-only">Teléfono del contacto</span>
+                                        <input
+                                          name="phone"
+                                          type="tel"
+                                          value={clientPendingContact.phone}
+                                          onChange={handleClientPendingContactChange}
+                                          onBlur={handleClientPendingContactPhoneBlur}
+                                          placeholder="(229) 937-0595"
+                                          disabled={isSavingClientDrawer}
+                                        />
+                                      </label>
+                                    </>
+                                  ) : null}
+
+                                  {clientDrawerOptionalFieldSelection === "email" ? (
+                                    <label className="workspace-input-group client-add-field-value client-add-field-value-wide">
+                                      <span className="sr-only">Email</span>
+                                      <input
+                                        name="mainEmail"
+                                        type="email"
+                                        value={clientDrawerForm.mainEmail}
+                                        onChange={handleClientDrawerFormChange}
+                                        placeholder="compras@cliente.com"
+                                        disabled={isSavingClientDrawer}
+                                      />
+                                    </label>
+                                  ) : null}
+
+                                  <button
+                                    className="icon-action-button client-add-field-submit"
+                                    type="button"
+                                    onClick={handleCommitClientDrawerOptionalField}
+                                    disabled={isSavingClientDrawer || !clientDrawerOptionalFieldSelection}
+                                    aria-label="Agregar campo"
+                                    title="Agregar campo"
+                                  >
+                                    <span aria-hidden="true">+</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
                         <div className="entity-drawer-section drawer-section">
                           <div className="workspace-grid entity-drawer-grid drawer-form-grid">
                             <label className="workspace-input-group workspace-field-wide client-form-add-field-group">
@@ -17217,6 +17992,7 @@ export default function DashboardPage() {
                             </label>
                           </div>
                         </div>
+                        )}
 
                         {!activeDrawerClientId && activeMode !== "create" ? (
                           <p className="empty-hint">

@@ -2460,10 +2460,13 @@ textarea {
 }
 
 .client-add-field-submit {
-  width: 38px;
-  height: 38px;
-  font-size: var(--font-size-base-lg);
+  width: 32px;
+  height: 32px;
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
+  border-color: var(--border-soft);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-muted);
 }
 
 .client-draft-summary-list {
