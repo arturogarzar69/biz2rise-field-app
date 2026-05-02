@@ -7,6 +7,7 @@ import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import TimeGrid from "react-big-calendar/lib/TimeGrid";
 import SegmentedControl from "../../components/SegmentedControl";
+import IconButton from "../../components/ui/IconButton";
 import {
   addDays,
   format,
@@ -3515,26 +3516,23 @@ function WorkspacePanel({
                                 <strong>{getClientDraftDirectionSummary(direction)}</strong>
                               </div>
                               <div className="client-draft-summary-actions">
-                                <button
-                                  className="icon-action-button"
+                                <IconButton
                                   type="button"
                                   onClick={() => onClientDraftDirectionEdit(direction.id)}
                                   disabled={isSavingClient}
-                                  aria-label="Editar dirección"
-                                  title="Editar dirección"
+                                  label="Editar dirección"
                                 >
                                   <Pencil size={16} strokeWidth={1.8} />
-                                </button>
-                                <button
-                                  className="icon-action-button icon-action-button-danger"
+                                </IconButton>
+                                <IconButton
+                                  variant="danger"
                                   type="button"
                                   onClick={() => onClientDraftDirectionRemove(direction.id)}
                                   disabled={isSavingClient}
-                                  aria-label="Quitar dirección"
-                                  title="Quitar dirección"
+                                  label="Quitar dirección"
                                 >
                                   <Trash2 size={16} strokeWidth={1.8} />
-                                </button>
+                                </IconButton>
                               </div>
                             </div>
                           ))}
@@ -3725,26 +3723,23 @@ function WorkspacePanel({
                             <strong>{getClientDraftContactSummary(contact)}</strong>
                           </div>
                           <div className="client-draft-summary-actions">
-                            <button
-                              className="icon-action-button"
+                            <IconButton
                               type="button"
                               onClick={() => onClientDraftContactEdit(contact.id)}
                               disabled={isSavingClient}
-                              aria-label="Editar contacto"
-                              title="Editar contacto"
+                              label="Editar contacto"
                             >
                               <Pencil size={16} strokeWidth={1.8} />
-                            </button>
-                            <button
-                              className="icon-action-button icon-action-button-danger"
+                            </IconButton>
+                            <IconButton
+                              variant="danger"
                               type="button"
                               onClick={() => onClientDraftContactRemove(contact.id)}
                               disabled={isSavingClient}
-                              aria-label="Quitar contacto"
-                              title="Quitar contacto"
+                              label="Quitar contacto"
                             >
                               <Trash2 size={16} strokeWidth={1.8} />
-                            </button>
+                            </IconButton>
                           </div>
                         </div>
                       ))}
@@ -4004,8 +3999,8 @@ function WorkspacePanel({
                       </>
                     ) : null}
 
-                    <button
-                      className="icon-action-button client-add-field-submit"
+                    <IconButton
+                      className="client-add-field-submit"
                       type="button"
                       onClick={onClientOptionalFieldCommit}
                       disabled={
@@ -4013,11 +4008,10 @@ function WorkspacePanel({
                         !clientOptionalFieldSelection ||
                         clientCreateOptionalFieldOptions.length === 0
                       }
-                      aria-label="Agregar campo"
-                      title="Agregar campo"
+                      label="Agregar campo"
                     >
                       <span aria-hidden="true">+</span>
-                    </button>
+                    </IconButton>
                   </div>
                 </div>
               </div>
@@ -17391,26 +17385,23 @@ export default function DashboardPage() {
                                     <strong>{getClientDraftDirectionSummaryText(direction)}</strong>
                                   </div>
                                   <div className="client-draft-summary-actions">
-                                    <button
-                                      className="icon-action-button"
-                                      type="button"
-                                      onClick={() => handleClientDraftDirectionEdit(direction.id)}
-                                      disabled={isSavingClientDrawer}
-                                      aria-label="Editar dirección"
-                                      title="Editar dirección"
-                                    >
-                                      <Pencil size={16} strokeWidth={1.8} />
-                                    </button>
-                                    <button
-                                      className="icon-action-button icon-action-button-danger"
-                                      type="button"
-                                      onClick={() => handleClientDraftDirectionRemove(direction.id)}
-                                      disabled={isSavingClientDrawer}
-                                      aria-label="Quitar dirección"
-                                      title="Quitar dirección"
-                                    >
-                                      <Trash2 size={16} strokeWidth={1.8} />
-                                    </button>
+                                          <IconButton
+                                            type="button"
+                                            onClick={() => handleClientDraftDirectionEdit(direction.id)}
+                                            disabled={isSavingClientDrawer}
+                                            label="Editar dirección"
+                                          >
+                                            <Pencil size={16} strokeWidth={1.8} />
+                                          </IconButton>
+                                          <IconButton
+                                            variant="danger"
+                                            type="button"
+                                            onClick={() => handleClientDraftDirectionRemove(direction.id)}
+                                            disabled={isSavingClientDrawer}
+                                            label="Quitar dirección"
+                                          >
+                                            <Trash2 size={16} strokeWidth={1.8} />
+                                          </IconButton>
                                   </div>
                                 </div>
                               ))}
@@ -17656,26 +17647,23 @@ export default function DashboardPage() {
                                           </strong>
                                         </div>
                                         <div className="client-draft-summary-actions">
-                                          <button
-                                            className="icon-action-button"
+                                          <IconButton
                                             type="button"
                                             onClick={() => handleClientDraftContactEdit(contact.id)}
                                             disabled={isSavingClientDrawer}
-                                            aria-label="Editar contacto"
-                                            title="Editar contacto"
+                                            label="Editar contacto"
                                           >
                                             <Pencil size={16} strokeWidth={1.8} />
-                                          </button>
-                                          <button
-                                            className="icon-action-button icon-action-button-danger"
+                                          </IconButton>
+                                          <IconButton
+                                            variant="danger"
                                             type="button"
                                             onClick={() => handleClientDraftContactRemove(contact.id)}
                                             disabled={isSavingClientDrawer}
-                                            aria-label="Quitar contacto"
-                                            title="Quitar contacto"
+                                            label="Quitar contacto"
                                           >
                                             <Trash2 size={16} strokeWidth={1.8} />
-                                          </button>
+                                          </IconButton>
                                         </div>
                                       </div>
                                     );
@@ -17946,16 +17934,15 @@ export default function DashboardPage() {
                                     </label>
                                   ) : null}
 
-                                  <button
-                                    className="icon-action-button client-add-field-submit"
+                                  <IconButton
+                                    className="client-add-field-submit"
                                     type="button"
                                     onClick={handleCommitClientDrawerOptionalField}
                                     disabled={isSavingClientDrawer || !clientDrawerOptionalFieldSelection}
-                                    aria-label="Agregar campo"
-                                    title="Agregar campo"
+                                    label="Agregar campo"
                                   >
                                     <span aria-hidden="true">+</span>
-                                  </button>
+                                  </IconButton>
                                 </div>
                               </div>
                             </div>
