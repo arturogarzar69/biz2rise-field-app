@@ -2,7 +2,7 @@
 
 import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Settings, User, Users } from "lucide-react";
+import { CalendarDays, Pencil, Settings, Trash2, User, Users } from "lucide-react";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
 import TimeGrid from "react-big-calendar/lib/TimeGrid";
@@ -195,6 +195,117 @@ const initialQuickTechnicianState = {
   phone: "",
   email: ""
 };
+
+function createEmptyClientDraftDirection() {
+  return {
+    id: generateSafeUuid(),
+    name: "",
+    address: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    phone: "",
+    notes: ""
+  };
+}
+
+function createEmptyClientDraftContact() {
+  return {
+    id: generateSafeUuid(),
+    fullName: "",
+    phone: "",
+    email: "",
+    role: "",
+    notes: "",
+    isPrimary: false,
+    relatedDirectionId: ""
+  };
+}
+
+function getClientDraftDirectionDisplayName(direction) {
+  const explicitName = String(direction?.name || "").trim();
+  const resolvedAddress = buildQuickDirectionAddress({
+    address: String(direction?.address || "").trim(),
+    city: String(direction?.city || "").trim(),
+    state: String(direction?.state || "").trim(),
+    postalCode: String(direction?.postalCode || "").trim()
+  });
+
+  return explicitName || resolvedAddress || "Dirección sin etiqueta";
+}
+
+function buildClientDraftDirectionComparisonState(direction) {
+  return {
+    id: String(direction?.id || ""),
+    name: String(direction?.name || "").trim(),
+    address: String(direction?.address || "").trim(),
+    city: String(direction?.city || "").trim(),
+    state: String(direction?.state || "").trim(),
+    postalCode: String(direction?.postalCode || "").trim(),
+    phone: String(direction?.phone || "").trim(),
+    notes: String(direction?.notes || "").trim()
+  };
+}
+
+function isEmptyClientDraftDirection(direction) {
+  const comparisonState = buildClientDraftDirectionComparisonState(direction);
+
+  return !(
+    comparisonState.name ||
+    comparisonState.address ||
+    comparisonState.city ||
+    comparisonState.state ||
+    comparisonState.postalCode ||
+    comparisonState.phone ||
+    comparisonState.notes
+  );
+}
+
+function buildClientDraftContactComparisonState(contact) {
+  return {
+    id: String(contact?.id || ""),
+    fullName: String(contact?.fullName || "").trim(),
+    phone: String(contact?.phone || "").trim(),
+    email: String(contact?.email || "").trim(),
+    role: String(contact?.role || "").trim(),
+    notes: String(contact?.notes || "").trim(),
+    isPrimary: Boolean(contact?.isPrimary),
+    relatedDirectionId: String(contact?.relatedDirectionId || "")
+  };
+}
+
+function isEmptyClientDraftContact(contact) {
+  const comparisonState = buildClientDraftContactComparisonState(contact);
+
+  return !(
+    comparisonState.fullName ||
+    comparisonState.phone ||
+    comparisonState.email ||
+    comparisonState.role ||
+    comparisonState.notes ||
+    comparisonState.isPrimary ||
+    comparisonState.relatedDirectionId
+  );
+}
+
+function buildClientCreationFormComparisonState({
+  clientForm,
+  clientOptionalSections,
+  directions,
+  contacts
+}) {
+  return {
+    client: buildClientFormComparisonState(clientForm),
+    optionalSections: {
+      address: Boolean(clientOptionalSections?.address),
+      email: Boolean(clientOptionalSections?.email),
+      contact: Boolean(clientOptionalSections?.contact),
+      business: Boolean(clientOptionalSections?.business)
+    },
+    directions: (directions || []).map(buildClientDraftDirectionComparisonState),
+    contacts: (contacts || []).map(buildClientDraftContactComparisonState)
+  };
+}
 
 function buildClientFormStateFromRecord(clientRecord) {
   return {
@@ -2431,7 +2542,11 @@ function WorkspacePanel({
   isClientsLoading,
   clientForm,
   clientOptionalSections,
+  clientDraftDirections,
+  clientDraftContacts,
   clientOptionalFieldSelection,
+  activeClientDraftDirectionId,
+  activeClientDraftContactId,
   selectedClientId,
   selectedBranchClientId,
   clientSubTab,
@@ -2473,6 +2588,17 @@ function WorkspacePanel({
   onClientFormChange,
   onClientPhoneBlur,
   onClientOptionalFieldAdd,
+  onClientDraftDirectionAdd,
+  onClientDraftDirectionChange,
+  onClientDraftDirectionEdit,
+  onClientDraftDirectionRemove,
+  onClientDraftDirectionPhoneBlur,
+  onClientDraftContactAdd,
+  onClientDraftContactChange,
+  onClientDraftContactEdit,
+  onClientDraftContactRemove,
+  onClientDraftContactPhoneBlur,
+  onCloseClientDraftEditor,
   onClientSubmit,
   onOpenClientQuickCreate,
   onClientEdit,
@@ -2495,6 +2621,61 @@ function WorkspacePanel({
   clientSelectRef = null,
   onCancelOrder = null
 }) {
+  const isClientCreateMode = !selectedClientId;
+  const clientCreateOptionalFieldOptions = isClientCreateMode
+    ? [
+        { value: "address", label: "Dirección" },
+        { value: "contact", label: "Contacto" },
+        ...getAvailableClientOptionalFieldOptions(clientOptionalSections).filter(
+          (option) => option.value !== "address" && option.value !== "contact"
+        )
+      ]
+    : getAvailableClientOptionalFieldOptions(clientOptionalSections);
+  const clientDraftDirectionOptions = clientDraftDirections.map((direction) => ({
+    id: direction.id,
+    label: getClientDraftDirectionDisplayName(direction)
+  }));
+  const activeClientDraftDirection = clientDraftDirections.find(
+    (direction) => direction.id === activeClientDraftDirectionId
+  );
+  const activeClientDraftContact = clientDraftContacts.find(
+    (contact) => contact.id === activeClientDraftContactId
+  );
+  const getClientDraftDirectionSummary = (direction) => {
+    const explicitName = String(direction?.name || "").trim();
+    const resolvedAddress = buildQuickDirectionAddress({
+      address: String(direction?.address || "").trim(),
+      city: String(direction?.city || "").trim(),
+      state: String(direction?.state || "").trim(),
+      postalCode: String(direction?.postalCode || "").trim()
+    });
+
+    if (explicitName && resolvedAddress) {
+      return `${explicitName} · ${resolvedAddress}`;
+    }
+
+    return explicitName || resolvedAddress || "Dirección sin etiqueta";
+  };
+  const getClientDraftContactContextLabel = (contact) => {
+    if (!contact?.relatedDirectionId) {
+      return "General del cliente";
+    }
+
+    const relatedDirection = clientDraftDirections.find(
+      (direction) => direction.id === contact.relatedDirectionId
+    );
+
+    return relatedDirection
+      ? `Dirección: ${getClientDraftDirectionDisplayName(relatedDirection)}`
+      : "General del cliente";
+  };
+  const getClientDraftContactSummary = (contact) => {
+    const fullName = String(contact?.fullName || "").trim();
+    const contextLabel = getClientDraftContactContextLabel(contact);
+
+    return fullName ? `${fullName} · ${contextLabel}` : contextLabel;
+  };
+
   if (activeTab === uiText.tabs.newServiceOrder) {
     const isFormStarted = Boolean(
       formState.clientId ||
@@ -3244,7 +3425,199 @@ function WorkspacePanel({
                   />
                 </label>
 
-                {clientOptionalSections.address ? (
+                {isClientCreateMode ? (
+                  <div className="workspace-field-wide client-optional-fields-section">
+                    <div className="client-optional-fields-header">
+                      <strong>Campos opcionales</strong>
+                      <p className="detail-subcopy">
+                        Agrega solo los datos que necesites. Puedes añadir direcciones o contactos
+                        antes de guardar.
+                      </p>
+                    </div>
+
+                    {clientDraftDirections.length > 0 ? (
+                      <div className="client-draft-section">
+                        <div className="client-draft-section-header">
+                          <div>
+                            <strong>Direcciones</strong>
+                          </div>
+                        </div>
+
+                        <div className="client-draft-summary-list">
+                          {clientDraftDirections.map((direction) => (
+                            <div key={direction.id} className="client-draft-summary-row">
+                              <div className="client-draft-summary-copy">
+                                <span className="client-draft-summary-type">Dirección</span>
+                                <strong>{getClientDraftDirectionSummary(direction)}</strong>
+                              </div>
+                              <div className="client-draft-summary-actions">
+                                <button
+                                  className="icon-action-button"
+                                  type="button"
+                                  onClick={() => onClientDraftDirectionEdit(direction.id)}
+                                  disabled={isSavingClient}
+                                  aria-label="Editar dirección"
+                                  title="Editar dirección"
+                                >
+                                  <Pencil size={16} strokeWidth={1.8} />
+                                </button>
+                                <button
+                                  className="icon-action-button icon-action-button-danger"
+                                  type="button"
+                                  onClick={() => onClientDraftDirectionRemove(direction.id)}
+                                  disabled={isSavingClient}
+                                  aria-label="Quitar dirección"
+                                  title="Quitar dirección"
+                                >
+                                  <Trash2 size={16} strokeWidth={1.8} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {activeClientDraftDirection ? (
+                          <section className="client-draft-editor drawer-section">
+                            <div className="client-draft-editor-header">
+                              <strong>Editar dirección</strong>
+                              <button
+                                className="button button-secondary workspace-table-button"
+                                type="button"
+                                onClick={onCloseClientDraftEditor}
+                                disabled={isSavingClient}
+                              >
+                                Listo
+                              </button>
+                            </div>
+
+                            <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.branchFields.name}</span>
+                                <input
+                                  name="name"
+                                  type="text"
+                                  value={activeClientDraftDirection.name}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  placeholder={uiText.clients.branchPlaceholders.name}
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>{uiText.clients.branchFields.phone}</span>
+                                <input
+                                  name="phone"
+                                  type="tel"
+                                  value={activeClientDraftDirection.phone}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  onBlur={() =>
+                                    onClientDraftDirectionPhoneBlur(activeClientDraftDirection.id)
+                                  }
+                                  placeholder={uiText.clients.branchPlaceholders.phone}
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>{uiText.clients.branchFields.address}</span>
+                                <input
+                                  name="address"
+                                  type="text"
+                                  value={activeClientDraftDirection.address}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  placeholder={uiText.clients.branchPlaceholders.address}
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>Ciudad</span>
+                                <input
+                                  name="city"
+                                  type="text"
+                                  value={activeClientDraftDirection.city}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>Estado</span>
+                                <input
+                                  name="state"
+                                  type="text"
+                                  value={activeClientDraftDirection.state}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group">
+                                <span>Código postal</span>
+                                <input
+                                  name="postalCode"
+                                  type="text"
+                                  value={activeClientDraftDirection.postalCode}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  disabled={isSavingClient}
+                                />
+                              </label>
+
+                              <label className="workspace-input-group workspace-field-wide">
+                                <span>{uiText.clients.branchFields.notes}</span>
+                                <textarea
+                                  name="notes"
+                                  value={activeClientDraftDirection.notes}
+                                  onChange={(event) =>
+                                    onClientDraftDirectionChange(
+                                      activeClientDraftDirection.id,
+                                      event
+                                    )
+                                  }
+                                  placeholder={uiText.clients.branchPlaceholders.notes}
+                                  disabled={isSavingClient}
+                                  rows={3}
+                                />
+                              </label>
+                            </div>
+                          </section>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {!isClientCreateMode && clientOptionalSections.address ? (
                   <label className="workspace-input-group workspace-field-wide">
                     <span>{uiText.clients.fields.mainAddress}</span>
                     <textarea
@@ -3272,7 +3645,168 @@ function WorkspacePanel({
                   </label>
                 ) : null}
 
-                {clientOptionalSections.contact ? (
+                {isClientCreateMode && clientDraftContacts.length > 0 ? (
+                  <div className="workspace-field-wide client-draft-section">
+                    <div className="client-draft-section-header">
+                      <div>
+                        <strong>Contactos</strong>
+                      </div>
+                    </div>
+
+                    <div className="client-draft-summary-list">
+                      {clientDraftContacts.map((contact) => (
+                        <div key={contact.id} className="client-draft-summary-row">
+                          <div className="client-draft-summary-copy">
+                            <span className="client-draft-summary-type">Contacto</span>
+                            <strong>{getClientDraftContactSummary(contact)}</strong>
+                          </div>
+                          <div className="client-draft-summary-actions">
+                            <button
+                              className="icon-action-button"
+                              type="button"
+                              onClick={() => onClientDraftContactEdit(contact.id)}
+                              disabled={isSavingClient}
+                              aria-label="Editar contacto"
+                              title="Editar contacto"
+                            >
+                              <Pencil size={16} strokeWidth={1.8} />
+                            </button>
+                            <button
+                              className="icon-action-button icon-action-button-danger"
+                              type="button"
+                              onClick={() => onClientDraftContactRemove(contact.id)}
+                              disabled={isSavingClient}
+                              aria-label="Quitar contacto"
+                              title="Quitar contacto"
+                            >
+                              <Trash2 size={16} strokeWidth={1.8} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {activeClientDraftContact ? (
+                      <section className="client-draft-editor drawer-section">
+                        <div className="client-draft-editor-header">
+                          <strong>Editar contacto</strong>
+                          <button
+                            className="button button-secondary workspace-table-button"
+                            type="button"
+                            onClick={onCloseClientDraftEditor}
+                            disabled={isSavingClient}
+                          >
+                            Listo
+                          </button>
+                        </div>
+
+                        <div className="workspace-grid entity-drawer-grid drawer-form-grid form-grid-compact">
+                          <label className="workspace-input-group">
+                            <span>Nombre</span>
+                            <input
+                              name="fullName"
+                              type="text"
+                              value={activeClientDraftContact.fullName}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>Dirección relacionada</span>
+                            <select
+                              name="relatedDirectionId"
+                              value={activeClientDraftContact.relatedDirectionId}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                            >
+                              <option value="">General del cliente</option>
+                              {clientDraftDirectionOptions.map((directionOption) => (
+                                <option key={directionOption.id} value={directionOption.id}>
+                                  {directionOption.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>Teléfono</span>
+                            <input
+                              name="phone"
+                              type="tel"
+                              value={activeClientDraftContact.phone}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              onBlur={() =>
+                                onClientDraftContactPhoneBlur(activeClientDraftContact.id)
+                              }
+                              disabled={isSavingClient}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>Email</span>
+                            <input
+                              name="email"
+                              type="email"
+                              value={activeClientDraftContact.email}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                            />
+                          </label>
+
+                          <label className="workspace-input-group">
+                            <span>Rol</span>
+                            <input
+                              name="role"
+                              type="text"
+                              value={activeClientDraftContact.role}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                            />
+                          </label>
+
+                          <label className="workspace-checkbox workspace-checkbox-compact">
+                            <input
+                              name="isPrimary"
+                              type="checkbox"
+                              checked={activeClientDraftContact.isPrimary}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                            />
+                            <span>Contacto principal</span>
+                          </label>
+
+                          <label className="workspace-input-group workspace-field-wide">
+                            <span>Notas</span>
+                            <textarea
+                              name="notes"
+                              value={activeClientDraftContact.notes}
+                              onChange={(event) =>
+                                onClientDraftContactChange(activeClientDraftContact.id, event)
+                              }
+                              disabled={isSavingClient}
+                              rows={3}
+                            />
+                          </label>
+                        </div>
+                      </section>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {!isClientCreateMode && clientOptionalSections.contact ? (
                   <label className="workspace-input-group">
                     <span>{uiText.clients.fields.mainContact}</span>
                     <input
@@ -3333,15 +3867,15 @@ function WorkspacePanel({
                     onChange={handleClientOptionalFieldAdd}
                     disabled={
                       isSavingClient ||
-                      getAvailableClientOptionalFieldOptions(clientOptionalSections).length === 0
+                      clientCreateOptionalFieldOptions.length === 0
                     }
                   >
                     <option value="">
-                      {getAvailableClientOptionalFieldOptions(clientOptionalSections).length === 0
+                      {clientCreateOptionalFieldOptions.length === 0
                         ? "Todos los campos opcionales ya estan visibles"
                         : "Selecciona un campo opcional"}
                     </option>
-                    {getAvailableClientOptionalFieldOptions(clientOptionalSections).map((option) => (
+                    {clientCreateOptionalFieldOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -3871,6 +4405,10 @@ export default function DashboardPage() {
   const [clientOptionalSections, setClientOptionalSections] = useState(
     initialClientOptionalSections
   );
+  const [clientDraftDirections, setClientDraftDirections] = useState([]);
+  const [clientDraftContacts, setClientDraftContacts] = useState([]);
+  const [activeClientDraftDirectionId, setActiveClientDraftDirectionId] = useState(null);
+  const [activeClientDraftContactId, setActiveClientDraftContactId] = useState(null);
   const [clientOptionalFieldSelection, setClientOptionalFieldSelection] = useState("");
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [expandedClientIds, setExpandedClientIds] = useState({});
@@ -5333,11 +5871,25 @@ export default function DashboardPage() {
     clients.find((client) => client.id === selectedClientId) || null;
   const isClientWorkspaceFormDirty =
     clientSubTab === uiText.clients.subTabs.form &&
-    JSON.stringify(buildClientFormComparisonState(clientForm)) !==
+    JSON.stringify(
+      selectedWorkspaceClient
+        ? buildClientFormComparisonState(clientForm)
+        : buildClientCreationFormComparisonState({
+            clientForm,
+            clientOptionalSections,
+            directions: clientDraftDirections,
+            contacts: clientDraftContacts
+          })
+    ) !==
       JSON.stringify(
         selectedWorkspaceClient
           ? buildClientFormComparisonState(buildClientFormStateFromRecord(selectedWorkspaceClient))
-          : buildClientFormComparisonState(initialClientFormState)
+          : buildClientCreationFormComparisonState({
+              clientForm: initialClientFormState,
+              clientOptionalSections: initialClientOptionalSections,
+              directions: [],
+              contacts: []
+            })
       );
   const selectedFormClient =
     clients.find((client) => client.id === formState.clientId) || null;
@@ -8081,6 +8633,32 @@ export default function DashboardPage() {
       return;
     }
 
+    if (!selectedClientId && value === "address") {
+      const nextDirection = createEmptyClientDraftDirection();
+      setClientOptionalSections((currentState) => ({
+        ...currentState,
+        address: true
+      }));
+      setClientDraftDirections((currentState) => [...currentState, nextDirection]);
+      setActiveClientDraftDirectionId(nextDirection.id);
+      setActiveClientDraftContactId(null);
+      setClientOptionalFieldSelection("");
+      return;
+    }
+
+    if (!selectedClientId && value === "contact") {
+      const nextContact = createEmptyClientDraftContact();
+      setClientOptionalSections((currentState) => ({
+        ...currentState,
+        contact: true
+      }));
+      setClientDraftContacts((currentState) => [...currentState, nextContact]);
+      setActiveClientDraftContactId(nextContact.id);
+      setActiveClientDraftDirectionId(null);
+      setClientOptionalFieldSelection("");
+      return;
+    }
+
     setClientOptionalSections((currentState) => ({
       ...currentState,
       [value]: true
@@ -8095,6 +8673,206 @@ export default function DashboardPage() {
       ...currentState,
       [name]: value
     }));
+  };
+
+  const handleClientDraftDirectionAdd = () => {
+    setClientFormError("");
+    setClientFormMessage("");
+    const nextDirection = createEmptyClientDraftDirection();
+    setClientOptionalSections((currentState) => ({
+      ...currentState,
+      address: true
+    }));
+    setClientDraftDirections((currentState) => [...currentState, nextDirection]);
+    setActiveClientDraftDirectionId(nextDirection.id);
+    setActiveClientDraftContactId(null);
+  };
+
+  const handleClientDraftDirectionChange = (directionId, event) => {
+    const { name, value } = event.target;
+    setClientFormError("");
+    setClientFormMessage("");
+    setClientDraftDirections((currentState) =>
+      currentState.map((direction) =>
+        direction.id === directionId
+          ? {
+              ...direction,
+              [name]: value
+            }
+          : direction
+      )
+    );
+  };
+
+  const handleClientDraftDirectionPhoneBlur = (directionId) => {
+    setClientDraftDirections((currentState) =>
+      currentState.map((direction) =>
+        direction.id === directionId
+          ? {
+              ...direction,
+              phone: formatPhoneForDisplay(direction.phone)
+            }
+          : direction
+      )
+    );
+  };
+
+  const handleClientDraftDirectionRemove = (directionId) => {
+    setClientFormError("");
+    setClientFormMessage("");
+    if (activeClientDraftDirectionId === directionId) {
+      setActiveClientDraftDirectionId(null);
+    }
+    setClientDraftDirections((currentState) => {
+      const nextDirections = currentState.filter((direction) => direction.id !== directionId);
+
+      if (nextDirections.length === 0) {
+        setClientOptionalSections((currentSections) => ({
+          ...currentSections,
+          address: false
+        }));
+      }
+
+      return nextDirections;
+    });
+    setClientDraftContacts((currentState) =>
+      currentState.map((contact) =>
+        contact.relatedDirectionId === directionId
+          ? { ...contact, relatedDirectionId: "" }
+          : contact
+      )
+    );
+  };
+
+  const handleClientDraftContactAdd = () => {
+    setClientFormError("");
+    setClientFormMessage("");
+    const nextContact = createEmptyClientDraftContact();
+    setClientOptionalSections((currentState) => ({
+      ...currentState,
+      contact: true
+    }));
+    setClientDraftContacts((currentState) => [...currentState, nextContact]);
+    setActiveClientDraftContactId(nextContact.id);
+    setActiveClientDraftDirectionId(null);
+  };
+
+  const handleClientDraftContactChange = (contactId, event) => {
+    const { name, value, type, checked } = event.target;
+    setClientFormError("");
+    setClientFormMessage("");
+    setClientDraftContacts((currentState) =>
+      currentState.map((contact) =>
+        contact.id === contactId
+          ? {
+              ...contact,
+              [name]: type === "checkbox" ? checked : value
+            }
+          : contact
+      )
+    );
+  };
+
+  const handleClientDraftContactPhoneBlur = (contactId) => {
+    setClientDraftContacts((currentState) =>
+      currentState.map((contact) =>
+        contact.id === contactId
+          ? {
+              ...contact,
+              phone: formatPhoneForDisplay(contact.phone)
+            }
+          : contact
+      )
+    );
+  };
+
+  const handleClientDraftContactRemove = (contactId) => {
+    setClientFormError("");
+    setClientFormMessage("");
+    if (activeClientDraftContactId === contactId) {
+      setActiveClientDraftContactId(null);
+    }
+    setClientDraftContacts((currentState) => {
+      const nextContacts = currentState.filter((contact) => contact.id !== contactId);
+
+      if (nextContacts.length === 0) {
+        setClientOptionalSections((currentSections) => ({
+          ...currentSections,
+          contact: false
+        }));
+      }
+
+      return nextContacts;
+    });
+  };
+
+  const handleClientDraftDirectionEdit = (directionId) => {
+    setClientOptionalSections((currentState) => ({
+      ...currentState,
+      address: true
+    }));
+    setActiveClientDraftDirectionId(directionId);
+    setActiveClientDraftContactId(null);
+  };
+
+  const handleClientDraftContactEdit = (contactId) => {
+    setClientOptionalSections((currentState) => ({
+      ...currentState,
+      contact: true
+    }));
+    setActiveClientDraftContactId(contactId);
+    setActiveClientDraftDirectionId(null);
+  };
+
+  const handleCloseClientDraftEditor = () => {
+    if (activeClientDraftDirectionId) {
+      const activeDirection = clientDraftDirections.find(
+        (direction) => direction.id === activeClientDraftDirectionId
+      );
+
+      if (activeDirection && isEmptyClientDraftDirection(activeDirection)) {
+        setClientDraftDirections((currentState) => {
+          const nextDirections = currentState.filter(
+            (direction) => direction.id !== activeClientDraftDirectionId
+          );
+
+          if (nextDirections.length === 0) {
+            setClientOptionalSections((currentSections) => ({
+              ...currentSections,
+              address: false
+            }));
+          }
+
+          return nextDirections;
+        });
+      }
+    }
+
+    if (activeClientDraftContactId) {
+      const activeContact = clientDraftContacts.find(
+        (contact) => contact.id === activeClientDraftContactId
+      );
+
+      if (activeContact && isEmptyClientDraftContact(activeContact)) {
+        setClientDraftContacts((currentState) => {
+          const nextContacts = currentState.filter(
+            (contact) => contact.id !== activeClientDraftContactId
+          );
+
+          if (nextContacts.length === 0) {
+            setClientOptionalSections((currentSections) => ({
+              ...currentSections,
+              contact: false
+            }));
+          }
+
+          return nextContacts;
+        });
+      }
+    }
+
+    setActiveClientDraftDirectionId(null);
+    setActiveClientDraftContactId(null);
   };
 
   const toggleExpandedClient = async (clientId) => {
@@ -8361,6 +9139,10 @@ export default function DashboardPage() {
     };
     setClientForm(nextClientForm);
     setClientOptionalSections(getClientOptionalSections(nextClientForm));
+    setClientDraftDirections([]);
+    setClientDraftContacts([]);
+    setActiveClientDraftDirectionId(null);
+    setActiveClientDraftContactId(null);
     setClientOptionalFieldSelection("");
   };
 
@@ -8373,6 +9155,10 @@ export default function DashboardPage() {
     setClientSubTab(uiText.clients.subTabs.form);
     setClientForm({ ...initialClientFormState });
     setClientOptionalSections({ ...initialClientOptionalSections });
+    setClientDraftDirections([]);
+    setClientDraftContacts([]);
+    setActiveClientDraftDirectionId(null);
+    setActiveClientDraftContactId(null);
     setClientOptionalFieldSelection("");
     setClientFormError("");
     setClientFormMessage("");
@@ -9597,21 +10383,156 @@ export default function DashboardPage() {
     setClientFormMessage("");
 
     setIsSavingClient(true);
+    let createdClientRecord = null;
 
     try {
-      await saveClientRecord({
-        clientState: clientForm,
-        clientId: selectedClientId
-      });
+      if (selectedClientId) {
+        await saveClientRecord({
+          clientState: clientForm,
+          clientId: selectedClientId
+        });
+      } else {
+        const draftDirections = clientOptionalSections.address ? clientDraftDirections : [];
+        const draftContacts = clientOptionalSections.contact ? clientDraftContacts : [];
+        const normalizedDirectionLabels = new Set();
+
+        for (const direction of draftDirections) {
+          const normalizedLabel = String(direction.name || "").trim().toLowerCase();
+
+          if (!String(direction.address || "").trim()) {
+            throw new Error("Completa la dirección en cada bloque agregado antes de guardar.");
+          }
+
+          if (normalizedLabel) {
+            if (normalizedDirectionLabels.has(normalizedLabel)) {
+              throw new Error("No repitas etiquetas de dirección dentro del mismo cliente.");
+            }
+
+            normalizedDirectionLabels.add(normalizedLabel);
+          }
+        }
+
+        for (const contact of draftContacts) {
+          if (!String(contact.fullName || "").trim()) {
+            throw new Error("Completa el nombre en cada contacto agregado antes de guardar.");
+          }
+        }
+
+        const primaryDraftDirection = draftDirections[0] || null;
+        const primaryDraftContact =
+          draftContacts.find((contact) => contact.isPrimary) || draftContacts[0] || null;
+        const clientMainAddress = primaryDraftDirection
+          ? buildQuickDirectionAddress({
+              address: primaryDraftDirection.address.trim(),
+              city: primaryDraftDirection.city.trim(),
+              state: primaryDraftDirection.state.trim(),
+              postalCode: primaryDraftDirection.postalCode.trim()
+            })
+          : "";
+
+        const savedClient = await saveClientRecord({
+          clientState: {
+            ...clientForm,
+            mainAddress: clientMainAddress,
+            mainContact: primaryDraftContact?.fullName?.trim() || clientForm.mainContact
+          },
+          autoCreateDefaultBranch: false
+        });
+        createdClientRecord = savedClient;
+
+        const savedDirectionIdByDraftId = new Map();
+        const savedContacts = [];
+        const supabase = getSupabaseClient();
+
+        if (!supabase || !savedClient?.id) {
+          throw new Error(uiText.clients.configError);
+        }
+
+        for (const direction of draftDirections) {
+          const resolvedAddress = buildQuickDirectionAddress({
+            address: direction.address.trim(),
+            city: direction.city.trim(),
+            state: direction.state.trim(),
+            postalCode: direction.postalCode.trim()
+          });
+          const savedDirection = await saveBranchRecord({
+            branchState: {
+              name: direction.name,
+              address: resolvedAddress,
+              phone: direction.phone,
+              contact: "",
+              notes: direction.notes
+            },
+            clientId: savedClient.id,
+            preserveOrderClient: true
+          });
+
+          if (savedDirection?.id) {
+            savedDirectionIdByDraftId.set(direction.id, savedDirection.id);
+          }
+        }
+
+        for (const contact of draftContacts) {
+          const savedContact = await saveContactRecord({
+            supabase,
+            companyId: activeCompanyId,
+            contactState: {
+              clientId: savedClient.id,
+              branchId: contact.relatedDirectionId
+                ? savedDirectionIdByDraftId.get(contact.relatedDirectionId) || null
+                : null,
+              fullName: contact.fullName,
+              phone: normalizePhoneBeforeSave(contact.phone),
+              email: contact.email,
+              role: contact.role,
+              notes: contact.notes,
+              isPrimary: contact.isPrimary
+            }
+          });
+
+          if (savedContact) {
+            savedContacts.push(savedContact);
+          }
+        }
+
+        if (savedContacts.length > 0) {
+          setContactsByClientId((currentState) => ({
+            ...currentState,
+            [savedClient.id]: savedContacts
+          }));
+        }
+      }
+
       setClientForm(initialClientFormState);
-      setClientOptionalSections(initialClientOptionalSections);
+      setClientOptionalSections({ ...initialClientOptionalSections });
+      setClientDraftDirections([]);
+      setClientDraftContacts([]);
+      setActiveClientDraftDirectionId(null);
+      setActiveClientDraftContactId(null);
       setClientOptionalFieldSelection("");
       setSelectedClientId(null);
       setClientFormMessage(
         selectedClientId ? uiText.clients.updateSuccess : uiText.clients.success
       );
     } catch (error) {
-      setClientFormError(error.message || uiText.clients.createError);
+      if (createdClientRecord?.id && !selectedClientId) {
+        const recoveredClientForm = buildClientFormStateFromRecord(createdClientRecord);
+
+        setSelectedClientId(createdClientRecord.id);
+        setClientForm(recoveredClientForm);
+        setClientOptionalSections(getClientOptionalSections(recoveredClientForm));
+        setClientDraftDirections([]);
+        setClientDraftContacts([]);
+        setActiveClientDraftDirectionId(null);
+        setActiveClientDraftContactId(null);
+        setClientOptionalFieldSelection("");
+        setClientFormError(
+          error.message ||
+            "El cliente se creó parcialmente. Revisa sus direcciones o contactos antes de continuar."
+        );
+      } else {
+        setClientFormError(error.message || uiText.clients.createError);
+      }
     }
 
     setIsSavingClient(false);
@@ -13720,7 +14641,11 @@ export default function DashboardPage() {
                 isClientsLoading={isClientsLoading}
                 clientForm={clientForm}
                 clientOptionalSections={clientOptionalSections}
+                clientDraftDirections={clientDraftDirections}
+                clientDraftContacts={clientDraftContacts}
                 clientOptionalFieldSelection={clientOptionalFieldSelection}
+                activeClientDraftDirectionId={activeClientDraftDirectionId}
+                activeClientDraftContactId={activeClientDraftContactId}
                 selectedClientId={selectedClientId}
                 selectedBranchClientId={selectedBranchClientId}
                 clientSubTab={clientSubTab}
@@ -13762,6 +14687,17 @@ export default function DashboardPage() {
                 onClientFormChange={handleClientFormChange}
                 onClientPhoneBlur={handleClientFormPhoneBlur}
                 onClientOptionalFieldAdd={handleClientOptionalFieldAdd}
+                onClientDraftDirectionAdd={handleClientDraftDirectionAdd}
+                onClientDraftDirectionChange={handleClientDraftDirectionChange}
+                onClientDraftDirectionEdit={handleClientDraftDirectionEdit}
+                onClientDraftDirectionRemove={handleClientDraftDirectionRemove}
+                onClientDraftDirectionPhoneBlur={handleClientDraftDirectionPhoneBlur}
+                onClientDraftContactAdd={handleClientDraftContactAdd}
+                onClientDraftContactChange={handleClientDraftContactChange}
+                onClientDraftContactEdit={handleClientDraftContactEdit}
+                onClientDraftContactRemove={handleClientDraftContactRemove}
+                onClientDraftContactPhoneBlur={handleClientDraftContactPhoneBlur}
+                onCloseClientDraftEditor={handleCloseClientDraftEditor}
                 onClientSubmit={handleCreateClient}
                 onOpenClientQuickCreate={handleOpenClientModal}
                 onClientEdit={handleEditClient}
@@ -16050,7 +16986,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        {!activeDrawerClientId ? (
+                        {!activeDrawerClientId && activeMode !== "create" ? (
                           <p className="empty-hint">
                             Guarda el cliente primero para agregar contactos y direcciones.
                           </p>
@@ -16135,9 +17071,11 @@ export default function DashboardPage() {
                     {activeClientDrawerTab === clientDrawerTabs.contacts ? (
                       <div className="entity-drawer-section drawer-section">
                         {!activeDrawerClientId ? (
-                          <p className="empty-hint">
-                            Guarda el cliente primero para agregar contactos.
-                          </p>
+                          activeMode !== "create" ? (
+                            <p className="empty-hint">
+                              Guarda el cliente primero para agregar contactos.
+                            </p>
+                          ) : null
                         ) : (
                           <>
                             <div className="entity-drawer-section-header">
@@ -16325,9 +17263,11 @@ export default function DashboardPage() {
                     {activeClientDrawerTab === clientDrawerTabs.branches ? (
                       <div className="entity-drawer-section drawer-section">
                         {!activeDrawerClientId ? (
-                          <p className="empty-hint">
-                            Guarda el cliente primero para agregar direcciones.
-                          </p>
+                          activeMode !== "create" ? (
+                            <p className="empty-hint">
+                              Guarda el cliente primero para agregar direcciones.
+                            </p>
+                          ) : null
                         ) : (
                           <>
                             <div className="entity-drawer-section-header">
